@@ -1,0 +1,48 @@
+/* Order here is load-bearing.
+ *
+ * site.css comes FIRST so that Tailwind's utilities — emitted after it — win on
+ * equal specificity for any new component. Flipping this would make the hand-written
+ * design system silently override every utility class and Tailwind would appear
+ * broken for no visible reason.
+ *
+ * Preflight is disabled (see tailwind.config.ts); site.css owns the reset. */
+@import "./site.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* shadcn's semantic tokens, mapped onto the Neuro-Fit palette rather than its
+ * default neutral gray. Anything pulled in later with `npx shadcn add` inherits
+ * the site's own paper/ink/lens language instead of arriving as a foreign
+ * component that has to be restyled by hand.
+ *
+ * HSL triplets (no hsl() wrapper) because that is the format shadcn's generated
+ * classes expect — they compose as hsl(var(--card) / <alpha>). */
+:root {
+  --background: 48 16% 94%; /* --paper    #F2F1ED */
+  --foreground: 210 13% 9%; /* --ink      #14171A */
+  --card: 38 26% 98%; /* --paper-2  #FBFAF8 */
+  --card-foreground: 210 13% 9%;
+  --popover: 38 26% 98%;
+  --popover-foreground: 210 13% 9%;
+  --primary: 210 13% 9%;
+  --primary-foreground: 38 26% 98%;
+  --secondary: 48 16% 94%;
+  --secondary-foreground: 210 13% 9%;
+  --muted: 48 16% 94%;
+  --muted-foreground: 207 6% 42%; /* --ink-3 — the AA-verified quiet tier */
+  --accent: 48 16% 94%;
+  --accent-foreground: 210 13% 9%;
+  --destructive: 2 61% 45%; /* --fault-ink #B8322D */
+  --destructive-foreground: 38 26% 98%;
+  --border: 55 4% 83%; /* --rule, flattened over --paper */
+  --input: 55 4% 83%;
+  --ring: 210 13% 9%;
+  --radius: 0.5rem;
+}
+
+/* The preflight border-compat reset lives at the top of site.css's own reset
+ * block, NOT here. Emitting it from `@layer base` puts it AFTER the site.css
+ * import, where zeroing border-width would strip the explicit borders site.css
+ * sets on cards, inputs and rules. */
