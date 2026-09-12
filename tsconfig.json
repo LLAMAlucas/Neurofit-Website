@@ -1,35 +1,7 @@
 {
-  // Standalone. The tracker's tsconfig.app.json uses "include": ["src"], which
-  // resolves to NEUROFIT/src — it never sees site/src, and `npm run typecheck`
-  // at the root is unaffected by anything in here.
-  "compilerOptions": {
-    "target": "ES2020",
-    "useDefineForClassFields": true,
-    "lib": ["ES2020", "DOM", "DOM.Iterable"],
-    "module": "ESNext",
-    "skipLibCheck": true,
-
-    "moduleResolution": "bundler",
-    "allowImportingTsExtensions": true,
-    "isolatedModules": true,
-    "moduleDetection": "force",
-    "noEmit": true,
-    "jsx": "react-jsx",
-
-    "strict": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true,
-
-    "baseUrl": ".",
-    "paths": { "@/*": ["./src/*"] },
-    "types": ["vite/client"]
-  },
-  // Only src. vite.config.ts and tailwind.config.ts import `node:path`/`node:url`,
-  // which would need @types/node — and because the tracker's tsconfig.app.json has
-  // no "types" array, TS auto-includes every package in node_modules/@types, so
-  // installing it would inject Node globals into the TRACKER's type environment.
-  // Vite transpiles both config files with esbuild, which resolves node builtins
-  // natively, so they run correctly without being typechecked here.
-  "include": ["src"]
+  "files": [],
+  "references": [
+    { "path": "./tsconfig.app.json" },
+    { "path": "./tsconfig.node.json" }
+  ]
 }

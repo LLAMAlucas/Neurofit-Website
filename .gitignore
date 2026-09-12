@@ -1,13 +1,23 @@
 node_modules
 dist
 dist-ssr
-*.local
+
+# Secrets. `.env*` is deliberately broad and matches at every depth: the root
+# .env.local holds a live GEMINI_API_KEY, and site/.env.local holds a Vercel
+# OIDC token. Neither may ever enter this repo.
 .env
 .env.*
+*.local
 !.env.example
+
+# Vercel CLI local state (project/org ids, pulled env)
+.vercel
 
 # Vite rewrites this next to the config on every dev start
 vite.config.ts.timestamp-*.mjs
+
+# Build info
+*.tsbuildinfo
 
 # Editor / OS
 .vscode/*
@@ -21,6 +31,3 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
-
-.vercel
-.env*

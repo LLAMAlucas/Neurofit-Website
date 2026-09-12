@@ -1,18 +1,25 @@
 {
-  "name": "neurofit-site",
+  "name": "neuro-fit",
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Marketing site for Neuro-Fit — a camera form coach for squats.",
+  "description": "Neuro-Fit — AI squat coach that works in any room. Webcam pose tracking, rep counting, severity-zoned form checks, velocity + fault-spike triggered Gemini coaching.",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -p tsconfig.json --noEmit && vite build",
+    "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "check": "esbuild scripts/check_rig.ts --bundle --platform=node --format=esm | node --input-type=module"
+    "typecheck": "tsc -b --noEmit",
+    "site:dev": "vite site",
+    "site:build": "tsc -p site/tsconfig.json --noEmit && vite build site",
+    "site:typecheck": "tsc -p site/tsconfig.json --noEmit",
+    "site:check": "esbuild site/scripts/check_rig.ts --bundle --platform=node --format=esm | node --input-type=module",
+    "check:squat": "esbuild scripts/check_squat.ts --bundle --platform=node --format=esm | node --input-type=module",
+    "test:midset": "esbuild scripts/test_midset.ts --bundle --platform=node --format=esm | node --input-type=module"
   },
   "dependencies": {
+    "@mediapipe/tasks-vision": "^0.10.14",
     "@react-three/fiber": "^8.18.0",
+    "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "framer-motion": "^12.43.0",
     "react": "^18.3.1",
@@ -21,12 +28,12 @@
     "three": "^0.170.0"
   },
   "devDependencies": {
+    "@tailwindcss/typography": "^0.5.20",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@types/three": "^0.185.3",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.5.4",
-    "esbuild": "^0.21.5",
     "postcss": "^8.5.25",
     "tailwindcss": "^3.4.19",
     "typescript": "^5.6.3",

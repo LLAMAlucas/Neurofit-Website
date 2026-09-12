@@ -1,33 +1,17 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-import tailwindcss from "tailwindcss";
-import autoprefixer from "autoprefixer";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 
-const here = path.dirname(fileURLToPath(import.meta.url));
-
-/**
- * Config for the marketing site ONLY. It lives in site/ rather than at the repo
- * root on purpose.
- *
- * The PostCSS pipeline is declared INLINE here instead of in a postcss.config.js.
- * Vite resolves PostCSS config by walking up from the project root, so a root-level
- * config file would be picked up by the tracker app's build too — injecting Tailwind
- * into src/neurofit/neurofit.css and wrecking 1,256 lines of hand-written CSS.
- * Inline config is scoped to this build and physically cannot leak.
- */
+// getUserMedia requires a secure context. localhost counts as secure, so the
+// default dev server is fine. If you test from another device on the LAN,
+// you'll need HTTPS (set server.https) or the camera will be blocked.
 export default defineConfig({
-  root: here,
   plugins: [react()],
-  css: {
-    postcss: {
-      plugins: [tailwindcss(path.join(here, "tailwind.config.ts")), autoprefixer()],
-    },
+  // Expose GEMINI_* (unprefixed key, spec §6) to the client alongside Vite's
+  // default VITE_* vars. Browser-direct for this prototype — a key-holding proxy
+  // is the production path.
+  envPrefix: ["VITE_", "GEMINI_"],
+  server: {
+    host: true,
+    port: 5173,
   },
-  resolve: {
-    alias: { "@": path.join(here, "src") },
-  },
-  server: { port: 5180, strictPort: true },
-  build: { outDir: path.join(here, "dist"), emptyOutDir: true },
 });
