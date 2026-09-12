@@ -64,7 +64,7 @@ export default function App() {
         </Suspense>
         <How />
         <Proof />
-        <Planes />
+        <Planes three={rig} />
         <Cost />
         <NextUp />
       </main>

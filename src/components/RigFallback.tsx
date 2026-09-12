@@ -1,4 +1,5 @@
 import { BONES, J, JOINT_NAMES } from "@/lib/pose";
+import { POST_SET } from "@/lib/postSet";
 import { BEAT_SPEC } from "@/lib/poseFrames";
 import { SHOTS, SHOT_H, SHOT_W, frameShot, type Shot } from "@/lib/rigShots";
 
@@ -99,6 +100,27 @@ export default function RigFallback() {
             </li>
           ))}
         </ol>
+
+        {/* The same debrief the moving version ends on, from the same module.
+            The stills are the set; this is what the app hands back at the end of
+            it, and a visitor who asked for no motion is owed the payoff and not
+            just the evidence. It is opaque here rather than glass — there is no
+            figure behind it to show through. */}
+        <aside className="card-sum rigfb__sum" aria-labelledby="rigfb-sum-h">
+          <h3 className="card-sum__k" id="rigfb-sum-h">
+            {POST_SET.label}
+          </h3>
+          {POST_SET.paras.map((text, i) => (
+            <p className="card-sum__b" key={i}>
+              {text}
+            </p>
+          ))}
+          <ol className="card-sum__cues">
+            {POST_SET.cues.map((cue) => (
+              <li key={cue}>{cue}</li>
+            ))}
+          </ol>
+        </aside>
       </div>
     </section>
   );

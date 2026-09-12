@@ -569,6 +569,32 @@ a { color: inherit; }
 [data-view="front"] .skel--side  { opacity: 0; }
 [data-view="front"] .skel--front { opacity: 1; }
 
+/* ── the turning figure ────────────────────────────────────────────────────
+   When the scene is up it replaces both drawings outright. They stay in the
+   markup — they are the reduced-motion and no-WebGL path, and the section has to
+   be able to fall back to them mid-session if the GL context is lost — but two
+   figures in one lens would be two answers to the same question. */
+[data-turning="true"] .skel--side,
+[data-turning="true"] .skel--front { display: none; }
+
+.planes__gl { position: absolute; inset: 0; z-index: 2; }
+/* The guides are drawn OVER the figure, in the site's own type. Positioned by
+   the scene each frame, in the square viewBox the lens's 1:1 aspect guarantees
+   maps linearly onto it. */
+.planes__guides {
+  position: absolute; inset: 0; width: 100%; height: 100%; z-index: 3;
+  pointer-events: none;
+  /* No transition. The gate is a function of the camera angle and is already
+     eased inside its tolerance — a CSS fade on top would keep a reading on
+     screen after the camera had turned far enough to have lost it, which is the
+     one thing this section is arguing the app does not do. */
+}
+/* The flat overlay sets this at a 200-unit viewBox; this one is 1000, so the
+   stroke has to be restated at the same optical size. No type rule — the only
+   marks left are the stance verticals, and the hip and knee rules that carried
+   the labels are gone. */
+.planes__guides .guide__l { stroke-width: 5; }
+
 .planes__switch {
   position: relative;
   display: grid; grid-template-columns: 1fr 1fr;
@@ -845,25 +871,87 @@ a { color: inherit; }
 
 /* The closing panel: glass over the standing figure, and the only element on the
    stage that is centred rather than pushed to one side. */
+/* ── the post-set summary ──────────────────────────────────────────────────
+   One typographic block, two homes: floating in glass over the figure at the
+   end of the scrolled sequence, and sitting on the page under the stills for a
+   visitor who asked for no motion. Only the surface differs — the type does not,
+   because it is the same debrief and reads as the same artefact.
+
+   Sized from the LONGEST line rather than from taste: at the panel's 520px the
+   copy sets to a measure just under 60 characters, which is inside the range
+   prose is comfortable at, and the whole block clears a 700px viewport with the
+   panel centred. That is the constraint that keeps the debrief short — the app's
+   real ones run to three paragraphs, and three would not fit over a figure. */
+.card-sum__k {
+  font-family: var(--mono); font-size: 10.5px; font-weight: 400;
+  letter-spacing: .14em; text-transform: uppercase;
+  margin: 0 0 16px;
+  padding-bottom: 12px;
+  /* The rule is what makes the label read as a heading on the artefact rather
+     than as the first line of it — with the label alone the eye ran straight
+     from "post-set summary" into "five reps" as one sentence. */
+  border-bottom: 1px solid rgba(233,236,236,.14);
+  color: var(--on-lens-2);
+}
+.card-sum__b {
+  margin: 0 0 13px;
+  font-size: 1.02rem; line-height: 1.62;
+  /* Not pure --on-lens: the second paragraph is the longer one and sits over a
+     moving figure, and full-strength white at this measure buzzes against it. */
+  color: rgba(233,236,236,.92);
+}
+.card-sum__b:last-of-type { margin-bottom: 20px; }
+
+/* The cues are the part a reader is meant to carry out of the debrief, so they
+   are set apart from the description rather than continuing it — numerals in the
+   mono the rest of the page uses for measured things, hung outside the text
+   column so the two lines align on their own left edge. */
+.card-sum__cues {
+  margin: 0; padding: 0; list-style: none;
+  counter-reset: cue;
+  display: grid; gap: 9px;
+}
+.card-sum__cues li {
+  counter-increment: cue;
+  position: relative; padding-left: 26px;
+  font-size: .95rem; line-height: 1.55;
+  color: var(--on-lens);
+}
+.card-sum__cues li::before {
+  content: counter(cue);
+  position: absolute; left: 0; top: .1em;
+  font-family: var(--mono); font-size: 11px;
+  color: var(--signal);
+}
+
+/* the floating one */
 .rig__card {
   position: fixed; left: 50%; top: 50%; z-index: 4;
   width: min(520px, calc(100vw - 44px));
-  transform: translate(-50%, calc(-50% + var(--cy, 20px)));
+  transform: translate(-50%, calc(-50% + 20px));
   opacity: 0; visibility: hidden;
-  padding: 30px clamp(22px, 4vw, 34px);
+  padding: 26px clamp(22px, 4vw, 32px) 28px;
   background: rgba(16,19,21,.58);
   backdrop-filter: blur(18px) saturate(130%);
   -webkit-backdrop-filter: blur(18px) saturate(130%);
   border: 1px solid rgba(233,236,236,.16); border-radius: 14px;
   color: var(--on-lens);
 }
-.rig__card-b { margin: 0; min-height: 92px; font-size: 1.06rem; line-height: 1.65; }
-.rig__card-b:empty::before {
-  content: attr(data-empty);
-  display: block; padding: 16px 18px;
-  border: 1px dashed rgba(233,236,236,.22); border-radius: 8px;
-  font-family: var(--mono); font-size: 11px; letter-spacing: .08em;
-  color: var(--on-lens-2);
+/* Every line starts displaced and is written into place by the paint loop. The
+   offset is the ONLY thing declared here — the amounts are scroll, not time, so
+   a transition on them would fight the scrub and lag the reader's own scrolling
+   by its own duration. */
+.rig__card .card-sum__k,
+.rig__card .card-sum__b,
+.rig__card .card-sum__cues { opacity: 0; transform: translateY(7px); }
+
+/* the static one */
+.rigfb__sum {
+  margin-top: clamp(40px, 5vw, 64px);
+  max-width: 620px;
+  padding: 26px clamp(22px, 4vw, 32px) 28px;
+  background: var(--lens); color: var(--on-lens);
+  border-radius: 14px;
 }
 
 /* ── the rig, with the motion taken out ────────────────────────────────── */
@@ -907,6 +995,26 @@ a { color: inherit; }
   }
   .rig__tag[data-v="low"]  { bottom: 24px; }
   .rig__tag[data-v="high"] { bottom: 74px; }
+
+  /* The panel is CENTRED and fixed, so it has no scroll of its own to overflow
+     into — anything taller than the viewport is simply lost off both ends. On a
+     narrow column the same words set to about ten more lines, so the type comes
+     down with the measure rather than the copy being cut: at 375x667, the
+     shortest phone still in circulation, this brings the block to roughly 530px
+     inside a 667px viewport. */
+  .rig__card { padding: 20px 22px 22px; }
+  .card-sum__b { font-size: .93rem; line-height: 1.55; margin-bottom: 11px; }
+  .card-sum__b:last-of-type { margin-bottom: 16px; }
+  .card-sum__cues li { font-size: .88rem; line-height: 1.5; padding-left: 22px; }
+  .card-sum__k { margin-bottom: 13px; padding-bottom: 10px; }
+}
+/* Landscape phones and short laptops: same problem as above arriving from the
+   other direction — the measure is fine and the height is not. */
+@media (max-height: 700px) and (min-width: 941px) {
+  .rig__card { padding: 20px 26px 22px; }
+  .card-sum__b { font-size: .95rem; line-height: 1.55; margin-bottom: 10px; }
+  .card-sum__b:last-of-type { margin-bottom: 16px; }
+  .card-sum__cues li { font-size: .9rem; }
 }
 @media (max-width: 720px) {
   .masthead__nav { display: none; }

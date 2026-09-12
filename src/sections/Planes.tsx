@@ -1,4 +1,10 @@
-import { useRef, useState, type KeyboardEvent } from "react";
+import { Suspense, lazy, useRef, useState, type KeyboardEvent } from "react";
+
+/* Lazy for the same reason the hero rig is: three.js is only fetched if this
+   page is actually going to turn a figure. Under reduced motion, or on a machine
+   without WebGL, the flat drawings below are the whole story and the bundle is
+   never requested. */
+const PlanesFigure = lazy(() => import("@/components/PlanesFigure"));
 
 type View = "side" | "front";
 
@@ -19,8 +25,12 @@ const CHECKS: Array<{ name: string; plane: "sagittal" | "frontal" | "both" }> = 
   { name: "Control on the way down", plane: "both" },
 ];
 
-export function Planes() {
+export function Planes({ three }: { three: boolean }) {
   const [view, setView] = useState<View>("side");
+  // Retires the scene if WebGL fails after it has started; the flat drawings are
+  // still in the markup, so the section simply goes back to them.
+  const [glOk, setGlOk] = useState(true);
+  const turning = three && glOk;
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
   const select = (i: number, focus: boolean) => {
@@ -49,7 +59,7 @@ export function Planes() {
   };
 
   return (
-    <section id="planes" className="sec sec--planes" data-view={view}>
+    <section id="planes" className="sec sec--planes" data-view={view} data-turning={turning}>
       <div className="shell">
         <header className="sec__head">
           <span className="eyebrow reveal">What one camera can see</span>
@@ -72,6 +82,17 @@ export function Planes() {
                 <span className="brk brk--bl" />
                 <span className="brk brk--br" />
               </div>
+
+              {/* One body, one camera, and the camera walks round it on the
+                  toggle below. The two flat drawings stay in the markup as the
+                  reduced-motion and no-WebGL path — `[data-turning]` hides them
+                  rather than a branch, so there is exactly one copy of what the
+                  section claims each view can read. */}
+              {turning && (
+                <Suspense fallback={null}>
+                  <PlanesFigure view={view} onFail={() => setGlOk(false)} />
+                </Suspense>
+              )}
 
               <svg className="skel skel--side" viewBox="0 0 200 300" aria-hidden="true">
                 <g className="guide">

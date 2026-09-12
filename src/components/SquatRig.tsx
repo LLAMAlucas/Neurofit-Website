@@ -1,6 +1,8 @@
-import { Component, useLayoutEffect, useRef, type ReactNode } from "react";
+import { useLayoutEffect, useRef, type MutableRefObject } from "react";
 
+import GLBoundary from "@/components/GLBoundary";
 import PoseSkeleton3D, { newRigDriver, type RigDriver } from "@/components/PoseSkeleton3D";
+import { CARD_BLOCKS, POST_SET, cardBlockAmount } from "@/lib/postSet";
 import { PINNED_VH, RIG_VH, tagAmounts, timelineAt, type TagId } from "@/lib/rigTimeline";
 
 /* three is pulled in statically here rather than behind a second `lazy`: this
@@ -26,6 +28,14 @@ const SCROLL_PER_SCREEN = 1.7;
 const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
 const mix = (a: number, b: number, t: number) => a + (b - a) * t;
 const smooth = (t: number) => t * t * (3 - 2 * t);
+
+/** Files an element into a fixed slot, so the paint loop can address the closing
+ *  panel's lines by index rather than by walking its children — the order of the
+ *  stagger is then the order of the array and not the order of the DOM. */
+const blockRef =
+  (store: MutableRefObject<Array<HTMLElement | null>>, i: number) => (el: HTMLElement | null) => {
+    store.current[i] = el;
+  };
 
 /**
  * What the sequence says, and where it says it.
@@ -65,24 +75,6 @@ const DEG = 180 / Math.PI;
 /** How far short of its joint a leader line stops. */
 const LEAD_GAP = 9;
 
-/**
- * WebGL can fail for reasons that have nothing to do with this code — a
- * blocklisted driver, a lost context, software rendering disabled. R3F throws in
- * those cases, which would take the page down, so the rig retires and the hero
- * falls back to its 2D lens.
- */
-class GLBoundary extends Component<{ onFail: () => void; children: ReactNode }> {
-  static getDerivedStateFromError() {
-    return {};
-  }
-  componentDidCatch() {
-    this.props.onFail();
-  }
-  render() {
-    return this.props.children;
-  }
-}
-
 export default function SquatRig({ onFail }: { onFail: () => void }) {
   const section = useRef<HTMLElement>(null);
   const stage = useRef<HTMLDivElement>(null);
@@ -92,6 +84,7 @@ export default function SquatRig({ onFail }: { onFail: () => void }) {
   const tags = useRef<Partial<Record<TagId, HTMLElement | null>>>({});
   const leads = useRef<Partial<Record<TagId, SVGLineElement | null>>>({});
   const card = useRef<HTMLElement>(null);
+  const cardBlocks = useRef<Array<HTMLElement | null>>([]);
   const angBase = useRef<SVGLineElement>(null);
   const angSeg = useRef<SVGLineElement>(null);
   const angArc = useRef<SVGPathElement>(null);
@@ -366,9 +359,26 @@ export default function SquatRig({ onFail }: { onFail: () => void }) {
           n.style.visibility = a > 0.01 ? "visible" : "hidden";
         }
         if (card.current) {
+          const on = f.cardT > 0.01;
+          /* Written straight onto the element rather than through a custom
+             property. A variable set on the panel would be inherited, so every
+             one of its children would restyle on every frame of the panel's
+             arrival — which was free when the panel held a single empty
+             paragraph and is not now that it holds the debrief. */
           card.current.style.opacity = String(f.cardT);
-          card.current.style.setProperty("--cy", `${((1 - f.cardT) * 20).toFixed(1)}px`);
-          card.current.style.visibility = f.cardT > 0.01 ? "visible" : "hidden";
+          card.current.style.transform = `translate(-50%, calc(-50% + ${((1 - f.cardT) * 20).toFixed(1)}px))`;
+          card.current.style.visibility = on ? "visible" : "hidden";
+
+          // The panel writes itself line by line. Pure, and a function of the
+          // panel's own progress rather than of a clock, so scrolling back up
+          // un-writes it in the opposite order instead of replaying.
+          for (let i = 0; i < CARD_BLOCKS; i++) {
+            const b = cardBlocks.current[i];
+            if (!b) continue;
+            const a = on ? cardBlockAmount(f.cardT, i) : 0;
+            b.style.opacity = String(a);
+            b.style.transform = `translateY(${((1 - a) * 7).toFixed(1)}px)`;
+          }
         }
         last.note = key;
       }
@@ -652,8 +662,25 @@ export default function SquatRig({ onFail }: { onFail: () => void }) {
           </p>
         ))}
 
-        <aside className="rig__card" ref={card}>
-          <p className="rig__card-b" data-empty="CLOSING COPY TO COME" />
+        {/* The debrief. Not `aria-hidden`, unlike every other overlay in the
+            stage: the tags and the angle annotate a picture, but this is the
+            one thing in the sequence that is prose, and it is the thing the
+            whole scroll has been building to. A reader who never sees the
+            figure should still get the summary. */}
+        <aside className="rig__card card-sum" ref={card} aria-labelledby="rig-card-h">
+          <h3 className="card-sum__k" id="rig-card-h" ref={blockRef(cardBlocks, 0)}>
+            {POST_SET.label}
+          </h3>
+          {POST_SET.paras.map((text, i) => (
+            <p className="card-sum__b" key={i} ref={blockRef(cardBlocks, i + 1)}>
+              {text}
+            </p>
+          ))}
+          <ol className="card-sum__cues" ref={blockRef(cardBlocks, CARD_BLOCKS - 1)}>
+            {POST_SET.cues.map((cue) => (
+              <li key={cue}>{cue}</li>
+            ))}
+          </ol>
         </aside>
       </div>
     </section>
