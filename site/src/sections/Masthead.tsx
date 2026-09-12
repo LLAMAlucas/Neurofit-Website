@@ -17,6 +17,15 @@ export function Masthead() {
           </span>
           Neuro-Fit
         </a>
+
+        {/* Deliberately NOT .masthead__nav — that is hidden below 720px, and this
+            is the one control on the page a phone visitor actually needs. The
+            tracker is a separate origin (its own Vercel project off the same
+            repo) so the camera permission it asks for is scoped to it alone and
+            never to the marketing page. */}
+        <a className="try-cta" href="https://try.neurofit-training.com">
+          Try it out
+        </a>
       </div>
     </header>
   );

@@ -255,6 +255,36 @@ a { color: inherit; }
 .wordmark,
 .wordmark__mark { transition: color 320ms var(--ease-out); }
 
+/* ── try-it CTA ────────────────────────────────────────────────────────── */
+/* Pushed to the far edge rather than sitting in a nav list: it is the only
+   control in the bar, and a lone item in a nav reads as the first of several
+   that failed to load. */
+.try-cta {
+  margin-left: auto;
+  display: inline-flex; align-items: center;
+  padding: 8px 16px;
+  border: 1px solid var(--ink);
+  border-radius: 999px;
+  font-size: 14px; font-weight: 500; letter-spacing: -.01em;
+  text-decoration: none;
+  color: var(--paper); background: var(--ink);
+  transition: color 320ms var(--ease-out), background-color 320ms var(--ease-out),
+              border-color 320ms var(--ease-out), opacity 160ms ease;
+}
+.try-cta:hover { opacity: .84; }
+/* Over the full-screen rig the bar goes transparent and the ink inverts. A
+   solid dark pill on a dark frame would disappear, so it hollows out to an
+   outline in the on-lens ink — same treatment the wordmark gets, same timing,
+   so the two cross the threshold together. */
+.masthead.is-rig-ink .try-cta {
+  color: var(--on-lens);
+  background: transparent;
+  border-color: var(--on-lens);
+}
+@media (max-width: 720px) {
+  .try-cta { padding: 7px 13px; font-size: 13.5px; }
+}
+
 /* ── hero ──────────────────────────────────────────────────────────────── */
 .hero { padding-top: clamp(44px, 7vw, 76px); }
 .hero__grid {
