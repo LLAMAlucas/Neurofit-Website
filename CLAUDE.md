@@ -8,9 +8,12 @@ Neuro-Fit — browser squat coach. Camera → MediaPipe pose → local metrics/t
 - `npm run test:midset` — ⚠️ **stale**: exercises the mid-set request shape, which no longer exists in the app. Passing here says nothing about `callPostSet`/`callPostWorkout`.
 
 ## Stack & layout
-- React 18 + TS + Vite. All app code under `src/neurofit/` (entry `App.tsx`, repointed in `src/main.tsx`). No other source — the old StakeFit reference code is gone.
+- React 18 + TS + Vite. Tracker code under `src/neurofit/` (entry `App.tsx`, repointed in `src/main.tsx`); the marketing site is a second app under `site/`.
+- **Monorepo, one push deploys both.** Repo root IS `NEUROFIT/` (github.com/LLAMAlucas/Neurofit-Website). Two Vercel projects split by root directory: `neurofit-website` → `site/` → **neurofit-training.com**; `neurofit-tracker` → `.` → **try.neurofit-training.com**. The live `.env.local` now sits inside the working tree — `.gitignore` covers it with unanchored `.env*` and `*.local`; do not narrow those.
 - MediaPipe Tasks (`@mediapipe/tasks-vision`) with **vendored** WASM + lite model in `public/mediapipe/wasm/` + `public/models/` (runs offline).
-- Gemini is browser-direct via `GEMINI_API_KEY` in gitignored `.env.local` (exposed by `envPrefix` in `vite.config.ts`). App runs fully without a key (AI shows disabled).
+- Gemini is browser-direct with the **user's own key**, typed into Settings and kept in localStorage (`neurofit.apiKey`, `getApiKey`/`setApiKey` in `ai/gemini.ts`). App runs fully without a key (AI shows disabled).
+- **Never read the key from `import.meta.env` outside a `import.meta.env.DEV` fence.** Vite resolves env at BUILD time and inlines it verbatim, so a key read unfenced is readable by anyone who loads the bundle — and the tracker is now served publicly at `try.neurofit-training.com`. The `.env.local` + `envPrefix` path survives for `npm run dev` ONLY, behind that fence; production builds drop the branch. Verify after touching this: build, then grep `dist/` for the key.
+- The key goes in the `x-goog-api-key` **header**, never the query string (a URL-borne key lands in proxy logs, Referer headers and history).
 - **Module boundary — convention, not tooling-enforced:** `squat/`, `vision/`, `session/`, `ai/` (except `gemini.ts`), `pose/` (except `poseLandmarker.ts`) are PURE (no React/DOM). Only `components/`, `hooks/`, `poseLandmarker.ts`, `gemini.ts` touch the browser. The pure modules are what `check:squat` can test in Node — keep it that way.
 
 ## Philosophy ("neurofit-trigger-logic-v2")
