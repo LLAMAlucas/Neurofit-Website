@@ -68,31 +68,3 @@ export function boneIndex(a: JointName, b: JointName): number {
   if (i < 0) throw new Error(`no bone ${a}->${b}`);
   return i;
 }
-
-/* ── framing ──────────────────────────────────────────────────────────────
-   The figure compresses downward through a rep — the feet stay planted and the
-   head drops about half a metre — so the camera aims at a FIXED height and the
-   squat happens inside the frame, rather than the camera riding the body down. */
-
-/** What the wide camera looks at: mid-height of the standing figure. */
-export const FRAME_CENTER_Y = 0.86;
-
-/*
- * The figure must spin about its own centroid, not the world origin: hips sit
- * back and knees/wrists reach forward, so the mass is biased to +Z and spinning
- * about origin swings the whole body sideways (measured: the side view landed
- * 27px right of centre in a 452px frame).
- *
- * That centroid MOVES through a rep — mean joint Z runs 0.021 standing to 0.137
- * at the bottom, as the arms come forward and the hips go back — so it is
- * recomputed per frame in `PoseSkeleton3D` rather than being a constant here.
- * A fixed value would be right at one end of the rep and wrong at the other.
- */
-
-/**
- * Height of the depth guide line. Knee height barely changes through a squat —
- * the hip is what travels — which is exactly why the app measures depth as
- * hip-Y against knee-Y and never as a knee angle. One line at knee height with
- * the hips descending onto it is that rule, drawn.
- */
-export const GUIDE_Y = 0.5;

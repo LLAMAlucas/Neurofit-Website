@@ -1,16 +1,17 @@
 /**
- * The debrief the closing panel shows, and the numbers in it.
+ * The example debrief the "after the set" stop writes out, and the numbers in it.
+ * The page labels it an EXAMPLE: the reader didn't film this set.
  *
  * PURE — no React, no DOM. It is a module and not a string in the component for
- * two reasons: the reduced-motion path has to show the SAME debrief (a visitor
- * who asked for no motion is not being sold a different product), and the
- * offscreen check has to be able to read it.
+ * two reasons: the still page (reduced motion, no WebGL) has to show the SAME
+ * debrief — a visitor who asked for no motion is not being sold a different
+ * product — and the offscreen check has to be able to read it.
  *
  * ── what this copy is allowed to say ──────────────────────────────────────
  *
  * This is a page about an app that is careful about its claims, so the sample of
  * its output has to obey the app's own rules or the page is lying about the
- * product. Four of them bind every word here, and `check_rig` enforces all four:
+ * product. Four of them bind every word here, and `check_site` enforces all four:
  *
  * 1. NO NORMALISED NUMBERS. The app's payload carries gap, depth-ratio, velocity
  *    and valgus as image coordinates, and the model is forbidden from speaking
@@ -21,21 +22,19 @@
  * 2. THE NUMBERS ARE MEASURED, NOT WRITTEN. Both come off the same poses the
  *    scene draws (see `LEAN_DELTA_DEG`, `SHOULDER_PEAK_DEG`), and the check
  *    re-derives them from the geometry. Edit a keyframe and the check fails
- *    rather than the page quietly quoting a figure the animation stopped
- *    producing — which matters most for the shoulder angle, because the reader
- *    watches that exact number count up on screen a moment earlier.
+ *    rather than the page quietly quoting a figure the body can no longer
+ *    produce.
  *
  * 3. NO CAUSATION, between faults or from context to fault. Rep 5 does two
  *    things — it slows, and the shoulders come off level — and the app does not
  *    claim either caused the other. They get separate sentences here for the
- *    same reason they get separate labels and opposite sides of the frame in
- *    `SquatRig`: a sentence joining them would assert a finding the app has
- *    never made.
+ *    same reason the app keeps them apart: a sentence joining them would
+ *    assert a finding the app has never made.
  *
  * 4. THE SHOULDER READING IS NOT A FAULT. `shoulderHipLevelness` is demoted to
  *    context in the app — computed, reported, but asserting nothing — so it is
- *    reported here as a measurement and never given a verdict. Same word the
- *    reduced-motion caption uses: measured, not flagged.
+ *    reported here as a measurement and never given a verdict: measured, not
+ *    flagged.
  *
  * And no markdown. The app renders debriefs verbatim into a paragraph with no
  * parser, so an asterisk would reach a real user as an asterisk; a marketing
@@ -56,20 +55,14 @@
 export const LEAN_DELTA_DEG = 20;
 
 /**
- * The peak of the shoulder angle the page draws on rep 5, in degrees.
- *
- * This is the SCREEN angle — measured off the two shoulder joints after
- * projection, the same image-coordinate quantity a camera has — so it is the
- * number the reader has just watched climb on the overlay. It is aspect-
- * independent: the projection divides x by the aspect ratio and the pixel
- * conversion multiplies it straight back, so the tilt reads the same on any
- * window and this can safely be a constant.
+ * The peak of the shoulders' tilt on rep 5, in degrees: the SCREEN angle a
+ * front-on camera sees, taken off the old page's overlay of this same rep. The
+ * check holds it to a tilt the pose can actually make.
  */
 export const SHOULDER_PEAK_DEG = 12.8;
 
 export type PostSet = {
-  /** Names the artefact. The reader has just watched a set; this is what the
-   *  app hands back at the end of one. */
+  /** Names the artefact: what the app hands back at the end of a set. */
   label: string;
   paras: readonly string[];
   cues: readonly string[];

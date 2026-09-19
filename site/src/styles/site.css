@@ -1,1111 +1,812 @@
 /* ============================================================================
-   Neuro-Fit — product site
-   Palette is taken from the app's own overlay: white tracing lines, green
-   joints, red when something is wrong. Those colours only ever appear inside
-   a "lens" — the dark panels that stand for what the camera sees. Everything
-   the site *says* is ink on paper.
+   Neuro-Fit — the camera's eye.
+
+   The whole page is what the phone camera sees: fog is what it can't see yet,
+   the particle body is what it has measured, the mono HUD is its readouts, and
+   red is what it caught. Text is dark ink on the fog — igloo's white-on-grey is
+   the one thing about its look this does not copy.
+
+   Contrast, measured on the fog (#abc0d8): --ink ≈ 9.5:1, --ink-2 ≈ 5.3:1.
+   Red TEXT is --fault-ink, only ever on glass: 5.1:1 on the tags' glass, 4.9:1
+   on the [N] chip. (#b8322d, the old page's, measured 4.1:1 on the glass.) The
+   bright --fault is for particles only.
+
+   Two looks, set on <html> by App:
+     .is-live   the scene behind, each stop's text fixed over it and racked in
+                and out of focus by --focus (hooks/useJourney)
+     .is-still  reduced motion or no WebGL: ordinary scrolling text, no scene
    ========================================================================= */
 
 :root {
-  /* surfaces */
-  --paper:      #F2F1ED;
-  --paper-2:    #FBFAF8;
-  --lens:       #101315;
-  --lens-2:     #191E21;
+  --fog: #abc0d8;
+  --fog-2: #c9d6e5;
+  --ink: #15191e;
+  --ink-2: #3d444c;
+  --hot: #e6f2fb;
+  --fault: #ff2b2b;
+  --fault-ink: #a0261f;
+  --rule: rgba(21, 25, 30, 0.2);
+  --glass: rgba(244, 246, 248, 0.42);
+  --glass-2: rgba(236, 241, 246, 0.74);
 
-  /* ink */
-  --ink:        #14171A;
-  --ink-2:      #545B62;
-  /* #8A9096 read nicer but measured 2.85:1 on --paper; this is 4.7:1. The quiet
-     tier is carried by size/tracking/case instead of by washing the colour out. */
-  --ink-3:      #656C72;
-  --on-lens:    #E9ECEC;
-  /* measured against the *lightest* stop of the lens gradient (#191E21), where
-     the HUD tags sit — #7C8489 came in at 4.42:1, just under. This is 4.85:1. */
-  --on-lens-2:  #838B90;
+  --sans: "Schibsted Grotesk", -apple-system, BlinkMacSystemFont, sans-serif;
+  --mono: "DM Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
 
-  /* the app's two signal colours */
-  --signal:     #00E676;
-  --fault:      #FF5252;
-  --fault-ink:  #B8322D;
-
-  --rule:       rgba(20, 23, 26, .13);
-  --rule-soft:  rgba(20, 23, 26, .07);
-
-  /* type */
-  --sans:  "Schibsted Grotesk", -apple-system, BlinkMacSystemFont, sans-serif;
-  --mono:  "DM Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  --serif: "Newsreader", Georgia, serif;
-
-  /* motion */
-  --ease-out: cubic-bezier(.23, 1, .32, 1);
-  --ease-io:  cubic-bezier(.77, 0, .175, 1);
-
-  --shell: 1180px;
-  --gut: clamp(20px, 5vw, 48px);
+  --gut: clamp(16px, 3.4vw, 44px);
 }
 
 /* ── reset ─────────────────────────────────────────────────────────────── */
-/* Includes the border reset Tailwind's preflight would normally supply.
-   Preflight is disabled (this file owns the reset), but Tailwind's border-*
-   utilities set only border-WIDTH and assume a solid default.
-   CSS's INITIAL border-width is `medium` (~2px), not 0 — it merely computes to
-   nothing because the initial border-style is `none`. So declaring
-   `border-style: solid` on its own unmasks a ~2px border on every element in
-   the document. The width has to be zeroed in the same rule. This sits at the
-   top of the cascade so the explicit `border: 1px solid …` declarations further
-   down this file still win. */
-*, *::before, *::after {
+/* Includes the border reset Tailwind's preflight would normally supply
+   (preflight is off — this file owns the reset): the initial border-width is
+   `medium`, so `border-style: solid` alone would unmask a ~2px border on every
+   element. The width is zeroed in the same rule. */
+*,
+*::before,
+*::after {
   box-sizing: border-box;
   border-width: 0;
   border-style: solid;
   border-color: var(--rule);
 }
-html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+html {
+  -webkit-text-size-adjust: 100%;
+}
 body {
   margin: 0;
-  background: var(--paper);
+  background: var(--fog);
   color: var(--ink);
   font-family: var(--sans);
   font-size: 17px;
-  line-height: 1.6;
+  line-height: 1.55;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   overflow-x: hidden;
 }
-h1, h2, h3 { margin: 0; font-weight: 500; }
-p { margin: 0; }
-ul, ol, dl, dd { margin: 0; padding: 0; list-style: none; }
-img, svg { display: block; max-width: 100%; }
-a { color: inherit; }
-
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+img,
+svg {
+  display: block;
+  max-width: 100%;
+}
+a {
+  color: inherit;
+}
 :focus-visible {
   outline: 2px solid var(--ink);
   outline-offset: 3px;
-  border-radius: 2px;
 }
-.lens :focus-visible { outline-color: var(--signal); }
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
 
 .skip {
-  position: absolute; left: 12px; top: -60px; z-index: 100;
-  background: var(--ink); color: var(--paper-2);
-  padding: 10px 16px; border-radius: 6px; font-size: 14px;
-  text-decoration: none;
-  transition: top 180ms var(--ease-out);
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: 20;
+  padding: 10px 14px;
+  background: var(--ink);
+  color: var(--fog-2);
+  font-family: var(--mono);
+  font-size: 12px;
+  transform: translateY(-160%);
+  transition: transform 0.2s var(--ease-out);
 }
-.skip:focus { top: 12px; }
-
-/* ── layout ────────────────────────────────────────────────────────────── */
-.shell { width: 100%; max-width: var(--shell); margin-inline: auto; padding-inline: var(--gut); }
-.shell--narrow { max-width: 760px; }
-
-.sec { padding-block: clamp(88px, 13vw, 168px); }
-.sec__head { max-width: 780px; margin-bottom: clamp(48px, 6vw, 76px); }
-.sec__intro {
-  margin-top: 22px;
-  font-size: clamp(1.02rem, 1.4vw, 1.22rem);
-  line-height: 1.62;
-  color: var(--ink-2);
-  max-width: 60ch;
+.skip:focus {
+  transform: none;
 }
 
-.rule {
-  display: block; height: 1px; background: var(--rule);
-  transform-origin: left; transform: scaleX(0);
-  transition: transform 1100ms var(--ease-out) 240ms;
+/* ── layers ────────────────────────────────────────────────────────────── */
+
+.stage {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
 }
-.is-lit .rule, .hero .rule { transform: scaleX(1); }
+.stage > div {
+  position: absolute !important;
+  inset: 0;
+}
+
+/* The glass box around the body, on screen: the one place a finger throws
+   particles instead of scrolling. Sized every frame by TouchZone. */
+.touchzone {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 1;
+  touch-action: none;
+}
+.touchzone.is-orbit {
+  cursor: grab;
+}
+.touchzone.is-orbit:active {
+  cursor: grabbing;
+}
+
+.journey {
+  position: relative;
+  z-index: 2;
+}
+/* The stops are screens tall and stacked over the scene: they must let every
+   touch and drag through to the touch zone beneath, except on the words and
+   controls themselves — where a finger scrolls the page, as it should. */
+.is-live .journey,
+.is-live .stop {
+  pointer-events: none;
+}
 
 /* ── type ──────────────────────────────────────────────────────────────── */
+
 .h1 {
-  font-size: clamp(2.4rem, 6.3vw, 4.65rem);
-  line-height: .98;
-  letter-spacing: -.038em;
-  font-weight: 500;
+  font-size: clamp(2.6rem, 5.6vw, 5.4rem);
+  line-height: 0.97;
+  letter-spacing: -0.035em;
+  font-weight: 600;
 }
 .h2 {
-  font-size: clamp(1.95rem, 4vw, 3.15rem);
-  line-height: 1.05;
-  letter-spacing: -.032em;
-}
-.h2--serif {
-  font-family: var(--serif);
-  font-weight: 400;
-  letter-spacing: -.018em;
-  font-size: clamp(2.1rem, 4.2vw, 3.35rem);
-}
-.lede {
-  margin-top: 22px;
-  font-size: clamp(1rem, 1.36vw, 1.16rem);
-  line-height: 1.55;
-  color: var(--ink-2);
-  max-width: 46ch;
+  font-size: clamp(2rem, 3.7vw, 3.5rem);
+  line-height: 1.02;
+  letter-spacing: -0.03em;
+  font-weight: 600;
 }
 .eyebrow {
   display: block;
+  margin-bottom: 14px;
   font-family: var(--mono);
-  font-size: 12px;
-  letter-spacing: .13em;
+  font-size: 11.5px;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--ink-3);
-  margin-bottom: 20px;
+  color: var(--ink-2);
 }
-
-.chip {
-  display: inline-flex; align-items: center; gap: 7px;
-  font-family: var(--mono); font-size: 10.5px;
-  letter-spacing: .1em; text-transform: uppercase;
-  padding: 5px 10px; border-radius: 100px;
-  border: 1px solid var(--rule); color: var(--ink-3);
-  white-space: nowrap;
+.copy p,
+.lede {
+  margin-top: 18px;
+  max-width: 34rem;
+  font-size: clamp(1rem, 1.12vw, 1.12rem);
+  color: var(--ink-2);
 }
-.chip--warn {
-  border-color: rgba(184, 50, 45, .32);
+.copy .h1 + .lede {
+  margin-top: 24px;
+}
+.fine {
+  font-size: 0.92rem !important;
+}
+.tbd {
+  padding: 0 3px;
+  background: rgba(160, 38, 31, 0.12);
   color: var(--fault-ink);
-  background: rgba(184, 50, 45, .05);
+  font-family: var(--mono);
+  font-size: 0.9em;
 }
 
-/* ── buttons ───────────────────────────────────────────────────────────── */
-.btn {
-  display: inline-flex; align-items: center; justify-content: center;
-  min-height: 46px; padding: 0 24px;
-  border-radius: 100px; border: 1px solid transparent;
-  font-family: var(--sans); font-size: 15px; font-weight: 500;
-  letter-spacing: -.01em; text-decoration: none; cursor: pointer;
-  transition: transform 160ms var(--ease-out),
-              background-color 200ms ease,
-              border-color 200ms ease,
-              color 200ms ease;
-}
-.btn--primary { background: var(--ink); color: var(--paper-2); }
-.btn--ghost   { border-color: var(--rule); color: var(--ink); background: transparent; }
-.btn__arw {
-  display: inline-block; margin-left: 8px;
-  transition: transform 260ms var(--ease-out);
-}
-@media (hover: hover) and (pointer: fine) {
-  .btn--primary:hover { background: #2A2F34; }
-  .btn--ghost:hover   { border-color: var(--ink); }
-  .btn:hover .btn__arw { transform: translateX(4px); }
-  .card, .phase { transition: background-color 300ms ease; }
-  .card:hover  { background: #FFFEFC; }
-  .phase:hover { background: var(--paper-2); }
-}
-.btn:active { transform: scale(.97); }
+/* ── the bracket button: igloo's [ corners ] ───────────────────────────── */
 
-/* ── masthead ──────────────────────────────────────────────────────────── */
-.masthead {
-  position: sticky; top: 0; z-index: 50;
-  border-bottom: 1px solid transparent;
-  background: rgba(242, 241, 237, 0);
-  transition: background-color 260ms ease, border-color 260ms ease,
-              backdrop-filter 260ms ease;
-}
-.masthead.is-stuck {
-  background: rgba(242, 241, 237, .72);
-  backdrop-filter: saturate(180%) blur(16px);
-  -webkit-backdrop-filter: saturate(180%) blur(16px);
-}
-/* Scroll-edge effect instead of a 1px divider: content dissolves into the bar
-   rather than being cut off by it. */
-.masthead::after {
-  content: ""; position: absolute; left: 0; right: 0; top: 100%; height: 26px;
-  pointer-events: none; opacity: 0;
-  background: linear-gradient(to bottom, rgba(242,241,237,.72), transparent);
-  transition: opacity 300ms ease;
-}
-.masthead.is-stuck::after { opacity: 1; }
-.masthead__in {
-  display: flex; align-items: center; gap: 28px;
-  height: 66px;
-}
-.wordmark {
-  display: inline-flex; align-items: center; gap: 9px;
-  font-weight: 600; font-size: 16.5px; letter-spacing: -.022em;
-  text-decoration: none;
-}
-.wordmark__mark { width: 19px; height: 19px; color: var(--ink); }
-
-/* While the squat sequence is full-screen the bar gets out of the way entirely:
-   a translucent light strip across the top of a dark frame reads as chrome
-   somebody forgot to hide. Only the wordmark stays, flipped to the on-lens ink
-   so it is still legible against what is now behind it.
-
-   Toggled as a class by SquatRig rather than driven per frame, so the easing
-   lives here — this crosses a threshold once in each direction, and a
-   transition handles that far better than lerping four properties from a scroll
-   handler. */
-.masthead.is-rig,
-.masthead.is-rig.is-stuck {
-  background: rgba(242, 241, 237, 0);
-  backdrop-filter: none; -webkit-backdrop-filter: none;
-  border-bottom-color: transparent;
-}
-.masthead.is-rig::after { opacity: 0; }
-/* Held back until the frame has actually taken the top-left corner. Flipped with
-   the rest of the bar it would have gone light while still over light paper —
-   the wordmark would simply have vanished for the length of the opening.
-
-   The MARK has to be named explicitly alongside the word. Its `color` is set on
-   the span itself, so `currentColor` inside the glyph resolves against that and
-   not against the anchor — flipping only `.wordmark` left the figure black on
-   the dark frame while the text beside it went light. */
-.masthead.is-rig-ink .wordmark,
-.masthead.is-rig-ink .wordmark__mark { color: var(--on-lens); }
-.wordmark,
-.wordmark__mark { transition: color 320ms var(--ease-out); }
-
-/* ── try-it CTA ────────────────────────────────────────────────────────── */
-/* Pushed to the far edge rather than sitting in a nav list: it is the only
-   control in the bar, and a lone item in a nav reads as the first of several
-   that failed to load. */
-.try-cta {
-  margin-left: auto;
-  display: inline-flex; align-items: center;
-  padding: 8px 16px;
-  border: 1px solid var(--ink);
-  border-radius: 999px;
-  font-size: 14px; font-weight: 500; letter-spacing: -.01em;
-  text-decoration: none;
-  color: var(--paper); background: var(--ink);
-  transition: color 320ms var(--ease-out), background-color 320ms var(--ease-out),
-              border-color 320ms var(--ease-out), opacity 160ms ease;
-}
-.try-cta:hover { opacity: .84; }
-/* Over the full-screen rig the bar goes transparent and the ink inverts. A
-   solid dark pill on a dark frame would disappear, so it hollows out to an
-   outline in the on-lens ink — same treatment the wordmark gets, same timing,
-   so the two cross the threshold together. */
-.masthead.is-rig-ink .try-cta {
-  color: var(--on-lens);
-  background: transparent;
-  border-color: var(--on-lens);
-}
-@media (max-width: 720px) {
-  .try-cta { padding: 7px 13px; font-size: 13.5px; }
-}
-
-/* ── hero ──────────────────────────────────────────────────────────────── */
-.hero { padding-top: clamp(44px, 7vw, 76px); }
-.hero__grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.08fr) minmax(0, .92fr);
-  gap: clamp(36px, 5.4vw, 78px);
-  align-items: center;
-  padding-bottom: clamp(56px, 8vw, 96px);
-}
-
-/* headline mask reveal — the blur is what makes it read as "settling into focus"
-   rather than sliding. Camera product; focus is the right metaphor. */
-.ln { display: block; overflow: hidden; padding-bottom: .04em; }
-.ln > span {
-  display: block;
-  transform: translateY(102%);
-  filter: blur(7px);
-  animation: lnUp 1000ms var(--ease-out) forwards;
-}
-.ln:nth-child(1) > span { animation-delay: 80ms; }
-.ln:nth-child(2) > span { animation-delay: 190ms; }
-@keyframes lnUp {
-  60%  { filter: blur(0); }
-  to   { transform: translateY(0); filter: blur(0); }
-}
-
-.rise {
-  opacity: 0; transform: translateY(14px);
-  animation: riseIn 780ms var(--ease-out) forwards;
-  animation-delay: calc(var(--d, 0) * 85ms + 240ms);
-}
-[data-d="1"] { --d: 1; } [data-d="2"] { --d: 2; } [data-d="3"] { --d: 3; }
-[data-d="4"] { --d: 4; } [data-d="5"] { --d: 5; }
-@keyframes riseIn { to { opacity: 1; transform: translateY(0); } }
-
-/* ── the lens ──────────────────────────────────────────────────────────── */
-/* Apple's "materialize, don't fade": the panel arrives as a surface coming into
-   focus — scale + blur together — instead of a flat opacity ramp. */
-.hero__lens .lens {
-  animation: lensIn 900ms var(--ease-out) 120ms backwards;
-}
-@keyframes lensIn {
-  from { opacity: 0; transform: scale(.975); filter: blur(9px); }
-}
-
-.lens {
+.bracket {
+  --c: var(--ink);
+  --l: 9px;
   position: relative;
-  aspect-ratio: 3 / 4;
+  display: inline-block;
+  padding: 11px 18px 10px;
+  border: 0;
+  border-radius: 0;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-decoration: none;
+  color: var(--ink);
+  cursor: pointer;
   background:
-    radial-gradient(120% 90% at 50% 0%, var(--lens-2), var(--lens) 68%);
-  border-radius: 18px;
-  overflow: hidden;
-  box-shadow: 0 1px 2px rgba(20,23,26,.06), 0 22px 50px -28px rgba(20,23,26,.42);
+    linear-gradient(var(--c), var(--c)) top left / var(--l) 1px no-repeat,
+    linear-gradient(var(--c), var(--c)) top left / 1px var(--l) no-repeat,
+    linear-gradient(var(--c), var(--c)) top right / var(--l) 1px no-repeat,
+    linear-gradient(var(--c), var(--c)) top right / 1px var(--l) no-repeat,
+    linear-gradient(var(--c), var(--c)) bottom left / var(--l) 1px no-repeat,
+    linear-gradient(var(--c), var(--c)) bottom left / 1px var(--l) no-repeat,
+    linear-gradient(var(--c), var(--c)) bottom right / var(--l) 1px no-repeat,
+    linear-gradient(var(--c), var(--c)) bottom right / 1px var(--l) no-repeat,
+    var(--glass);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  transition:
+    color 0.2s var(--ease-out),
+    background-color 0.2s var(--ease-out);
 }
-.lens--sq { aspect-ratio: 1 / 1; }
-
-/* Set by SquatRig once its own frame is painted over this one. The box still
-   reserves the layout, still supplies the rect the sequence opens from, and
-   still casts the shadow — it just stops being a second dark surface. */
-.lens.is-rigged { background: none; }
-.lens.is-rigged::after { display: none; }
-
-/* faint sensor grid */
-.lens::after {
-  content: ""; position: absolute; inset: 0; pointer-events: none;
-  background-image:
-    linear-gradient(rgba(255,255,255,.032) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255,255,255,.032) 1px, transparent 1px);
-  background-size: 34px 34px;
-  mask-image: radial-gradient(72% 62% at 50% 46%, #000 32%, transparent 78%);
-  -webkit-mask-image: radial-gradient(72% 62% at 50% 46%, #000 32%, transparent 78%);
+.bracket:hover:not([aria-disabled="true"]),
+.bracket:focus-visible {
+  --l: 14px;
+  outline: none;
 }
-
-.lens__chrome { position: absolute; inset: 14px; pointer-events: none; }
-.brk {
-  position: absolute; width: 15px; height: 15px;
-  border: 1px solid rgba(233,236,236,.3);
+.bracket[aria-pressed="true"] {
+  --c: var(--fog-2);
+  color: var(--fog-2);
+  background-color: var(--ink);
 }
-/* brackets converge inward from their own corner — the frame "closing on" you */
-.hero__lens .brk { animation: brkIn 620ms var(--ease-out) 340ms backwards; }
-@keyframes brkIn { from { opacity: 0; transform: translate(var(--bx), var(--by)); } }
-.hero__lens .brk--tl { --bx: -9px; --by: -9px; }
-.hero__lens .brk--tr { --bx:  9px; --by: -9px; }
-.hero__lens .brk--bl { --bx: -9px; --by:  9px; }
-.hero__lens .brk--br { --bx:  9px; --by:  9px; }
-
-/* the acquiring sweep: one pass, top to bottom, then it never runs again */
-.lens__scan {
-  position: absolute; left: 0; right: 0; top: 0; height: 34%;
-  z-index: 2; pointer-events: none; opacity: 0;
-  background: linear-gradient(to bottom,
-    transparent, rgba(0,230,118,.055) 62%, rgba(0,230,118,.16));
-  border-bottom: 1px solid rgba(0,230,118,.34);
-  animation: scan 1150ms var(--ease-io) 420ms 1 forwards;
+.bracket[aria-disabled="true"]:not([aria-pressed="true"]) {
+  color: var(--ink-2);
+  cursor: default;
+  opacity: 0.55;
 }
-@keyframes scan {
-  0%   { opacity: 0; transform: translateY(-100%); }
-  14%  { opacity: 1; }
-  82%  { opacity: 1; }
-  100% { opacity: 0; transform: translateY(294%); }
+.bracket--big {
+  --l: 14px;
+  padding: 18px 34px 17px;
+  font-size: 14px;
+  letter-spacing: 0.12em;
 }
-.brk--tl { top: 0;    left: 0;    border-right: 0; border-bottom: 0; }
-.brk--tr { top: 0;    right: 0;   border-left: 0;  border-bottom: 0; }
-.brk--bl { bottom: 0; left: 0;    border-right: 0; border-top: 0; }
-.brk--br { bottom: 0; right: 0;   border-left: 0;  border-top: 0; }
-
-.lens__hud {
-  position: absolute; top: 22px; left: 22px; right: 22px; z-index: 3;
-  display: flex; gap: 8px; flex-wrap: wrap;
-}
-.hud__tag {
-  font-family: var(--mono); font-size: 9.5px; letter-spacing: .12em;
-  color: var(--on-lens-2);
-  border: 1px solid rgba(233,236,236,.16);
-  padding: 4px 8px; border-radius: 4px;
+.bracket--big:hover,
+.bracket--big:focus-visible {
+  --l: 22px;
 }
 
-.skel { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 2; }
+/* ── HUD: the viewfinder's frame ───────────────────────────────────────── */
 
-/* The WebGL figure occupies the same layer as the 2D overlay it replaces: above
-   the lens gradient, below the HUD tags and rep counter (z-3). It fades up on
-   its own rather than popping in when the three.js chunk resolves. */
-.lens__gl {
-  position: absolute; inset: 0; z-index: 2;
-  animation: fadeIn 700ms var(--ease-out) backwards;
+.hud {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.55;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink);
 }
-.lens__gl canvas { display: block; }
-
-.bones path {
-  fill: none; stroke: rgba(233,236,236,.9); stroke-width: 2.2;
-  stroke-linecap: round;
-  stroke-dasharray: 120; stroke-dashoffset: 120;
+.hud a,
+.hud button {
+  pointer-events: auto;
 }
-/* limbs draw in just behind the scan front, so the sweep reads as the cause */
-.skel.is-armed .bones path { animation: draw 880ms var(--ease-out) forwards; }
-.skel.is-armed .bones path:nth-child(1) { animation-delay: 560ms; }
-.skel.is-armed .bones path:nth-child(2) { animation-delay: 640ms; }
-.skel.is-armed .bones path:nth-child(3) { animation-delay: 720ms; }
-.skel.is-armed .bones path:nth-child(4) { animation-delay: 610ms; }
-.skel.is-armed .bones path:nth-child(5) { animation-delay: 740ms; }
-.skel.is-armed .bones path:nth-child(6) { animation-delay: 850ms; }
-@keyframes draw { to { stroke-dashoffset: 0; } }
-
-/* guide lines wipe out from the body once the figure is fully acquired */
-.skel.is-armed .guide__l {
-  transform-origin: left center;
-  animation: wipe 700ms var(--ease-out) 1500ms backwards;
+.hud__brand {
+  position: absolute;
+  top: 20px;
+  left: var(--gut);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--sans);
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  text-transform: none;
+  text-decoration: none;
 }
-.skel.is-armed .guide__t { animation: fadeIn 500ms ease 1720ms backwards; }
-@keyframes wipe   { from { transform: scaleX(0); opacity: 0; } }
-@keyframes fadeIn { from { opacity: 0; } }
-
-.hero__lens .hud__tag { animation: fadeIn 600ms ease 1640ms backwards; }
-.hero__lens .lens__count { animation: fadeIn 600ms ease 1780ms backwards; }
-
-.bone--fault { stroke: var(--fault) !important; }
-
-.joints circle {
-  fill: var(--signal);
-  transform-box: fill-box; transform-origin: center;
+.hud__mark svg {
+  width: 20px;
+  height: 20px;
 }
-/* joints lock on with a slight overshoot — the tracker "snapping" to a landmark.
-   Bounce is earned here: it reads as acquisition, not decoration. */
-.skel.is-armed .joints circle {
-  transform: scale(.4); opacity: 0;
-  animation: lock 620ms var(--ease-out) forwards;
-  animation-delay: calc(var(--i, 0) * 72ms + 780ms);
+.hud__try {
+  position: absolute;
+  top: 16px;
+  right: var(--gut);
 }
-@keyframes lock {
-  0%   { transform: scale(.4);  opacity: 0; }
-  55%  { transform: scale(1.32); opacity: 1; }
-  100% { transform: scale(1);   opacity: 1; }
+.hud__index {
+  position: absolute;
+  left: var(--gut);
+  bottom: 22px;
+  color: var(--ink-2);
+  white-space: pre;
 }
-
-/* the ring each landmark throws off as it's found */
-.pings circle {
-  fill: none; stroke: var(--signal); stroke-width: 1.4;
-  transform-box: fill-box; transform-origin: center;
+.hud__sound {
+  position: absolute;
+  right: var(--gut);
+  bottom: 16px;
+  padding: 6px 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.hud__sound[aria-pressed="true"] {
+  color: var(--ink);
+}
+.hud__boot {
+  position: absolute;
+  left: 50%;
+  bottom: 22px;
+  transform: translateX(-50%);
+  color: var(--ink-2);
+  transition: opacity 0.9s var(--ease-out);
+}
+.hud__boot span::after {
+  content: "";
+  display: inline-block;
+  width: 0.6em;
+  height: 1em;
+  margin-left: 0.4em;
+  vertical-align: -0.15em;
+  background: currentColor;
+  animation: blink 0.9s steps(1) infinite;
+}
+.hud__boot.is-done {
   opacity: 0;
 }
-.skel.is-armed .pings circle {
-  animation: ping 900ms var(--ease-out) forwards;
-  animation-delay: calc(var(--i, 0) * 72ms + 780ms);
-}
-@keyframes ping {
-  0%   { transform: scale(.6); opacity: 0; }
-  22%  { opacity: .75; }
-  100% { transform: scale(3.4); opacity: 0; }
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
 }
 
-.joint--fault { fill: var(--fault) !important; }
+/* ── the live page: fixed stops over the scene ─────────────────────────── */
 
-.guide__l {
-  stroke: rgba(233,236,236,.26); stroke-width: 1; stroke-dasharray: 3 5;
+.is-live .stop {
+  position: relative;
+  height: calc(var(--span) * var(--vh, 100vh));
 }
-.guide__l--v { stroke: rgba(255,82,82,.5); }
-.guide__t {
-  fill: var(--on-lens-2); font-family: var(--mono); font-size: 8px;
-  letter-spacing: .1em;
+.is-live .stop__frame {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: var(--focus, 0);
+  /* Rack focus: sharp in its hold, blurred as the camera moves off it. */
+  filter: blur(calc((1 - var(--focus, 0)) * 10px));
+}
+.is-live .stop[data-off] .stop__frame {
+  filter: none;
+}
+.is-live .stop[data-live] .stop__frame :is(a, button, .copy, .debrief, .finale, .picker) {
+  pointer-events: auto;
 }
 
-.lens__count {
-  position: absolute; left: 22px; bottom: 22px; z-index: 3;
-  display: flex; align-items: baseline; gap: 9px;
+.copy {
+  position: absolute;
+  top: 50%;
+  width: min(33rem, 40vw);
+  transform: translateY(-50%);
 }
-.count__n {
-  font-family: var(--mono); font-size: 34px; font-weight: 500;
-  color: var(--on-lens); line-height: 1;
+.copy--left {
+  left: var(--gut);
+}
+.copy--right {
+  right: var(--gut);
+}
+.copy--hero {
+  width: min(40rem, 46vw);
+}
+.copy--narrow {
+  width: min(26rem, 30vw);
+}
+.copy--top {
+  top: 17%;
+  transform: none;
+}
+
+/* The hint to touch the body, once it has formed. */
+.hint {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 30px !important;
+  font-family: var(--mono);
+  font-size: 11.5px !important;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink) !important;
+  opacity: 0;
+  transition: opacity 0.8s var(--ease-out);
+}
+.hint::before {
+  content: "";
+  width: 28px;
+  height: 1px;
+  background: currentColor;
+  animation: reach 2.4s var(--ease-out) infinite;
+  transform-origin: left;
+}
+.hint.is-on {
+  opacity: 1;
+}
+@keyframes reach {
+  0% {
+    transform: scaleX(0.2);
+  }
+  50% {
+    transform: scaleX(1);
+  }
+  100% {
+    transform: scaleX(0.2);
+  }
+}
+.hint__touch {
+  display: none;
+}
+@media (hover: none), (pointer: coarse) {
+  .hint__mouse {
+    display: none;
+  }
+  .hint__touch {
+    display: inline;
+  }
+}
+
+/* ── the squat: readouts, the fault tag, the picker ────────────────────── */
+
+.readout {
+  position: absolute;
+  left: var(--gut);
+  top: 50%;
+  transform: translateY(-50%);
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.6;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.readout__label {
+  color: var(--ink-2);
+}
+.readout__gap {
+  margin-top: 18px;
+}
+.readout__big {
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+}
+.readout__reps {
+  margin: 2px 0 6px;
+  font-size: 46px;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: -0.03em;
   font-variant-numeric: tabular-nums;
 }
-.count__l {
-  font-family: var(--mono); font-size: 9.5px; letter-spacing: .16em;
-  color: var(--on-lens-2);
+
+.leader {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  opacity: 0;
+  transition: opacity 0.25s var(--ease-out);
+}
+.leader.is-on {
+  opacity: 1;
+}
+.leader line,
+.leader circle {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 1;
 }
 
-/* Capped against the viewport HEIGHT, not only the grid column. At 3:4 the lens
-   is the tallest thing in the hero, so on a short laptop window its bottom edge
-   was landing behind the taskbar — and it is also the rect the whole sequence
-   opens from, so it has to be fully on screen before the scroll starts. 46vh of
-   width is 61vh of height, which clears the bar and the copy at 900px tall.
-
-   `width: 100%` is load-bearing, not belt-and-braces. An auto margin switches a
-   grid item out of `stretch` and into shrink-to-fit — and while the rig is
-   running this box is EMPTY (it only reserves the layout), so shrink-to-fit
-   resolves to zero and the lens disappears entirely. */
-.hero__lens { margin: 0 auto; width: 100%; max-width: min(100%, 46vh); }
-
-/* ── phases ────────────────────────────────────────────────────────────── */
-.phases {
-  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1px; background: var(--rule-soft);
-  border: 1px solid var(--rule-soft); border-radius: 14px; overflow: hidden;
+.tag,
+.phone-tag,
+.set-label {
+  position: absolute;
+  left: 0;
+  top: 0;
+  padding: 6px 10px 5px;
+  white-space: nowrap;
+  background: var(--glass);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
-.phase { background: var(--paper); padding: clamp(28px, 3.4vw, 44px); }
-.phase__k {
-  display: block; font-family: var(--mono); font-size: 11px;
-  letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3);
-  margin-bottom: 18px;
+.tag {
+  opacity: 0;
+  transition: opacity 0.25s var(--ease-out);
 }
-.phase__h {
-  font-size: clamp(1.18rem, 1.7vw, 1.42rem);
-  letter-spacing: -.022em; line-height: 1.25; margin-bottom: 12px;
+.tag.is-on {
+  opacity: 1;
 }
-.phase p { color: var(--ink-2); font-size: 15.5px; max-width: 46ch; }
-
-/* ── callout ───────────────────────────────────────────────────────────── */
-.callout {
-  margin-top: clamp(36px, 4.5vw, 60px);
-  padding: clamp(28px, 3.4vw, 44px);
-  background: var(--lens); color: var(--on-lens);
-  border-radius: 14px; max-width: 760px;
-}
-.callout--flat {
-  background: var(--paper-2); color: var(--ink);
-  border: 1px solid var(--rule-soft); max-width: none;
-}
-.callout__k {
-  display: block; font-family: var(--mono); font-size: 11px;
-  letter-spacing: .12em; text-transform: uppercase;
-  color: var(--on-lens-2); margin-bottom: 16px;
-}
-.callout--flat .callout__k { color: var(--ink-3); }
-.callout__p { font-size: clamp(1rem, 1.35vw, 1.14rem); line-height: 1.55; max-width: 56ch; }
-.callout__p strong { font-weight: 500; color: #fff; }
-.callout--flat .callout__p strong { color: var(--ink); }
-
-/* ── proof slot ────────────────────────────────────────────────────────── */
-.slot { margin: 0; }
-.slot__frame {
-  position: relative;
-  border: 1px dashed rgba(20,23,26,.24);
-  border-radius: 16px;
-  background:
-    repeating-linear-gradient(-45deg,
-      rgba(20,23,26,.022) 0 10px, transparent 10px 20px),
-    var(--paper-2);
-  min-height: clamp(340px, 44vw, 520px);
-  display: grid; place-items: center;
-  padding: clamp(32px, 5vw, 64px);
-}
-.slot__frame .brk { border-color: rgba(20,23,26,.22); }
-.slot__body { max-width: 620px; text-align: center; }
-.slot__txt {
-  margin-top: 20px; font-size: clamp(1.05rem, 1.5vw, 1.24rem);
-  line-height: 1.5; color: var(--ink-2);
-}
-.spec {
-  margin-top: 34px; padding-top: 26px;
-  border-top: 1px solid var(--rule-soft);
-  display: grid; gap: 12px; text-align: left;
-}
-.spec > div { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 18px; }
-.spec dt {
-  font-family: var(--mono); font-size: 10.5px; letter-spacing: .1em;
-  text-transform: uppercase; color: var(--ink-3); padding-top: 3px;
-}
-.spec dd { font-size: 14.5px; color: var(--ink-2); }
-.slot__cap {
-  margin-top: 18px; font-size: 13.5px; color: var(--ink-3); max-width: 56ch;
-}
-
-/* ── planes ────────────────────────────────────────────────────────────── */
-.planes {
-  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: clamp(36px, 5vw, 72px); align-items: start;
-}
-.planes__viz { position: relative; }
-.skel--side, .skel--front {
-  transition: opacity 300ms var(--ease-out);
-}
-.skel--front { opacity: 0; }
-[data-view="front"] .skel--side  { opacity: 0; }
-[data-view="front"] .skel--front { opacity: 1; }
-
-/* ── the turning figure ────────────────────────────────────────────────────
-   When the scene is up it replaces both drawings outright. They stay in the
-   markup — they are the reduced-motion and no-WebGL path, and the section has to
-   be able to fall back to them mid-session if the GL context is lost — but two
-   figures in one lens would be two answers to the same question. */
-[data-turning="true"] .skel--side,
-[data-turning="true"] .skel--front { display: none; }
-
-.planes__gl { position: absolute; inset: 0; z-index: 2; }
-/* The guides are drawn OVER the figure, in the site's own type. Positioned by
-   the scene each frame, in the square viewBox the lens's 1:1 aspect guarantees
-   maps linearly onto it. */
-.planes__guides {
-  position: absolute; inset: 0; width: 100%; height: 100%; z-index: 3;
-  pointer-events: none;
-  /* No transition. The gate is a function of the camera angle and is already
-     eased inside its tolerance — a CSS fade on top would keep a reading on
-     screen after the camera had turned far enough to have lost it, which is the
-     one thing this section is arguing the app does not do. */
-}
-/* The flat overlay sets this at a 200-unit viewBox; this one is 1000, so the
-   stroke has to be restated at the same optical size. No type rule — the only
-   marks left are the stance verticals, and the hip and knee rules that carried
-   the labels are gone. */
-.planes__guides .guide__l { stroke-width: 5; }
-
-.planes__switch {
-  position: relative;
-  display: grid; grid-template-columns: 1fr 1fr;
-  margin-top: 18px; padding: 4px;
-  background: var(--paper-2); border: 1px solid var(--rule-soft);
-  border-radius: 100px;
-}
-.planes__thumb {
-  position: absolute; top: 4px; left: 4px;
-  width: calc(50% - 4px); height: calc(100% - 8px);
-  background: var(--ink); border-radius: 100px;
-  transition: transform 280ms var(--ease-out);
-}
-[data-view="front"] .planes__thumb { transform: translateX(100%); }
-.planes__switch button {
-  position: relative; z-index: 1;
-  appearance: none; background: none; border: 0; cursor: pointer;
-  min-height: 44px; padding: 0 14px;
-  font-family: var(--sans); font-size: 14.5px; font-weight: 500;
-  color: var(--ink-2);
-  transition: color 240ms var(--ease-out);
-}
-.planes__switch button[aria-selected="true"] { color: var(--paper-2); }
-
-.checks { border-top: 1px solid var(--rule); }
-.checks li {
-  display: flex; align-items: baseline; justify-content: space-between;
-  gap: 20px; padding: 15px 0;
-  border-bottom: 1px solid var(--rule-soft);
-  transition: opacity 260ms var(--ease-out);
-}
-.checks__n { font-size: 16px; letter-spacing: -.012em; }
-.checks__s {
-  font-family: var(--mono); font-size: 10.5px; letter-spacing: .1em;
-  text-transform: uppercase; color: var(--ink-3); white-space: nowrap;
-}
-.checks__s::after { content: "Measured"; }
-
-/* what the current view cannot resolve */
-[data-view="side"]  .checks li[data-plane="frontal"],
-[data-view="front"] .checks li[data-plane="sagittal"] { opacity: .42; }
-[data-view="side"]  .checks li[data-plane="frontal"]  .checks__s::after,
-[data-view="front"] .checks li[data-plane="sagittal"] .checks__s::after {
-  content: "Unknown";
-}
-.checks__note {
-  margin-top: 26px; font-size: 14.5px; line-height: 1.6; color: var(--ink-3);
-  max-width: 46ch;
-}
-
-/* ── cards ─────────────────────────────────────────────────────────────── */
-.cards {
-  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 20px;
-}
-.card {
-  padding: clamp(26px, 3vw, 36px);
-  border: 1px solid var(--rule-soft); border-radius: 14px;
-  background: var(--paper-2);
-}
-.card__k {
-  display: block; font-family: var(--mono); font-size: 10.5px;
-  letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3);
-  margin-bottom: 20px;
-}
-.card__h {
-  font-size: clamp(1.14rem, 1.6vw, 1.32rem); letter-spacing: -.022em;
-  line-height: 1.28; margin-bottom: 12px;
-}
-.card p { font-size: 15px; color: var(--ink-2); }
-.tbd {
-  font-family: var(--mono); font-size: .82em;
+.tag.is-fault {
   color: var(--fault-ink);
-  border: 1px dashed rgba(184,50,45,.4); border-radius: 4px;
-  padding: 1px 6px;
+}
+.tag.is-unknown {
+  color: var(--ink-2);
+}
+/* Pinned over a point in the scene: centred on it, a little above. */
+.phone-tag {
+  margin: -2.6em 0 0 -5.5em;
+}
+.set-label {
+  margin: -2.4em 0 0 -2.3em;
 }
 
-/* ── next + signup ─────────────────────────────────────────────────────── */
-.next__p {
-  font-size: clamp(1.28rem, 2.4vw, 1.85rem);
-  line-height: 1.32; letter-spacing: -.026em; max-width: 40ch;
+.picker {
+  position: absolute;
+  right: var(--gut);
+  bottom: 13%;
+  width: min(33rem, 40vw);
 }
-.signup {
-  margin-top: clamp(44px, 5vw, 68px); padding-top: clamp(36px, 4vw, 52px);
-  border-top: 1px solid var(--rule);
+.picker__prompt,
+.picker__hint {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-2);
 }
-.signup__label {
-  display: block; font-family: var(--mono); font-size: 11px;
-  letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3);
-  margin-bottom: 12px;
-}
-.signup__row { display: flex; gap: 10px; flex-wrap: wrap; }
-.signup__input {
-  flex: 1 1 260px; min-height: 46px; padding: 0 18px;
-  background: var(--paper-2);
-  border: 1px solid var(--rule); border-radius: 100px;
-  font-family: var(--sans); font-size: 15px; color: var(--ink);
-  transition: border-color 200ms ease;
-}
-/* iOS Safari force-zooms the whole viewport when focus lands on an input under
-   16px, and then leaves the page zoomed. Bump it only at the widths where that
-   behaviour exists — the 15px above is a deliberate desktop type choice. */
-@media (max-width: 720px) {
-  .signup__input { font-size: 16px; }
-}
-.signup__input::placeholder { color: var(--ink-3); }
-.signup__input:focus { border-color: var(--ink); outline: none; }
-.signup__input:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
-.signup__note { margin-top: 14px; font-size: 13.5px; color: var(--ink-3); max-width: 50ch; }
-.signup__note.is-done { color: var(--ink); }
-
-/* ── footer ────────────────────────────────────────────────────────────── */
-.foot { border-top: 1px solid var(--rule-soft); padding-block: 44px; }
-.foot__in { display: flex; flex-wrap: wrap; gap: 16px 40px; align-items: baseline; }
-.foot__mark { font-weight: 600; letter-spacing: -.022em; }
-.foot__legal { font-size: 13.5px; color: var(--ink-3); max-width: 54ch; }
-
-/* ── scroll reveal ─────────────────────────────────────────────────────── */
-.js .reveal {
-  opacity: 0; transform: translateY(18px);
-  transition: opacity 760ms var(--ease-out), transform 760ms var(--ease-out);
-  transition-delay: calc(var(--d, 0) * 70ms);
-}
-.reveal.is-in { opacity: 1; transform: none; }
-
-/* Headings wipe up rather than fade — gives each section a beat of its own so
-   the page doesn't read as 33 identical fades. */
-.js .h2 {
-  /* inset() rejects negative offsets — a negative "overshoot" here silently
-     kills the whole declaration and the heading never un-clips. Pad instead. */
-  padding-bottom: .08em;
-  clip-path: inset(0 0 108% 0);
-  transform: translateY(12px);
-  transition: clip-path 980ms var(--ease-out), transform 980ms var(--ease-out),
-              opacity 620ms var(--ease-out);
-  transition-delay: calc(var(--d, 0) * 70ms);
-}
-.js .h2.is-in { clip-path: inset(0 0 0 0); transform: none; }
-
-/* Check rows resolve one after another when the view changes. */
-.checks li:nth-child(1) { transition-delay: 0ms; }
-.checks li:nth-child(2) { transition-delay: 34ms; }
-.checks li:nth-child(3) { transition-delay: 68ms; }
-.checks li:nth-child(4) { transition-delay: 102ms; }
-.checks li:nth-child(5) { transition-delay: 136ms; }
-.checks li:nth-child(6) { transition-delay: 170ms; }
-.checks li:nth-child(7) { transition-delay: 204ms; }
-.checks li:nth-child(8) { transition-delay: 238ms; }
-.checks li:nth-child(9) { transition-delay: 272ms; }
-
-/* Pointer parallax + scroll drift, written as one composited transform by JS. */
-.hero__lens {
-  transform: translate3d(0, var(--dy, 0px), 0)
-             rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
-  transform-style: preserve-3d;
-  will-change: transform;
+.picker__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 12px 0;
 }
 
-/* ── the squat rig ─────────────────────────────────────────────────────── */
-/* A pinned scroll sequence: the hero lens grows to fill the viewport, the figure
-   runs six reps, two of them go wrong, and the frame closes again.
+/* ── after the set: the debrief, writing itself out ────────────────────── */
 
-   Heights are written in PIXELS from JS (see SquatRig) because the pin maths
-   uses window.innerHeight — and on mobile CSS `vh` is the LARGE viewport while
-   innerHeight is the current one, so sizing the runway in vh desynchronises the
-   pin point by the height of the browser toolbar. The values below are only the
-   pre-JS fallback. */
-.rig { position: relative; height: 1500vh; }
-.rig__stage { position: sticky; top: 0; height: 100vh; }
-
-/* The sequence is a figure, but it still needs a name in the document outline. */
-.vh {
-  position: absolute; width: 1px; height: 1px; overflow: hidden;
-  clip-path: inset(50%); white-space: nowrap;
+.debrief {
+  position: absolute;
+  top: 50%;
+  right: var(--gut);
+  width: min(31rem, 38vw);
+  padding: 26px 30px 28px;
+  transform: translateY(-50%);
+  background: var(--glass-2);
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+.debrief__kind {
+  display: inline-block;
+  margin-bottom: 10px;
+  padding: 2px 7px;
+  background: var(--ink);
+  color: var(--fog-2);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.debrief__label {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  min-height: 1.5em;
+}
+.debrief__p,
+.debrief__cues {
+  margin-top: 12px;
+  font-size: 1rem;
+  line-height: 1.6;
+  min-height: 1.6em;
+}
+.debrief__cues {
+  padding-left: 14px;
+  border-left: 2px solid var(--ink);
+  font-size: 0.95rem;
+}
+[data-typed].is-typing::after {
+  content: "";
+  display: inline-block;
+  width: 0.5em;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: -0.12em;
+  background: var(--ink);
+  animation: blink 0.8s steps(1) infinite;
 }
 
-/* The canvas is allocated ONCE at viewport size and never resized — only the
-   clip changes. Animating width/height instead reallocates the WebGL drawbuffer
-   every frame and stutters; clip-path is composited. */
-.rig__host {
-  position: fixed; inset: 0; z-index: 1; pointer-events: none;
-  background: radial-gradient(120% 90% at 50% 0%, var(--lens-2), var(--lens) 68%);
-  clip-path: inset(50% round 18px);
-  animation: fadeIn 700ms var(--ease-out) backwards;
-}
-.rig__host::after {
-  content: ""; position: absolute; inset: 0; pointer-events: none;
-  background-image:
-    linear-gradient(rgba(255,255,255,.032) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255,255,255,.032) 1px, transparent 1px);
-  background-size: 34px 34px;
-  mask-image: radial-gradient(72% 62% at 50% 46%, #000 32%, transparent 78%);
-  -webkit-mask-image: radial-gradient(72% 62% at 50% 46%, #000 32%, transparent 78%);
-}
-.rig__gl { position: absolute; inset: 0; }
-.rig__gl canvas { display: block; }
+/* ── the finale ────────────────────────────────────────────────────────── */
 
-/* Chrome tracks the same rect the clip does, so the brackets sit on the corners
-   of the FRAME at every size rather than on the corners of the viewport. */
-.rig__frame { position: fixed; inset: 50%; z-index: 2; pointer-events: none; }
-.rig__frame .brk { animation: brkIn 620ms var(--ease-out) 340ms backwards; }
-.rig__frame .brk--tl { --bx: -9px; --by: -9px; }
-.rig__frame .brk--tr { --bx:  9px; --by: -9px; }
-.rig__frame .brk--bl { --bx: -9px; --by:  9px; }
-.rig__frame .brk--br { --bx:  9px; --by:  9px; }
-.rig__frame .lens__count { animation: fadeIn 600ms ease 1780ms backwards; }
-
-.rig__lead {
-  position: fixed; inset: 0; z-index: 3; width: 100%; height: 100%;
-  pointer-events: none;
+.finale {
+  position: absolute;
+  left: var(--gut);
+  top: 50%;
+  width: min(34rem, 42vw);
+  transform: translateY(-50%);
 }
-/* One colour for all four. These lines are the app's attention, not a taxonomy —
-   two of the findings are triggers and two are context, but a reader has no way
-   to know that, and the green pair only ever read as a lesser class of finding.
-   The distinction survives where it can actually be understood: the clavicle
-   stays green under the measured angle, and red is the deviation. */
-.rig__lead line { stroke: var(--fault); stroke-width: 1; stroke-dasharray: 3 4; }
-
-/* Type and nothing else — no chip, no border, no status dot. The sequence is
-   already showing what happened and the leader line is already pointing at it,
-   so a container around the words was one layer of packaging too many.
-
-   What that costs is the surface the text used to sit on, so legibility falls to
-   a drawn shadow instead: a tight one for edges against the sensor grid and a
-   wide soft one to darken whatever the label happens to cross. It carries no
-   colour of its own — the dashed leader keeps the fault/reading distinction.
-
-   Opacity and transform are written per frame from the sequence, so there is
-   deliberately no CSS transition here to fight them. */
-.rig__tag {
-  position: fixed; z-index: 4; margin: 0;
-  transform: translateY(calc(-50% + var(--ny, 10px)));
-  opacity: 0; visibility: hidden;
-  font-family: var(--mono); font-size: 12.5px; letter-spacing: .1em;
-  text-transform: uppercase; white-space: nowrap;
-  color: var(--on-lens);
-  text-shadow: 0 0 3px rgba(10,12,13,.95), 0 1px 16px rgba(10,12,13,.9);
+.finale .h2 {
+  margin-bottom: 26px;
 }
-.rig__tag[data-side="right"] { right: clamp(18px, 5vw, 82px); }
-.rig__tag[data-side="left"]  { left:  clamp(18px, 5vw, 82px); }
-.rig__tag[data-v="high"] { top: 33%; }
-.rig__tag[data-v="low"]  { top: 63%; }
-
-/* The drawn shoulder angle, in three separable inks.
-   The clavicle stays GREEN, because this is the app reading a number off the
-   body rather than flagging a fault — shoulder levelness is context it reports
-   and never a verdict it asserts. The reference horizontal is neutral: it is
-   where level would be. RED is reserved for the gap between them, which is the
-   only part that is actually the finding, and the only part that needs to read
-   from across the room. One hue, on the quantity, not on the measurements. */
-.rig__angle {
-  position: fixed; inset: 0; z-index: 3; width: 100%; height: 100%;
-  pointer-events: none;
+.price {
+  margin-top: 26px;
+  max-width: 34rem;
+  font-size: 0.95rem;
+  color: var(--ink-2);
 }
-/* No `opacity` here on purpose — JS writes the attribute per frame, and a CSS
-   property would outrank it and stop the annotation ever fading out. */
-.rig__angle-base { stroke: var(--on-lens); stroke-width: 1.25; stroke-dasharray: 6 5; }
-.rig__angle-seg { stroke: var(--signal); stroke-width: 2.5; stroke-linecap: round; }
-.rig__angle-arc {
-  fill: none; stroke: var(--fault); stroke-width: 2.25; stroke-linecap: round;
+.foot {
+  margin-top: 26px;
+  font-size: 12.5px;
+  color: var(--ink-2);
 }
-/* Faint by design: at ten degrees the arc alone is a short scratch, and the
-   filled sector is what makes the SIZE of the angle legible at a glance. It has
-   to stay quiet enough that it never competes with either line. */
-.rig__angle-wedge { fill: rgba(255,82,82,.17); }
-.rig__angle-lab {
-  fill: var(--fault); font-family: var(--mono); font-size: 15px; font-weight: 500;
-  letter-spacing: .03em; dominant-baseline: middle;
-  /* A drawn halo rather than a chip behind the text: it keeps the number
-     readable wherever it lands on the figure without adding a second shape. */
-  paint-order: stroke; stroke: rgba(10,12,13,.92); stroke-width: 4px;
-  stroke-linejoin: round;
+.foot__in {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+}
+.foot__mark {
+  font-weight: 700;
+  color: var(--ink);
 }
 
-/* The closing panel: glass over the standing figure, and the only element on the
-   stage that is centred rather than pushed to one side. */
-/* ── the post-set summary ──────────────────────────────────────────────────
-   One typographic block, two homes: floating in glass over the figure at the
-   end of the scrolled sequence, and sitting on the page under the stills for a
-   visitor who asked for no motion. Only the surface differs — the type does not,
-   because it is the same debrief and reads as the same artefact.
+/* ── narrow screens: the body above, the words below ───────────────────── */
 
-   Sized from the LONGEST line rather than from taste: at the panel's 520px the
-   copy sets to a measure just under 60 characters, which is inside the range
-   prose is comfortable at, and the whole block clears a 700px viewport with the
-   panel centred. That is the constraint that keeps the debrief short — the app's
-   real ones run to three paragraphs, and three would not fit over a figure. */
-.card-sum__k {
-  font-family: var(--mono); font-size: 10.5px; font-weight: 400;
-  letter-spacing: .14em; text-transform: uppercase;
-  margin: 0 0 16px;
-  padding-bottom: 12px;
-  /* The rule is what makes the label read as a heading on the artefact rather
-     than as the first line of it — with the label alone the eye ran straight
-     from "post-set summary" into "five reps" as one sentence. */
-  border-bottom: 1px solid rgba(233,236,236,.14);
-  color: var(--on-lens-2);
-}
-.card-sum__b {
-  margin: 0 0 13px;
-  font-size: 1.02rem; line-height: 1.62;
-  /* Not pure --on-lens: the second paragraph is the longer one and sits over a
-     moving figure, and full-strength white at this measure buzzes against it. */
-  color: rgba(233,236,236,.92);
-}
-.card-sum__b:last-of-type { margin-bottom: 20px; }
-
-/* The cues are the part a reader is meant to carry out of the debrief, so they
-   are set apart from the description rather than continuing it — numerals in the
-   mono the rest of the page uses for measured things, hung outside the text
-   column so the two lines align on their own left edge. */
-.card-sum__cues {
-  margin: 0; padding: 0; list-style: none;
-  counter-reset: cue;
-  display: grid; gap: 9px;
-}
-.card-sum__cues li {
-  counter-increment: cue;
-  position: relative; padding-left: 26px;
-  font-size: .95rem; line-height: 1.55;
-  color: var(--on-lens);
-}
-.card-sum__cues li::before {
-  content: counter(cue);
-  position: absolute; left: 0; top: .1em;
-  font-family: var(--mono); font-size: 11px;
-  color: var(--signal);
-}
-
-/* the floating one */
-.rig__card {
-  position: fixed; left: 50%; top: 50%; z-index: 4;
-  width: min(520px, calc(100vw - 44px));
-  transform: translate(-50%, calc(-50% + 20px));
-  opacity: 0; visibility: hidden;
-  padding: 26px clamp(22px, 4vw, 32px) 28px;
-  background: rgba(16,19,21,.58);
-  backdrop-filter: blur(18px) saturate(130%);
-  -webkit-backdrop-filter: blur(18px) saturate(130%);
-  border: 1px solid rgba(233,236,236,.16); border-radius: 14px;
-  color: var(--on-lens);
-}
-/* Every line starts displaced and is written into place by the paint loop. The
-   offset is the ONLY thing declared here — the amounts are scroll, not time, so
-   a transition on them would fight the scrub and lag the reader's own scrolling
-   by its own duration. */
-.rig__card .card-sum__k,
-.rig__card .card-sum__b,
-.rig__card .card-sum__cues { opacity: 0; transform: translateY(7px); }
-
-/* the static one */
-.rigfb__sum {
-  margin-top: clamp(40px, 5vw, 64px);
-  max-width: 620px;
-  padding: 26px clamp(22px, 4vw, 32px) 28px;
-  background: var(--lens); color: var(--on-lens);
-  border-radius: 14px;
-}
-
-/* ── the rig, with the motion taken out ────────────────────────────────── */
-.rigfb__list {
-  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: clamp(20px, 3vw, 38px);
-  list-style: none; padding: 0; margin: 0;
-}
-/* Measured, not flagged — matches the green the moving version uses, and stays
-   distinct from `.bone--fault`. */
-.rigfb__svg .bone--mark { stroke: var(--signal) !important; stroke-width: 3.4; }
-.guide__l--level { stroke: rgba(233,236,236,.5); stroke-dasharray: 5 5; }
-.rigfb__lens { overflow: hidden; }
-.rigfb__svg { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 2; }
-/* `.bones path` is dashed out by default and drawn in by the `is-armed` entrance
-   animation. These frames are still, so the dash has to be undone rather than
-   animated away — without this the limbs never appear at all. */
-.rigfb__svg .bones path { stroke-dasharray: none; stroke-dashoffset: 0; }
-.rigfb__cap { margin-top: 16px; color: var(--ink-2); font-size: .98rem; line-height: 1.55; }
-
-/* ── responsive ────────────────────────────────────────────────────────── */
-@media (max-width: 940px) {
-  .hero__grid { grid-template-columns: 1fr; gap: 48px; }
-  .hero__lens { max-width: 420px; }
-  .planes { grid-template-columns: 1fr; }
-  .planes__viz { max-width: 460px; }
-  .cards { grid-template-columns: 1fr; }
-
-  .rigfb__list { grid-template-columns: 1fr; }
-  /* No room for a side rail next to the figure, so the tags centre and stack up
-     from the bottom instead. They keep their high/low pairing, which is what
-     stops the two on rep 5 landing on top of each other. */
-  .rig__tag,
-  .rig__tag[data-side="right"],
-  .rig__tag[data-side="left"],
-  .rig__tag[data-v="high"],
-  .rig__tag[data-v="low"] {
-    left: 50%; right: auto; top: auto;
-    transform: translate(-50%, var(--ny, 10px));
-    max-width: calc(100vw - 28px); white-space: normal; text-align: center;
+@media (max-width: 820px), (max-aspect-ratio: 1/1) {
+  .hud__brand {
+    top: 14px;
+    font-size: 17px;
   }
-  .rig__tag[data-v="low"]  { bottom: 24px; }
-  .rig__tag[data-v="high"] { bottom: 74px; }
-
-  /* The panel is CENTRED and fixed, so it has no scroll of its own to overflow
-     into — anything taller than the viewport is simply lost off both ends. On a
-     narrow column the same words set to about ten more lines, so the type comes
-     down with the measure rather than the copy being cut: at 375x667, the
-     shortest phone still in circulation, this brings the block to roughly 530px
-     inside a 667px viewport. */
-  .rig__card { padding: 20px 22px 22px; }
-  .card-sum__b { font-size: .93rem; line-height: 1.55; margin-bottom: 11px; }
-  .card-sum__b:last-of-type { margin-bottom: 16px; }
-  .card-sum__cues li { font-size: .88rem; line-height: 1.5; padding-left: 22px; }
-  .card-sum__k { margin-bottom: 13px; padding-bottom: 10px; }
-}
-/* Landscape phones and short laptops: same problem as above arriving from the
-   other direction — the measure is fine and the height is not. */
-@media (max-height: 700px) and (min-width: 941px) {
-  .rig__card { padding: 20px 26px 22px; }
-  .card-sum__b { font-size: .95rem; line-height: 1.55; margin-bottom: 10px; }
-  .card-sum__b:last-of-type { margin-bottom: 16px; }
-  .card-sum__cues li { font-size: .9rem; }
-}
-@media (max-width: 720px) {
-  .masthead__nav { display: none; }
-  .masthead__in { justify-content: space-between; }
-  .phases { grid-template-columns: 1fr; }
-  .spec > div { grid-template-columns: 1fr; gap: 4px; }
-  .lede { max-width: none; }
-}
-@media (max-width: 480px) {
-  body { font-size: 16px; }
-  .signup__row .btn { flex: 1 1 100%; }
-}
-
-/* ── reduced motion ────────────────────────────────────────────────────── */
-/* Reduced motion = gentler, not zero. Opacity cross-fades survive because they
-   still bridge state changes; everything vestibular (travel, scale, blur,
-   parallax, the scan sweep) is removed outright. */
-@media (prefers-reduced-motion: reduce) {
-  html { scroll-behavior: auto; }
-  .ln > span { transform: none; filter: none; animation: none; }
-  .rise { opacity: 1; transform: none; animation: none; }
-  .js .reveal { opacity: 1; transform: none; transition: opacity 200ms ease; }
-  .js .h2 { clip-path: none; transform: none; transition: none; }
-  .rule { transform: scaleX(1); transition: none; }
-
-  .hero__lens .lens { animation: none; }
-  .hero__lens { transform: none !important; will-change: auto; }
-  .hero__lens .brk { animation: none; }
-  .lens__scan { display: none; }
-  .skel.is-armed .bones path { stroke-dashoffset: 0; animation: none; }
-  .skel.is-armed .joints circle { opacity: 1; transform: none; animation: none; }
-  .pings { display: none; }
-  .skel.is-armed .guide__l,
-  .skel.is-armed .guide__t,
-  .hero__lens .hud__tag,
-  .hero__lens .lens__count { animation: none; }
-
-  .checks li { transition-delay: 0ms !important; }
-  .planes__thumb { transition: none; }
-  .btn__arw, .btn:hover .btn__arw { transition: none; transform: none; }
-  .btn:active { transform: none; }
-  *, *::before, *::after { animation-duration: .01ms !important; }
-}
-
-/* Frostier chrome when the user has asked for less transparency. */
-@media (prefers-reduced-transparency: reduce) {
-  .masthead.is-stuck {
-    background: var(--paper);
-    backdrop-filter: none; -webkit-backdrop-filter: none;
-    border-bottom-color: var(--rule-soft);
+  .hud__try {
+    top: 10px;
+    padding: 9px 13px 8px;
   }
-  .masthead::after { display: none; }
+  .hud__index,
+  .hud__boot {
+    bottom: 14px;
+  }
+  .hud__sound {
+    bottom: 8px;
+  }
 
-  /* The closing panel is glass by design, but glass over a moving figure is
-     exactly the thing this query exists to switch off — it goes solid, and the
-     copy stays legible against whatever is behind it. */
-  /* The tags are bare type now and have nothing translucent to switch off; only
-     the closing panel is still glass. */
-  .rig__card {
-    background: var(--lens);
-    backdrop-filter: none; -webkit-backdrop-filter: none;
-    border-color: rgba(233,236,236,.24);
+  .copy,
+  .copy--left,
+  .copy--right,
+  .copy--hero,
+  .copy--narrow {
+    left: 12px;
+    right: 12px;
+    top: auto;
+    bottom: 46px;
+    width: auto;
+    transform: none;
+    padding: 16px 16px 18px;
+    background: var(--glass-2);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+  }
+  .stop--squat .copy,
+  .stop--afterSet .copy {
+    top: 60px;
+    bottom: auto;
+  }
+  .copy p,
+  .lede {
+    margin-top: 10px;
+    font-size: 0.95rem;
+  }
+  .h1 {
+    font-size: clamp(2.1rem, 9vw, 3rem);
+  }
+  .h2 {
+    font-size: clamp(1.6rem, 7vw, 2.2rem);
+  }
+  /* Room is short: the second paragraph of the squat and the explanation
+     beside the debrief stay for screen readers, and the debrief says it. */
+  .stop--squat .copy p + p,
+  .stop--afterSet .copy p:not(.fine) {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+  .readout {
+    display: none;
+  }
+  .picker {
+    left: 12px;
+    right: 12px;
+    bottom: 42px;
+    width: auto;
+  }
+  .picker__row {
+    flex-wrap: nowrap;
+    gap: 6px;
+  }
+  .picker__row .bracket {
+    flex: 1;
+    padding: 11px 6px 10px;
+    font-size: 10px;
+  }
+  /* The debrief is this stop's whole point on a phone: it is set small enough
+     to fit whole under the heading, rather than cut off at a max-height. */
+  .debrief {
+    left: 12px;
+    right: 12px;
+    top: auto;
+    bottom: 42px;
+    width: auto;
+    padding: 14px 16px 16px;
+    transform: none;
+  }
+  .debrief__p,
+  .debrief__cues {
+    margin-top: 8px;
+    font-size: 0.8rem;
+    line-height: 1.5;
+  }
+  .stop--afterSet .h2 {
+    font-size: 1.5rem;
+  }
+  .stop--afterSet .copy .fine {
+    font-size: 0.82rem !important;
+  }
+  .finale {
+    left: 12px;
+    right: 12px;
+    top: auto;
+    bottom: 42px;
+    width: auto;
+    transform: none;
+    padding: 16px 16px 18px;
+    background: var(--glass-2);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+  }
+  .price,
+  .foot {
+    margin-top: 14px;
+  }
+  .finale .h2 {
+    margin-bottom: 18px;
+  }
+}
+
+/* ── the still page: reduced motion, or no WebGL ───────────────────────── */
+
+.is-still [data-live-only] {
+  display: none !important;
+}
+.is-still .stop__frame {
+  position: relative;
+  display: grid;
+  gap: 32px;
+  padding: 110px var(--gut) 40px;
+  max-width: 1180px;
+  margin: 0 auto;
+}
+.is-still .copy,
+.is-still .debrief,
+.is-still .finale {
+  position: static;
+  width: auto;
+  max-width: 42rem;
+  transform: none;
+}
+.is-still .copy {
+  background: none;
+  padding: 0;
+}
+.is-still .stop--form .stop__frame {
+  min-height: 92vh;
+  align-items: center;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 26rem);
+}
+.is-still .still {
+  width: 100%;
+  height: auto;
+}
+.is-still .stop--afterSet .stop__frame {
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+  align-items: start;
+}
+.is-still .finale {
+  margin: 0 auto;
+  padding-bottom: 48px;
+}
+@media (max-width: 820px) {
+  .is-still .stop--form .stop__frame {
+    grid-template-columns: 1fr;
+  }
+  .is-still .still {
+    max-width: 22rem;
+    justify-self: center;
   }
 }

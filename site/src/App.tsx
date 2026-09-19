@@ -1,33 +1,25 @@
-import { Suspense, lazy, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react";
 
+import { Sfx } from "@/audio/sfx";
+import { Hud } from "@/components/Hud";
+import { TouchZone } from "@/components/TouchZone";
+import { useJourney } from "@/hooks/useJourney";
 import { useReducedMotion } from "@/hooks/useReducedMotion";
-import {
-  useLensParallax,
-  useRepCounter,
-  useScrollReveal,
-  useStickyMasthead,
-} from "@/hooks/useSiteMotion";
+import { onTick } from "@/hooks/ticker";
+import { detectTier, stepDown, type Tier } from "@/lib/quality";
+import { Journey } from "@/sections/Journey";
+import { store } from "@/stage/store";
 
-import { Masthead } from "@/sections/Masthead";
-import { Hero } from "@/sections/Hero";
-import { How } from "@/sections/How";
-import { Proof } from "@/sections/Proof";
-import { Planes } from "@/sections/Planes";
-import { Cost } from "@/sections/Cost";
-import { NextUp } from "@/sections/NextUp";
-import { Foot } from "@/sections/Foot";
-
-// Only one of these is ever fetched. Under reduced motion `SquatRig` — and with
-// it three.js — is never requested at all, which is the point: a bundle that was
+// Fetched only for the live page. Under reduced motion, or without WebGL, the
+// stage — and three.js with it — is never requested at all: a bundle that was
 // downloaded "just in case" is a bundle that can still be triggered.
-const SquatRig = lazy(() => import("@/components/SquatRig"));
-const RigFallback = lazy(() => import("@/components/RigFallback"));
+const Stage = lazy(() => import("@/stage/Stage"));
 
 /**
  * Checked before anything renders, so a machine that cannot run WebGL is never
- * given the placeholder lens in the hero. The runtime failure path — a context
- * lost after the fact, a driver that lies — is caught by the rig's own error
- * boundary, which calls back here and retires it.
+ * handed a page built around a canvas. The runtime failure path — a context
+ * lost after the fact, a driver that lies — is the stage's own boundary, which
+ * calls back here and retires it.
  */
 function supportsWebGL(): boolean {
   try {
@@ -41,13 +33,55 @@ function supportsWebGL(): boolean {
 export default function App() {
   const reduced = useReducedMotion();
   const [glOk, setGlOk] = useState(supportsWebGL);
-  const rig = !reduced && glOk;
+  const live = !reduced && glOk;
+  const [tier, setTier] = useState<Tier>(detectTier);
+  const sfx = useMemo(() => new Sfx(), []);
 
-  useStickyMasthead();
-  useScrollReveal(reduced);
-  // Both of these drive hero chrome that the rig replaces with its own.
-  useRepCounter(reduced || rig);
-  useLensParallax(reduced || rig);
+  useJourney(live);
+
+  // The page's two looks: the live one is a stack of fixed layers over the
+  // scene; the still one is ordinary, scrolling, normal-flow text.
+  useEffect(() => {
+    document.documentElement.classList.toggle("is-live", live);
+    document.documentElement.classList.toggle("is-still", !live);
+  }, [live]);
+
+  // Sound follows the scene: a tick per counted rep, a tone as a fault first
+  // lights up in view. (Silent until the reader turns it on.)
+  useEffect(() => {
+    if (!live) return;
+    let reps = store.reps;
+    let flash = store.faultFlash;
+    return onTick(() => {
+      if (store.reps !== reps) {
+        reps = store.reps;
+        sfx.tick();
+      }
+      if (store.faultFlash !== flash) {
+        flash = store.faultFlash;
+        sfx.fault();
+      }
+    });
+  }, [live, sfx]);
+
+  // Dev only: the look's tuning panel, hidden until `?tune` or P. lil-gui is a
+  // dev dependency and this branch is dropped from a production build.
+  useEffect(() => {
+    if (!import.meta.env.DEV || !live) return;
+    let dispose: (() => void) | undefined;
+    let cancelled = false;
+    void import("@/stage/tuningPanel").then(({ createTuningPanel }) => {
+      if (!cancelled) dispose = createTuningPanel();
+    });
+    return () => {
+      cancelled = true;
+      dispose?.();
+    };
+  }, [live]);
+
+  const onSwipe = useCallback((speed: number) => sfx.swish(speed), [sfx]);
+  const onFail = useCallback(() => setGlOk(false), []);
+  const onSlow = useCallback(() => setTier((t) => stepDown(t)), []);
 
   return (
     <>
@@ -55,21 +89,18 @@ export default function App() {
         Skip to content
       </a>
 
-      <Masthead />
-
-      <main id="main">
-        <Hero rig={rig} />
+      {live && (
         <Suspense fallback={null}>
-          {rig ? <SquatRig onFail={() => setGlOk(false)} /> : <RigFallback />}
+          <Stage tier={tier} onFail={onFail} onSlow={onSlow} />
         </Suspense>
-        <How />
-        <Proof />
-        <Planes three={rig} />
-        <Cost />
-        <NextUp />
-      </main>
+      )}
+      {live && <TouchZone onSwipe={onSwipe} />}
 
-      <Foot />
+      <Hud live={live} sfx={live ? sfx : undefined} />
+
+      <main id="main" className="journey">
+        <Journey live={live} />
+      </main>
     </>
   );
 }

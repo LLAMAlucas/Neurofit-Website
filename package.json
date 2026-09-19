@@ -12,7 +12,7 @@
     "site:dev": "vite site",
     "site:build": "tsc -p site/tsconfig.json --noEmit && vite build site",
     "site:typecheck": "tsc -p site/tsconfig.json --noEmit",
-    "site:check": "esbuild site/scripts/check_rig.ts --bundle --platform=node --format=esm | node --input-type=module",
+    "site:check": "npm --prefix site run check",
     "check:squat": "esbuild scripts/check_squat.ts --bundle --platform=node --format=esm | node --input-type=module",
     "test:midset": "esbuild scripts/test_midset.ts --bundle --platform=node --format=esm | node --input-type=module"
   },
