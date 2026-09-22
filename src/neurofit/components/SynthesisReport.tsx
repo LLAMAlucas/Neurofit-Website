@@ -16,6 +16,7 @@ function setSummaryText(s: SetSummary): string {
   if (s.attempts === 0) {
     return `Set ${s.index} · ${s.orientation} — No reps recorded — check camera position and try again`;
   }
+  if (s.tallyText) return s.tallyText;
   if (s.orientation === "side") {
     const missed = s.depthMissed.length ? ` — missed: rep ${compactRanges(s.depthMissed)}` : "";
     return `Set ${s.index} · side — ${s.counted}/${s.attempts} reps hit depth${missed}`;

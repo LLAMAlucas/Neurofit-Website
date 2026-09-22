@@ -9,9 +9,9 @@
  *
  * Angle convention (see config.ORIENTATION): facingAngleDeg ∈ [0,180],
  *   90° = front-on, 0°/180° = side-on (either profile).
- * The score→degrees map is anchored so the StakeFit facing bands line up with
- * the spec's ±15° tolerance zones: score 0.6 → 15° off front (front-zone edge),
- * score 0.3 → 15° off side (side-zone edge).
+ * The score→degrees map is anchored on config.ORIENTATION.SCORE so its EDGE values
+ * line up with the spec's ±15° tolerance zones (FRONT_EDGE → 15° off front,
+ * SIDE_EDGE → 15° off side). The score is in aspect space (pose/facing.ts).
  *
  * "ambiguous" is a HARD boundary: callers must not fault-check, and must prompt
  * the user to reposition (no soft/low-confidence degrade).
@@ -54,11 +54,13 @@ function scoreToDeviation(s: number): number {
   return Math.min(90, Math.max(0, dev));
 }
 
+/** `aspect` = frame W/H — the facing score is aspect-corrected (see pose/facing.ts). */
 export function estimateOrientation(
   landmarks: readonly Landmark[],
   minVis: number,
+  aspect: number,
 ): OrientationEstimate {
-  const facing = computeFacing(landmarks, minVis);
+  const facing = computeFacing(landmarks, minVis, aspect);
   if (!facing) {
     return { orientation: "ambiguous", facingAngleDeg: null, score: null, readable: false, label: "Step into frame" };
   }

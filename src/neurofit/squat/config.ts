@@ -7,6 +7,19 @@
  * Every value here is a STARTING POINT to tune against real footage (MediaPipe
  * coordinates are normalized, `z` is relative depth — not metric). Do NOT treat
  * any number as final.
+ *
+ * ANGLES ARE IN ASPECT SPACE (since 2026-09-18). MediaPipe divides x by the frame width and y by
+ * the height, so any angle computed on raw coordinates depends on the camera: on 16:9 a
+ * horizontal component shrinks to 0.56×, on a portrait phone it grows to 1.78×. Every angle is
+ * now computed on [x·W/H, y] (squat/frame.ts, pose/facing.ts), which is the real image angle.
+ * Every recorded session (18 of them, 2026-06-27 → 2026-09-05) came from a 1280×720 camera, so
+ * the angle thresholds tuned on that footage were converted with θ' = atan(tan θ · 16/9) — they
+ * make the same decisions on that camera and the same PHYSICAL decisions on every other one.
+ * Converted: ORIENTATION.SCORE, forwardLeanWarnDeg, SEVERITY.forwardLean, TRIGGERS.lean. Kept
+ * as real degrees (geometric intent, never tuned on footage): levelness, the plausibility bound,
+ * camera roll. Untouched: every y-only or x/x-ratio threshold (depth, valgus, shift, velocity) —
+ * those quantities were aspect-invariant all along. Degrees quoted from runs before this date in
+ * comments or CLAUDE.md are the old normalized-space numbers; convert with the formula above.
  */
 import type { MetricId } from "./metrics";
 
@@ -44,8 +57,14 @@ export const ORIENTATION = {
    * ≤ SIDE_FULL = dead side (90°); EDGE values bound the ±15° zones. If front
    * won't lock standing, lower FRONT_FULL/FRONT_EDGE; if it locks too eagerly
    * off-axis, raise them. (Watch the live "facing" readout in the set bar.)
+   *
+   * Aspect space (2026-09-18): these were tuned as 0.5 / 0.3 / 0.2 / 0.1 on raw normalized
+   * coordinates from the 1280×720 camera. The standing torso is vertical, so the aspect-space
+   * score is exactly 16/9 × the old one — the anchors below are the old ones × 16/9, and lock
+   * identically on that camera. On a portrait phone the old anchors read every body 3.2× wider
+   * than on 16:9, which pushed side views toward "ambiguous".
    */
-  SCORE: { FRONT_FULL: 0.5, FRONT_EDGE: 0.3, SIDE_EDGE: 0.2, SIDE_FULL: 0.1 },
+  SCORE: { FRONT_FULL: 0.89, FRONT_EDGE: 0.53, SIDE_EDGE: 0.36, SIDE_FULL: 0.18 },
 } as const;
 
 export interface SquatConfig {
@@ -164,7 +183,13 @@ export const SQUAT: SquatConfig = {
   // check effectively never fired (a deep squat naturally leans ~30°), so genuine
   // good-morning / excessive forward lean went unflagged. 35° warns on clearly
   // excessive lean while a balanced squat (~25–30°) stays clear. Tune on footage.
-  forwardLeanWarnDeg: 35,
+  // (All three numbers above are normalized-space degrees on the 16:9 camera.)
+  // → 51 with the aspect fix: atan(tan 35° · 16/9) = 51.2°. In real degrees the developer's
+  // balanced squat is ~40–46° (the old ~25–30°) — consistent with bodyweight parallel squats in
+  // the literature (trunk flexion ROM 34.7° ± 11.5°, PMC11307177), which the normalized number
+  // was not. The mapping is monotonic, so it flags the same recorded reps 35° did (replayed on
+  // the 07-31/08-02/08-27/09-05 runs: no rep peak falls between 51° and the exact 51.2°).
+  forwardLeanWarnDeg: 51,
 
   // knee-width / ankle-width below this → knees caving in. 0.8 fired on straight
   // legs (user feedback: warns when standing/legs straight), so nudged 0.8 → 0.72
@@ -203,6 +228,10 @@ export const SQUAT: SquatConfig = {
     barPath: 15,
   },
 
+  // Real degrees since the 2026-09-18 aspect fix (kept: geometric intent, never tuned). In
+  // normalized space on 16:9 a tilt read ~1.8× too large, the "aspect-distorted jitter" that
+  // got levelness demoted — the correction shrinks it but the metric stays context-only
+  // until it is validated.
   levelnessWarnDeg: 8,
 };
 
@@ -305,16 +334,26 @@ export const TRIGGERS = {
 
   /** T1 forward lean — baseline-relative, judged across the rep (see depthGate). */
   lean: {
-    /** Fire when lean exceeds the reps-1–2 baseline by this many degrees… */
-    baselineDeltaDeg: 10,
+    /**
+     * Fire when lean exceeds the reps-1–2 baseline by this many (real) degrees…
+     *
+     * 10 → 12 with the aspect fix (2026-09-18). A delta does not convert exactly — the old
+     * normalized +10° equals +10.2° to +13.4° real depending on the baseline (median +11.4° over
+     * the recorded baselines, which sit at 30–41° real). 12 is inside that span, and replaying
+     * every eligible side rep from the 07-31, 08-02 and 08-27 runs reproduces every decision:
+     * the reps that stayed silent peaked at most +7.3° over baseline (normal and fast-drop
+     * reps), the ones that fired at least +21.8° (the smallest deliberate lean).
+     */
+    baselineDeltaDeg: 12,
     /**
      * …while past this depth_ratio. Widened 0.5 → 0.3 (2026-07-31 eval run): lifters lean
      * THROUGHOUT the rep, not only in the deep half, and at 0.5 the shallow part of a
      * genuinely leaning rep was discarded. Safe on measured data — normal reps peaked at
-     * 19.9–23.5° in the shallow phase (threshold ~34–36°) while the deliberate-lean reps
-     * were already at 41.9–66.1° there. The feared "early hip hinge reads as lean" false
-     * positive did not appear. `maxLeanDeep` is a MAX over this window and deep lean ≥
-     * shallow lean on every normal rep, so the baseline is unchanged by the widening.
+     * 32.8–37.7° real in the shallow phase (then 19.9–23.5° normalized; threshold ~50–52° real)
+     * while the deliberate-lean reps were already at 57.9–76.0° real there (41.9–66.1°). The
+     * feared "early hip hinge reads as lean" false positive did not appear. `maxLeanDeep` is a
+     * MAX over this window and deep lean ≥ shallow lean on every normal rep, so the baseline
+     * is unchanged by the widening.
      */
     depthGate: 0.3,
   },
@@ -485,15 +524,17 @@ export const SEVERITY: Partial<Record<MetricId, SeverityBand>> = {
   // ≥0 is good, <0 warns, and >DEPTH_CRITICAL_TOLERANCE short of target is critical.
   // This is a tolerance relative to whichever preset is active (spec task 2).
   depth: { critical: -DEPTH_CRITICAL_TOLERANCE, worseWhen: "below" },
-  // Trunk lean from vertical (deg). warn > 35; critical past 50 (lowered with the
-  // warn threshold so a severe forward lean still escalates to the AI coach).
-  forwardLean: { critical: 50, worseWhen: "above" },
+  // Trunk lean from vertical (real deg). warn > 51; critical past 65 — the old normalized
+  // 35/50 through the aspect fix (atan(tan 50° · 16/9) = 64.7°). Lowered with the warn threshold
+  // so a severe forward lean still escalates.
+  forwardLean: { critical: 65, worseWhen: "above" },
   // Velocity ratio vs rolling average. warn < 0.80; critical at a ~35% loss.
   velocity: { critical: 0.65, worseWhen: "below" },
   // Knee/ankle width ratio. warn < 0.80; critical when knees cave hard (raised
   // from 0.45 alongside the more-sensitive warn threshold).
   kneeValgus: { critical: 0.6, worseWhen: "below" },
-  // Shoulder-vs-hip line tilt (deg). warn > 8; critical past 16.
+  // Shoulder-vs-hip line tilt (real deg since the aspect fix; the numbers are geometric intent,
+  // never tuned, so they were kept). warn > 8; critical past 16. Demoted to context-only.
   shoulderHipLevelness: { critical: 16, worseWhen: "above" },
   // Eccentric control: value = number of sub-signals (descent spike + bounce).
   // Both firing (2) = critical; one (1) = warning.

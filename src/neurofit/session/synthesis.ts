@@ -22,7 +22,8 @@ import type { RepRecord, SetRecord, TriggerKind, WorkoutSession } from "./types"
 export type SynthStatus = "ok" | "warn" | "not-assessed" | "unavailable";
 
 export interface MetricSynthesis {
-  metric: MetricId;
+  /** Metric id in the session's exercise vocabulary (squat MetricId or PushupMetricId). */
+  metric: string;
   label: string;
   status: SynthStatus;
   /** Set numbers in which this metric was observable and run. */
@@ -42,6 +43,9 @@ export interface SetSummary {
   attempts: number;
   /** Side sets only: attempt numbers that did NOT reach the depth target. */
   depthMissed: number[];
+  /** Pre-rendered tally line for exercises whose counting isn't depth-only (push-ups also gate
+   *  on lockout). Absent for squats, which keep the original "reps hit depth" wording. */
+  tallyText?: string;
   /** v2 post-set-tier findings for this set (levelness, symmetry, hip shift,
    *  loaded butt wink, repeated depth misses) — never surfaced mid-set. */
   postSetNotes: string[];
@@ -52,7 +56,7 @@ export interface CoachingCue {
   set: number;
   rep: number;
   triggers: TriggerKind[];
-  faultChecks: MetricId[];
+  faultChecks: string[];
   cue: string;
 }
 
@@ -62,7 +66,7 @@ export interface WorkoutReport {
   orientationsUsed: Orientation[];
   metrics: MetricSynthesis[];
   /** Metrics never assessed this session (no set of the required orientation). */
-  notAssessed: MetricId[];
+  notAssessed: string[];
   /** Per-set rep tallies (depth-met / attempts), including zero-attempt sets. */
   setSummaries: SetSummary[];
   /** Every AI coaching cue fired during the workout, in order (spec §4). */

@@ -24,7 +24,7 @@ import {
   type SquatConfig,
   type VelocityBand,
 } from "./config";
-import type { SquatFrame, Pt } from "./frame";
+import type { SquatFrame } from "./frame";
 import {
   METRICS,
   METRIC_ORDER,
@@ -95,7 +95,10 @@ const PLAUSIBLE = {
   valgusRatio: { lo: 0.15, hi: 3.0 },
   hipShiftMax: 1.5, // |hipMid−ankleMid|/hipWidth; >1 = falling over, 1.5 unreachable
   kneeSymmetryMax: 2.5, // |L−R dev|/hipWidth; each dev ≲1 hip-width → diff can't exceed ~2
-  levelnessDiffMaxDeg: 60, // |shoulderTilt−hipTilt|; real collapse ≲25°, per-field catches only gross flips
+  // |shoulderTilt−hipTilt|; real collapse ≲25°, per-field catches only gross flips. REAL degrees
+  // since the 2026-09-18 aspect fix — a physical bound, so it kept its number (on the 16:9
+  // camera the old normalized 60° had meant ~44° real, still far past any real collapse).
+  levelnessDiffMaxDeg: 60,
 } as const;
 
 /** Evaluate every metric for one rep, gated by orientation + per-check angle. */
@@ -255,14 +258,12 @@ function valgusCheck({ frame, cfg }: RepEvalInput): MetricResult {
 }
 
 function levelnessCheck({ frame, cfg }: RepEvalInput): MetricResult {
-  if (!frame.leftShoulder || !frame.rightShoulder || !frame.leftHip || !frame.rightHip) {
+  // Differential (computed in frame.ts, aspect space) cancels camera roll — both lines share
+  // it — leaving genuine torso lateral tilt / one side dropping relative to the pelvis.
+  const diff = frame.levelnessDiffDeg;
+  if (diff === null) {
     return res("shoulderHipLevelness", "unknown", "Can't see both shoulders + hips");
   }
-  const shoulderTilt = lineTiltDeg(frame.leftShoulder, frame.rightShoulder);
-  const hipTilt = lineTiltDeg(frame.leftHip, frame.rightHip);
-  // Differential cancels camera roll (both lines share it) — leaving genuine
-  // torso lateral tilt / one side dropping relative to the pelvis.
-  const diff = Math.abs(shoulderTilt - hipTilt);
   if (diff > PLAUSIBLE.levelnessDiffMaxDeg) {
     return res("shoulderHipLevelness", "unknown", "Implausible shoulder/hip tilt — landmark error");
   }
@@ -346,10 +347,7 @@ export function landmarkImplausible(frame: SquatFrame, orientation: Orientation)
     const asym = Math.abs((frame.leftKnee[0] - frame.leftAnkle[0]) - (frame.rightKnee[0] - frame.rightAnkle[0])) / frame.hipWidth;
     if (asym > PLAUSIBLE.kneeSymmetryMax) return true;
   }
-  if (frame.leftShoulder && frame.rightShoulder && frame.leftHip && frame.rightHip) {
-    const diff = Math.abs(lineTiltDeg(frame.leftShoulder, frame.rightShoulder) - lineTiltDeg(frame.leftHip, frame.rightHip));
-    if (diff > PLAUSIBLE.levelnessDiffMaxDeg) return true;
-  }
+  if (frame.levelnessDiffDeg !== null && frame.levelnessDiffDeg > PLAUSIBLE.levelnessDiffMaxDeg) return true;
   return false;
 }
 
@@ -366,14 +364,6 @@ function buttWinkCheck(): MetricResult {
  *  computed in useWorkout and injected, so the per-frame slot is a placeholder. */
 function eccentricPlaceholder(): MetricResult {
   return res("eccentricControl", "not-checked", "Evaluated per rep from the descent");
-}
-
-/** Tilt of the line from a→b off horizontal, in degrees [-90,90]. */
-function lineTiltDeg(a: Pt, b: Pt): number {
-  let deg = (Math.atan2(b[1] - a[1], b[0] - a[0]) * 180) / Math.PI;
-  if (deg > 90) deg -= 180;
-  if (deg < -90) deg += 180;
-  return deg;
 }
 
 function res(metric: MetricId, status: CheckStatus, message: string, value: number | null = null): MetricResult {

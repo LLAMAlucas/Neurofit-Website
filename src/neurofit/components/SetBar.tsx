@@ -10,6 +10,10 @@ const ORIENT_HINT: Record<"front" | "side", string> = {
   front: "Face the camera square-on, whole body in frame.",
   side: "Turn side-on to the camera, whole body in profile.",
 };
+const PUSHUP_ORIENT_HINT: Record<"front" | "side", string> = {
+  front: "Camera on the floor in front of your head — get into the top of a push-up.",
+  side: "Camera on the floor side-on, whole body in profile — get into the top of a push-up.",
+};
 
 export function SetBar({ workout }: { workout: Workout }) {
   const { phase, setIndex, targetOrientation, aligned, lockProgress, countdown, orientationLabel, repositionNeeded } = workout;
@@ -58,7 +62,9 @@ export function SetBar({ workout }: { workout: Workout }) {
     return (
       <div className="setbar__align">
         <span className={"setbar__msg" + (aligned ? " setbar__msg--go" : "")}>
-          {aligned ? "Hold it…" : `${ORIENT_HINT[targetOrientation]} (${orientationLabel})`}
+          {aligned
+            ? "Hold it…"
+            : `${(workout.exercise === "pushup" ? PUSHUP_ORIENT_HINT : ORIENT_HINT)[targetOrientation]} (${orientationLabel})`}
         </span>
         <div className="setbar__lock">
           <div className="setbar__lock-fill" style={{ width: Math.round(lockProgress * 100) + "%" }} />

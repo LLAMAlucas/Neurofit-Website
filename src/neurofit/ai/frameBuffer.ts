@@ -12,6 +12,11 @@ export type RepPhase = "standing" | "descent" | "bottom" | "ascent";
 /** The 8 landmark indices the squat metrics use. */
 export const BUFFER_LANDMARK_INDICES = [11, 12, 23, 24, 25, 26, 27, 28] as const;
 
+/** Push-up buffer: head (nose, ears), both arm chains, hips and legs. A SEPARATE list rather than
+ *  extending the squat's — the squat's front-view visibility check reads every buffered key, so
+ *  adding arms there would silently change its reliability flag. */
+export const PUSHUP_BUFFER_LANDMARK_INDICES = [0, 7, 8, 11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28] as const;
+
 export interface LandmarkPoint {
   x: number;
   y: number;

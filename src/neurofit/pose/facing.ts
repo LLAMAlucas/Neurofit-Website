@@ -10,21 +10,27 @@
  * z-difference is only relative depth in MediaPipe, so classification keys off
  * the score. The orientation layer (vision/orientation.ts) maps the score to a
  * facing angle and applies the tunable bands in config.ORIENTATION.
+ *
+ * ASPECT SPACE: MediaPipe normalizes x by the frame WIDTH and y by the HEIGHT, so a
+ * horizontal distance over a mostly-vertical one is scaled by H/W — 0.56× on the 16:9
+ * camera the anchors were tuned on, 1.78× on a portrait phone. The score is computed on
+ * [x·W/H, y] so the same body gives the same score on every camera.
  */
 import { getLandmark, type Landmark } from "./landmarks";
 
 export interface FacingMetrics {
-  /** Shoulder-width / torso-length ratio. ~0 side-on, large head-on. */
+  /** Shoulder-width / torso-length ratio in aspect space. ~0 side-on, large head-on. */
   score: number;
 }
 
 /**
  * Compute the facing score, or null if the shoulders/hips aren't confidently
- * visible (can't trust an orientation read without them).
+ * visible (can't trust an orientation read without them). `aspect` = frame W/H.
  */
 export function computeFacing(
   landmarks: readonly Landmark[],
   minVisibility: number,
+  aspect: number,
 ): FacingMetrics | null {
   const ls = getLandmark(landmarks, "LEFT_SHOULDER");
   const rs = getLandmark(landmarks, "RIGHT_SHOULDER");
@@ -38,12 +44,12 @@ export function computeFacing(
     return null;
   }
 
-  const shoulderXSep = Math.abs(ls.x - rs.x);
+  const shoulderXSep = Math.abs(ls.x - rs.x) * aspect;
   const smx = (ls.x + rs.x) / 2;
   const smy = (ls.y + rs.y) / 2;
   const hmx = (lh.x + rh.x) / 2;
   const hmy = (lh.y + rh.y) / 2;
-  const torsoLen = Math.hypot(smx - hmx, smy - hmy);
+  const torsoLen = Math.hypot((smx - hmx) * aspect, smy - hmy);
   if (torsoLen < 1e-6) return null;
 
   return { score: shoulderXSep / torsoLen };

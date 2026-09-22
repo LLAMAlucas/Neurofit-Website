@@ -12,6 +12,15 @@
  *
  * Every field is nullable: a check whose joints aren't visible is SKIPPED
  * ("unknown"), never failed — occlusion ≠ bad form.
+ *
+ * TWO SPACES, on purpose (2026-09-18). MediaPipe normalizes x by the frame WIDTH and y by the
+ * HEIGHT, which bends every ANGLE by the camera's aspect ratio: on the 16:9 camera all the
+ * recorded sessions used, a true 45° trunk lean read 29°; on a portrait phone it reads 61°. So
+ * every angle here is computed on [x·W/H, y] (aspect space), where it is the real image angle.
+ * The POINTS and SPANS stay normalized: everything else built from them is either y-only (depth
+ * gap, depth ratio, hip travel, descent speed) or an x/x ratio (valgus, stance, hip shift, knee
+ * symmetry), and both are already aspect-invariant — so those numbers, and every threshold on
+ * them, are unchanged by the fix.
  */
 import { calculateAngle } from "../pose/angle";
 import { getLandmark, type Landmark } from "../pose/landmarks";
@@ -38,8 +47,13 @@ export interface SquatFrame {
   rightKnee: Pt | null;
   leftAnkle: Pt | null;
   rightAnkle: Pt | null;
-  /** Trunk lean from image vertical (deg, 0 = upright). */
+  /** Trunk lean from image vertical (deg, 0 = upright), aspect space. */
   torsoLean: number | null;
+  /**
+   * |shoulder-line tilt − hip-line tilt| (deg), aspect space; needs both shoulders AND both
+   * hips. The differential cancels camera roll. Frontal-plane context (levelness is demoted).
+   */
+  levelnessDiffDeg: number | null;
   /**
    * Shin inclination from vertical (deg) — knee→ankle vector, visible legs
    * averaged. The v2 ANKLE PROXY: more forward shin ≈ more dorsiflexion; a shin
@@ -83,15 +97,23 @@ function span(a: Landmark | null, b: Landmark | null): number | null {
   return a && b ? Math.abs(a.x - b.x) : null;
 }
 
-function kneeAngle(hip: Landmark | null, knee: Landmark | null, ankle: Landmark | null): number | null {
+function kneeAngle(hip: Landmark | null, knee: Landmark | null, ankle: Landmark | null, aspect: number): number | null {
   if (!hip || !knee || !ankle) return null;
-  return calculateAngle([hip.x, hip.y], [knee.x, knee.y], [ankle.x, ankle.y]);
+  return calculateAngle([hip.x * aspect, hip.y], [knee.x * aspect, knee.y], [ankle.x * aspect, ankle.y]);
 }
 
-/** Angle (deg) of the a→b segment from image vertical; null if either missing. */
-function segAngleFromVertical(a: Landmark | null, b: Landmark | null): number | null {
+/** Angle (deg) of the a→b segment from image vertical, aspect space; null if either missing. */
+function segAngleFromVertical(a: Landmark | null, b: Landmark | null, aspect: number): number | null {
   if (!a || !b) return null;
-  return (Math.atan2(Math.abs(b.x - a.x), Math.abs(b.y - a.y)) * 180) / Math.PI;
+  return (Math.atan2(Math.abs(b.x - a.x) * aspect, Math.abs(b.y - a.y)) * 180) / Math.PI;
+}
+
+/** Tilt of the line a→b off horizontal, aspect space, in degrees [-90,90]. */
+export function lineTiltDeg(a: Landmark, b: Landmark, aspect: number): number {
+  let deg = (Math.atan2(b.y - a.y, (b.x - a.x) * aspect) * 180) / Math.PI;
+  if (deg > 90) deg -= 180;
+  if (deg < -90) deg += 180;
+  return deg;
 }
 
 /** Average the non-null angles, or null if none. */
@@ -100,10 +122,12 @@ function avgAngleFromVertical(angles: (number | null)[]): number | null {
   return present.length ? present.reduce((s, a) => s + a, 0) / present.length : null;
 }
 
+/** `aspect` = W/H of the frame MediaPipe normalized against (CoachCamera passes it). */
 export function computeSquatFrame(
   landmarks: readonly Landmark[],
   minVis: number,
   t: number,
+  aspect: number,
 ): SquatFrame {
   const ls = vis(landmarks, "LEFT_SHOULDER", minVis);
   const rs = vis(landmarks, "RIGHT_SHOULDER", minVis);
@@ -116,33 +140,31 @@ export function computeSquatFrame(
   const lf = vis(landmarks, "LEFT_FOOT_INDEX", minVis);
   const rf = vis(landmarks, "RIGHT_FOOT_INDEX", minVis);
 
-  const leftKneeAngle = kneeAngle(lh, lk, la);
-  const rightKneeAngle = kneeAngle(rh, rk, ra);
+  const leftKneeAngle = kneeAngle(lh, lk, la, aspect);
+  const rightKneeAngle = kneeAngle(rh, rk, ra, aspect);
   const sides = [leftKneeAngle, rightKneeAngle].filter((a): a is number => a !== null);
   const kneeA = sides.length ? sides.reduce((s, a) => s + a, 0) / sides.length : null;
 
   const shoulderMid = center(ls, rs);
   const hipMid = center(lh, rh);
 
-  // NOTE (v2 coordinate caveat): these angles are computed in raw normalized
-  // space like the existing torsoLean, so they share its aspect-ratio sensitivity.
-  // They're used as RELATIVE proxies/context, not absolute thresholds. A global
-  // pixel/world-space pass for all angle math is tracked separately.
   let torsoLean: number | null = null;
   if (shoulderMid && hipMid) {
-    const dx = shoulderMid[0] - hipMid[0];
+    const dx = (shoulderMid[0] - hipMid[0]) * aspect;
     const dy = shoulderMid[1] - hipMid[1];
     torsoLean = (Math.atan2(Math.abs(dx), Math.abs(dy)) * 180) / Math.PI;
   }
 
   const shinAngleDeg = avgAngleFromVertical([
-    segAngleFromVertical(lk, la),
-    segAngleFromVertical(rk, ra),
+    segAngleFromVertical(lk, la, aspect),
+    segAngleFromVertical(rk, ra, aspect),
   ]);
   const footAngleDeg = avgAngleFromVertical([
-    segAngleFromVertical(la, lf),
-    segAngleFromVertical(ra, rf),
+    segAngleFromVertical(la, lf, aspect),
+    segAngleFromVertical(ra, rf, aspect),
   ]);
+  const levelnessDiffDeg =
+    ls && rs && lh && rh ? Math.abs(lineTiltDeg(ls, rs, aspect) - lineTiltDeg(lh, rh, aspect)) : null;
 
   return {
     t,
@@ -162,6 +184,7 @@ export function computeSquatFrame(
     leftAnkle: asPt(la),
     rightAnkle: asPt(ra),
     torsoLean,
+    levelnessDiffDeg,
     shinAngleDeg,
     footAngleDeg,
     shoulderWidth: span(ls, rs),

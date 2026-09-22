@@ -22,6 +22,11 @@ import type { MetricId, Orientation } from "../squat/metrics";
 import type { RepMetrics } from "../squat/checks";
 import type { LandmarkSample, TriggerTag } from "../ai/frameBuffer";
 import type { GeminiCallObservation } from "../ai/gemini";
+import { PUSHUP, PUSHUP_DEPTH_PRESETS, PUSHUP_TRIGGERS } from "../pushup/config";
+import { buildPushupTriggerTable, type PushupEvalContext } from "../pushup/evalTable";
+import type { PushupRepRecord } from "../pushup/session";
+
+type ExerciseId = "squat" | "pushup";
 
 /** MASTER TOGGLE — on in `vite dev`; force on elsewhere with VITE_EVAL_LOG=1.
  *  Guarded so importing this module under plain Node (the esbuild unit tests, where
@@ -77,8 +82,10 @@ export interface RepEvalRecord {
   };
   /** Every raw value the trigger layer read this rep — logged even below threshold. */
   measured: Record<string, number | null>;
-  /** The per-user baselines in effect for this set (paired into triggers too). */
-  baselines: { trunk_angle_deg: number | null; descent_velocity: number | null; lateral_shift: number | null; visibility: number | null };
+  /** The per-user baselines in effect for this set (paired into triggers too). Squat keys:
+   *  trunk_angle_deg / descent_velocity / lateral_shift / visibility; push-up keys:
+   *  body_line_deg / descent_velocity / shoulder_tilt_diff_deg / visibility. */
+  baselines: Record<string, number | null>;
   /** Did this rep pass the depth-past-target gate to CALIBRATE the baselines? false =
    *  settle/hinge/cut-short, excluded (still counts). Makes baseline poisoning visible. */
   fed_baseline: boolean;
@@ -135,7 +142,9 @@ export interface GeminiCallLog {
 
 interface SessionMeta {
   startedAtMs: number;
-  mode: SquatMode | null;
+  exercise: ExerciseId;
+  /** Squat: bodyweight | loaded. Push-up: the variant (toes | knees). */
+  mode: string | null;
   depthPreset: string | null;
   model: string | null;
   geminiEnabled: boolean;
@@ -179,17 +188,70 @@ const SCRIPT_PROTOCOL_V2: Record<string, string> = {
   "5:1": "normal", "5:2": "normal", "5:3": "normal", "5:4": "normal", "5:5": "normal", "5:6": "normal",
 };
 
+/**
+ * Push-up ground truth — PUSHUP_TEST_PROTOCOL.md is the human-readable version the lifter follows.
+ * CHANGE BOTH TOGETHER: a drift between them silently mislabels the whole dataset. Toes variant,
+ * "Upper arm parallel" preset. Every attempt counts toward the index, including a missed-lockout
+ * pulse (S4 rep 4), which is why S4 has 7 entries.
+ */
+export const PUSHUP_SCRIPT_PROTOCOL_V1: Record<string, string> = {
+  // S1 side — P1 in both directions at two sizes + P2 descent spike.
+  "1:1": "baseline clean (full depth + lockout)", "1:2": "baseline clean (full depth + lockout)", "1:3": "normal",
+  "1:4": "FAST DROP (P2 descent spike)", "1:5": "moderate hip sag THROUGHOUT (P1)", "1:6": "MAX hip sag THROUGHOUT (P1 absolute)",
+  "1:7": "hips PIKED high THROUGHOUT (P1 pike)",
+  // S2 front — flare + uneven press at constant hand width.
+  "2:1": "baseline elbows ~45° (tucked)", "2:2": "baseline elbows ~45° (tucked)", "2:3": "normal",
+  "2:4": "elbows FLARED to a T THROUGHOUT (P7)", "2:5": "normal", "2:6": "one side dips — uneven press THROUGHOUT (P11)",
+  // S3 side — baseline-starvation control: warm-up fails hygiene, so the RELATIVE body-line check and
+  // descent control are disarmed all set. Rep 5's sag must NOT fire relatively; it fires only if it
+  // crosses the absolute 25° limit.
+  "3:1": "baseline SHALLOW (stop at elbows ~120°)", "3:2": "baseline SHALLOW (stop at elbows ~120°)", "3:3": "normal",
+  "3:4": "normal", "3:5": "big hip sag (EXPECT relative silent; absolute only if ≥25°)", "3:6": "normal",
+  // S4 front — counting gates: a missed-lockout pulse (becomes its own attempt) + a shallow rep.
+  "4:1": "baseline clean", "4:2": "baseline clean", "4:3": "normal",
+  "4:4": "NO LOCKOUT — rise halfway, sink back down (lockout_miss attempt)", "4:5": "press-out after the pulse (normal)",
+  "4:6": "deliberately shallow (front depth gate)", "4:7": "normal",
+  // S5 side — clean false-positive control; ends the workout (no post-set by design).
+  "5:1": "normal", "5:2": "normal", "5:3": "normal", "5:4": "normal", "5:5": "normal", "5:6": "normal",
+};
+
 /** Ground-truth `intended_fault` per rep, pre-filled from the test script. */
 const scriptMap: Record<string, string> = { ...SCRIPT_PROTOCOL_V2 };
+/** Which protocol `scriptMap` currently holds — swapped only when the exercise changes, so an
+ *  ad-hoc setScript() survives a Reset exactly as it did before push-ups existed. */
+let scriptExercise: ExerciseId = "squat";
 
 function stamp(): string {
   return new Date().toISOString().replace(/[:.]/g, "-");
 }
 
-function thresholdSnapshot(): Record<string, unknown> {
+function thresholdSnapshot(exercise: ExerciseId): Record<string, unknown> {
+  if (exercise === "pushup") {
+    return {
+      baselineReps: PUSHUP_TRIGGERS.baselineReps,
+      persistMs: PUSHUP_TRIGGERS.persistMs,
+      repDownRatio: PUSHUP.repDownRatio,
+      lockoutRatio: PUSHUP.lockoutRatio,
+      partialRiseRatio: PUSHUP.partialRiseRatio,
+      redescentRatio: PUSHUP.redescentRatio,
+      baselineMinDepthRatio: PUSHUP.baselineMinDepthRatio,
+      bodyLine: PUSHUP_TRIGGERS.bodyLine,
+      eccentric_descentSpikeMult: PUSHUP_TRIGGERS.eccentric.descentSpikeMult,
+      elbowFlare: PUSHUP_TRIGGERS.elbowFlare,
+      shoulderLevel: PUSHUP_TRIGGERS.shoulderLevel,
+      velocityCollapse_ofBaseline: TRIGGERS.velocityCollapse.ofBaseline,
+      depth_presets: Object.fromEntries(Object.values(PUSHUP_DEPTH_PRESETS).map((p) => [p.id, { upperArmDeg: p.targetUpperArmDeg, frontRatio: p.frontRatioTarget }])),
+      gemini_thinking: GEMINI.thinking,
+    };
+  }
   return {
+    // Logs exported before 2026-09-18 carry every angle (trunk, shin, levelness, facing score)
+    // in raw normalized space; from then on they are aspect-corrected (squat/frame.ts). Convert
+    // an old lean with atan(tan θ · W/H) — every recorded session was 1280×720.
+    angle_space: "aspect (x·W/H, y)",
     baselineReps: TRIGGERS.baselineReps,
     persistMs: TRIGGERS.persistMs,
+    forwardLean_warnDeg: SQUAT.forwardLeanWarnDeg,
     lean_baselineDeltaDeg: TRIGGERS.lean.baselineDeltaDeg,
     lean_depthGate: TRIGGERS.lean.depthGate,
     eccentric_descentSpikeMult: TRIGGERS.eccentric.descentSpikeMult,
@@ -207,9 +269,15 @@ function thresholdSnapshot(): Record<string, unknown> {
 }
 
 /** Begin (or restart) an audit session. Clears prior records. */
-export function startSession(meta: { mode: SquatMode; depthPreset: string; model: string; geminiEnabled: boolean }): void {
+export function startSession(meta: { mode: string; depthPreset: string; model: string; geminiEnabled: boolean; exercise?: ExerciseId }): void {
   if (!DEV_EVAL_LOG) return;
-  session = { startedAtMs: Date.now(), ...meta, thresholds: thresholdSnapshot() };
+  const exercise = meta.exercise ?? "squat";
+  if (exercise !== scriptExercise) {
+    for (const k of Object.keys(scriptMap)) delete scriptMap[k];
+    Object.assign(scriptMap, exercise === "pushup" ? PUSHUP_SCRIPT_PROTOCOL_V1 : SCRIPT_PROTOCOL_V2);
+    scriptExercise = exercise;
+  }
+  session = { startedAtMs: Date.now(), ...meta, exercise, thresholds: thresholdSnapshot(exercise) };
   reps = [];
   geminiCalls = [];
   sessionStamp = stamp();
@@ -460,8 +528,9 @@ export function buildTriggerTable(i: RepEvalInputs, scored: boolean): TriggerEnt
     });
   }
 
-  // Shoulder/hip levelness — DEMOTED to context-only (aspect-distorted normalized-space
-  // proxy that fired on jitter against the 8° gate). Kept as a non-firing context row so
+  // Shoulder/hip levelness — DEMOTED to context-only (it fired on jitter against the 8° gate
+  // while it was computed in normalized space, which inflated tilts ~1.8× on 16:9; aspect-
+  // corrected since 2026-09-18 but still unvalidated). Kept as a non-firing context row so
   // the measured value stays visible in the audit; never eligible, never fired, never a
   // near-miss/false-negative. Raw value is also in the per-rep metrics dump.
   {
@@ -566,6 +635,80 @@ export function logRep(i: RepEvalInputs): void {
   });
 }
 
+export interface PushupRepEvalInputs {
+  set: number;
+  record: PushupRepRecord;
+  ctx: PushupEvalContext;
+  trackingDegraded: boolean;
+  landmarks: LandmarkSample[];
+  frames: { timestampMs: number; repPhase: string; triggerTags: TriggerTag[]; jpegBase64: string }[];
+}
+
+/** Assemble and store one push-up rep's evaluation record (same JSON shape as squat reps). */
+export function logPushupRep(i: PushupRepEvalInputs): void {
+  if (!DEV_EVAL_LOG) return;
+  const r = i.record;
+  const scored = r.index > PUSHUP_TRIGGERS.baselineReps;
+  const triggers = buildPushupTriggerTable(r, i.ctx);
+  const flagged = triggers.some((t) => t.eligible && (t.fired || t.near_miss));
+  const measured: Record<string, number | null> = {
+    depth_ratio: r.depthRatio,
+    top_ratio: r.topRatio,
+    upper_arm_angle_deg: r.upperArmAngleDeg,
+    bottom_elbow_angle_deg: r.bottomElbowAngleDeg,
+    top_elbow_angle_deg: r.topElbowAngleDeg,
+    body_line_peak_deg: r.bodyLinePeakDeg,
+    body_line_median_deg: r.bodyLineMedianDeg,
+    head_drop_deg: r.headDropDeg,
+    hand_offset_deg: r.handOffsetDeg,
+    flare_peak: r.flarePeak,
+    tilt_peak_deg: r.tiltPeakDeg,
+    hand_width_ratio: r.handWidthRatio,
+    descent_velocity: r.descentSpeed,
+    descent_multiple: r.descentMultiple,
+    reversal_ms: r.reversalMs,
+    ascent_velocity: r.velocity?.velocity ?? null,
+    velocity_ratio_vs_baseline: r.velocity?.ratio ?? null,
+  };
+  reps.push({
+    set: i.set,
+    rep: r.index,
+    view: i.ctx.view,
+    baseline_rep: !scored,
+    scored_rep: scored,
+    intended_fault: scriptMap[`${i.set}:${r.index}`] ?? "UNSET",
+    counted: r.counted,
+    phase_timestamps: {
+      descent_start_ms: Math.round(r.timing.startMs),
+      bottom_ms: Math.round(r.timing.bottomMs),
+      ascent_end_ms: Math.round(r.timing.endMs),
+      eccentric_ms: Math.round(r.timing.eccentricMs),
+      concentric_ms: Math.round(r.timing.concentricMs),
+    },
+    measured,
+    baselines: {
+      body_line_deg: r.baselines.bodyLineDeg,
+      descent_velocity: r.baselines.descentVelocity,
+      shoulder_tilt_diff_deg: r.baselines.shoulderTiltDiffDeg,
+      visibility: r.baselines.visibility,
+    },
+    fed_baseline: r.fedBaseline,
+    triggers,
+    tracking_quality: { degraded: i.trackingDegraded, min_visibility: r.minVisibility, unreliable: r.landmarkUnreliable },
+    flagged,
+    landmarks: flagged
+      ? i.landmarks.length
+        ? i.landmarks
+        : { MISSING: true, reason: "flagged rep but landmark buffer window was empty (evicted / occluded)" }
+      : { omitted: true, reason: "clean rep — landmarks omitted to keep file size down" },
+    frames: flagged
+      ? i.frames.length
+        ? i.frames
+        : { MISSING: true, reason: "flagged rep but no buffered frames for this rep (ring evicted)" }
+      : { omitted: true, reason: "clean rep — frames omitted to keep file size down" },
+  });
+}
+
 /** Map + store one Gemini call observation from ai/gemini's `setGeminiCallObserver`.
  *  set/rep are recovered from the payload (mid-set: rep_context; post-set: set_summary). */
 export function logGeminiObservation(obs: GeminiCallObservation): void {
@@ -616,9 +759,13 @@ function validate(): { rep_issues: number; gemini_issues: number } {
     // A scored rep should have SOME measured signal for its view.
     if (r.scored_rep) {
       const viewKeys =
-        r.view === "side"
-          ? ["peak_trunk_angle_deg", "depth_gap", "descent_velocity"]
-          : ["valgus_ratio", "knee_symmetry", "hip_lateral_drift"];
+        session?.exercise === "pushup"
+          ? r.view === "side"
+            ? ["body_line_peak_deg", "upper_arm_angle_deg", "descent_velocity"]
+            : ["flare_peak", "tilt_peak_deg", "depth_ratio"]
+          : r.view === "side"
+            ? ["peak_trunk_angle_deg", "depth_gap", "descent_velocity"]
+            : ["valgus_ratio", "knee_symmetry", "hip_lateral_drift"];
       if (viewKeys.every((k) => r.measured[k] === null || r.measured[k] === undefined)) {
         missing.push("measured (all view metrics null — check tracking_quality)");
       }
@@ -680,9 +827,13 @@ function firedMark(t: TriggerEntry): string {
 
 function repMetricsRow(r: RepEvalRecord): string {
   const key =
-    r.view === "side"
-      ? `trunk ${f(r.measured.peak_trunk_angle_deg, 1)}° / gap ${f(r.measured.depth_gap, 3)}`
-      : `valgus ${f(r.measured.valgus_ratio, 2)} / sym ${f(r.measured.knee_symmetry, 3)}`;
+    session?.exercise === "pushup"
+      ? r.view === "side"
+        ? `line ${f(r.measured.body_line_peak_deg, 1)}° / arm ${f(r.measured.upper_arm_angle_deg, 1)}° / top ${f(r.measured.top_ratio, 3)}`
+        : `flare ${f(r.measured.flare_peak, 2)} / tilt ${f(r.measured.tilt_peak_deg, 1)}° / depth ${f(r.measured.depth_ratio, 2)}`
+      : r.view === "side"
+        ? `trunk ${f(r.measured.peak_trunk_angle_deg, 1)}° / gap ${f(r.measured.depth_gap, 3)}`
+        : `valgus ${f(r.measured.valgus_ratio, 2)} / sym ${f(r.measured.knee_symmetry, 3)}`;
   const tqBase = r.tracking_quality.degraded ? `DEGRADED(${f(r.tracking_quality.min_visibility, 2)})` : `ok(${f(r.tracking_quality.min_visibility, 2)})`;
   const tq = r.tracking_quality.unreliable ? `${tqBase} UNRELIABLE` : tqBase;
   const firedIds = r.triggers.filter((t) => t.eligible && t.fired).map((t) => t.id).join(", ") || "—";
@@ -726,7 +877,7 @@ function toMarkdown(validation: ReturnType<typeof validate>): string {
   lines.push("");
   if (session) {
     lines.push(
-      `Started ${new Date(session.startedAtMs).toISOString()} · mode **${session.mode}** · depth **${session.depthPreset}** · model **${session.model}** · gemini ${session.geminiEnabled ? "enabled" : "disabled"}`,
+      `Started ${new Date(session.startedAtMs).toISOString()} · exercise **${session.exercise}** · ${session.exercise === "pushup" ? "variant" : "mode"} **${session.mode}** · depth **${session.depthPreset}** · model **${session.model}** · gemini ${session.geminiEnabled ? "enabled" : "disabled"}`,
     );
     lines.push("");
   }
@@ -746,7 +897,9 @@ function toMarkdown(validation: ReturnType<typeof validate>): string {
     // Resolved per-set baselines (as of the last rep) — a garbage value here (e.g. lean 58°)
     // flags baseline poisoning at a glance. "no-base" reps above did NOT feed these.
     const bl = setReps[setReps.length - 1]?.baselines;
-    if (bl) lines.push(`_Baselines (resolved): lean ${f(bl.trunk_angle_deg, 1)}° · descent ${f(bl.descent_velocity, 3)} · shift ${f(bl.lateral_shift, 3)} · vis ${f(bl.visibility, 2)}_`);
+    if (bl && session?.exercise === "pushup") {
+      lines.push(`_Baselines (resolved): body line ${f(bl.body_line_deg, 1)}° · descent ${f(bl.descent_velocity, 3)} · tilt ${f(bl.shoulder_tilt_diff_deg, 1)}° · vis ${f(bl.visibility, 2)}_`);
+    } else if (bl) lines.push(`_Baselines (resolved): lean ${f(bl.trunk_angle_deg, 1)}° · descent ${f(bl.descent_velocity, 3)} · shift ${f(bl.lateral_shift, 3)} · vis ${f(bl.visibility, 2)}_`);
     lines.push("");
     lines.push("### Triggers checked (eligible; incl. did-NOT-fire)");
     for (const r of setReps) {

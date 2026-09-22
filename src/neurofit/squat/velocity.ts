@@ -60,7 +60,8 @@ export class VelocityTracker {
   private eccentrics: number[] = [];
 
   constructor(
-    private readonly cfg: SquatConfig,
+    // Only the two velocity knobs are read, so any exercise config carrying them works (push-ups).
+    private readonly cfg: Pick<SquatConfig, "velocityWarmupReps" | "velocityDropFraction">,
     /** The orientation of the set this tracker scores (reset per set). */
     private readonly orientation: Orientation = "side",
   ) {}

@@ -49,10 +49,12 @@ export function CoachCamera({
   kneeWarn = false,
   debugGap = null,
   debugValgus = null,
+  debugTags = [],
   captureRef,
   children,
 }: {
-  onResult: (result: PoseLandmarkerResult) => void;
+  /** `frameSize` is the image the landmarks were normalized against (push-ups aspect-correct). */
+  onResult: (result: PoseLandmarkerResult, frameSize: { width: number; height: number }) => void;
   /** Apply the exposure correction to the detection feed (the before/after toggle). */
   corrected: boolean;
   /** Reports the current (raw-image) exposure decision for the UI readout. */
@@ -63,6 +65,8 @@ export function CoachCamera({
   debugGap?: number | null;
   /** Live knee/ankle ratio drawn near the knees for valgus calibration (null = hide). */
   debugValgus?: number | null;
+  /** Generic calibration readouts drawn beside a landmark index (push-ups). */
+  debugTags?: { text: string; landmark: number }[];
   /** Parent-owned slot for grabbing a JPEG frame (for the Gemini critique). */
   captureRef: React.MutableRefObject<CaptureFn | null>;
   /** Overlay layer rendered above the feed (countdown / reposition prompts). */
@@ -89,6 +93,8 @@ export function CoachCamera({
   debugGapRef.current = debugGap;
   const debugValgusRef = useRef(debugValgus);
   debugValgusRef.current = debugValgus;
+  const debugTagsRef = useRef(debugTags);
+  debugTagsRef.current = debugTags;
 
   const decisionRef = useRef<ExposureDecision>({
     quality: "good",
@@ -252,9 +258,9 @@ export function CoachCamera({
 
           const result = landmarker.detectForVideo(proc, now);
           detCountRef.current += 1;
-          drawCoachPose(overlayCtx, result, kneeWarnRef.current, debugGapRef.current, debugValgusRef.current);
+          drawCoachPose(overlayCtx, result, kneeWarnRef.current, debugGapRef.current, debugValgusRef.current, debugTagsRef.current);
           setShoulderHipFrameSize(proc.width, proc.height); // debug-only, inert when off
-          onResultRef.current(result);
+          onResultRef.current(result, { width: proc.width, height: proc.height });
         }
       }
       rafRef.current = requestAnimationFrame(tick);
@@ -307,6 +313,10 @@ export function CoachCamera({
 
 // --- Overlay drawing (fault-aware skeleton) ---------------------------------
 const VIS_THRESHOLD = 0.5;
+// The marketing site's palette: --hot for what the camera measured, --fault for what it caught.
+const SKELETON = "rgba(230, 242, 251, 0.85)";
+const JOINT = "#e6f2fb";
+const FAULT = "#ff2b2b";
 const KNEE_INDICES = new Set([POSE_LANDMARK_INDEX.LEFT_KNEE, POSE_LANDMARK_INDEX.RIGHT_KNEE]);
 const { LEFT_HIP: HIP_L, RIGHT_HIP: HIP_R, LEFT_KNEE: KNEE_L, RIGHT_KNEE: KNEE_R } = POSE_LANDMARK_INDEX;
 
@@ -320,20 +330,21 @@ function drawCoachPose(
   kneeWarn: boolean,
   debugGap: number | null,
   debugValgus: number | null,
+  debugTags: { text: string; landmark: number }[],
 ): void {
   const { width, height } = ctx.canvas;
   ctx.clearRect(0, 0, width, height);
   if (!result) return;
 
   for (const landmarks of result.landmarks) {
-    ctx.strokeStyle = "#ffffff";
+    ctx.strokeStyle = SKELETON;
     ctx.lineWidth = 2;
     for (const { start, end } of PoseLandmarker.POSE_CONNECTIONS) {
       const a = landmarks[start];
       const b = landmarks[end];
       if (!visible(a) || !visible(b)) continue;
       const kneeEdge = KNEE_INDICES.has(start) || KNEE_INDICES.has(end);
-      ctx.strokeStyle = kneeWarn && kneeEdge ? "#ff5252" : "#ffffff";
+      ctx.strokeStyle = kneeWarn && kneeEdge ? FAULT : SKELETON;
       ctx.beginPath();
       ctx.moveTo(a.x * width, a.y * height);
       ctx.lineTo(b.x * width, b.y * height);
@@ -341,7 +352,7 @@ function drawCoachPose(
     }
     landmarks.forEach((lm, i) => {
       if (!visible(lm)) return;
-      ctx.fillStyle = kneeWarn && KNEE_INDICES.has(i) ? "#ff5252" : "#00e676";
+      ctx.fillStyle = kneeWarn && KNEE_INDICES.has(i) ? FAULT : JOINT;
       ctx.beginPath();
       ctx.arc(lm.x * width, lm.y * height, 3, 0, Math.PI * 2);
       ctx.fill();
@@ -355,6 +366,10 @@ function drawCoachPose(
     if (debugValgus !== null) {
       const p = jointMid(landmarks, KNEE_L, KNEE_R, width, height);
       if (p) drawTag(ctx, `valgus ${debugValgus.toFixed(2)}`, p[0], p[1], "#ffd166");
+    }
+    for (const tag of debugTags) {
+      const lm = landmarks[tag.landmark];
+      if (visible(lm)) drawTag(ctx, tag.text, lm.x * width, lm.y * height, "#9ad0ff");
     }
   }
 }
@@ -383,7 +398,7 @@ function drawTag(ctx: CanvasRenderingContext2D, text: string, px: number, py: nu
   ctx.save();
   ctx.translate(px, py);
   ctx.scale(-1, 1);
-  ctx.font = "bold 20px system-ui, sans-serif";
+  ctx.font = '500 18px "DM Mono", ui-monospace, monospace';
   ctx.textBaseline = "middle";
   ctx.textAlign = "left";
   ctx.lineJoin = "round";

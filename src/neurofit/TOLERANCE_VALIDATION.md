@@ -72,7 +72,9 @@ numbers; zero-attempt active sets are excluded from totals and shown as an advis
 leans ~30° from vertical — so excessive forward lean went unflagged. Still the same
 geometry (shoulder-mid→hip-mid angle from image vertical, side-only); watch for
 false positives on naturally lower-bar/leaning lifters and raise back toward 40° if
-it nags.
+it nags. (Those are normalized-space degrees on the 16:9 camera. Since the 2026-09-18
+aspect fix the same thresholds are **51°** warn / **65°** critical in real degrees, and
+"raise back toward 40°" means toward ~56° real.)
 
 **Front-detection threshold (orientation lock):** the facing-score anchors live in
 `ORIENTATION.SCORE` (config). They are tuned for **full-body squat framing**
@@ -104,7 +106,7 @@ these can be trusted — ideally not on the developer. Prime candidates:
 
 | Trigger | Threshold | Notes |
 |---|---|---|
-| T1 forward lean | baseline + **10°** past depth_ratio **0.3**, 150ms | baseline-relative, per set. Gate widened from 0.5 (2026-07-31): normal reps peak at 19.9–23.5° in the shallow phase vs a ~35° threshold, so the shallow half is safe to judge |
+| T1 forward lean | baseline + **12°** (real degrees) past depth_ratio **0.3**, 150ms | baseline-relative, per set. Gate widened from 0.5 (2026-07-31): normal reps peak at 32.8–37.7° real (19.9–23.5° normalized) in the shallow phase vs a ~51° threshold, so the shallow half is safe to judge. Was +10° normalized until the 2026-09-18 aspect fix; +12° reproduces every recorded decision |
 | T2 eccentric | descent **2.0×** baseline · bounce **≤300ms** reversal **and rep reached depth** | 1.5× fired on normal reps whenever the warm-up was slower than the working set. 150 ms was provably unreachable (measured range 268.7–1301.5 ms); the depth gate stops the raise from converting a dead signal into a quarter-squat false positive. **Bounce still has zero true positives** |
 | T6 velocity collapse | **<60%** of rolling baseline | context only, never a cue |
 | T7 valgus | below `valgusRatioWarn` past depth_ratio **0.15**, 150ms | stance-confounded. Gate widened from 0.30 (2026-07-31) after T7 fired 0 times in 30 reps incl. two deliberate max caves — the cave was worst during the ASCENT, below the old gate |
@@ -112,10 +114,14 @@ these can be trusted — ideally not on the developer. Prime candidates:
 | Butt wink | bodyweight peak-lean-depth **0.7** (context) · loaded early-onset depth **<0.5** | |
 | Excessive depth (loaded) | bottom depth_ratio **>0.95** | loaded only |
 
-All are milliseconds/ratios (adaptive frame rate). The `shinAngleDeg`/`footAngleDeg`
-proxies and per-side symmetry are computed in **raw normalized space** (like
-`torsoLean`) — a known aspect-ratio caveat; they're relative context, not absolute
-thresholds. A global pixel/world-space angle pass is a separate deferred item.
+All are milliseconds/ratios (adaptive frame rate). Every ANGLE — `torsoLean`,
+`shinAngleDeg`/`footAngleDeg`, knee angle, levelness, the facing score, camera roll — is
+computed in **aspect space** `[x·W/H, y]` since 2026-09-18, so it is the real image angle on
+any camera. Before that they were raw normalized space, where the same squat read ~19° of lean
+on the 16:9 calibration camera and ~48° on a portrait phone. Degrees quoted from runs before
+that date are normalized-space numbers: convert with `atan(tan θ · 16/9)` (every recorded
+session was 1280×720). Ratios and y-only quantities (valgus, stance, shift, symmetry, depth)
+were aspect-invariant all along and are unchanged.
 
 ## To validate against real footage (manual)
 

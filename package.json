@@ -14,6 +14,7 @@
     "site:typecheck": "tsc -p site/tsconfig.json --noEmit",
     "site:check": "npm --prefix site run check",
     "check:squat": "esbuild scripts/check_squat.ts --bundle --platform=node --format=esm | node --input-type=module",
+    "check:pushup": "esbuild scripts/check_pushup.ts --bundle --platform=node --format=esm | node --input-type=module",
     "test:midset": "esbuild scripts/test_midset.ts --bundle --platform=node --format=esm | node --input-type=module"
   },
   "dependencies": {

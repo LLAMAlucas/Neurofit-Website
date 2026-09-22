@@ -13,7 +13,11 @@
  * fires the post-WORKOUT call instead), so it never generates a post-set.
  */
 import type { PostSetReview as PostSetReviewState, SetReviewStage } from "../hooks/useWorkout";
-import type { SetRecord } from "../session/types";
+/** The only fields the overlay reads — satisfied by both squat and push-up set records. */
+interface ReviewedSet {
+  orientation: string;
+  reps: { counted: boolean }[];
+}
 
 export function PostSetReview({
   stage,
@@ -26,7 +30,7 @@ export function PostSetReview({
 }: {
   stage: SetReviewStage;
   setIndex: number | null;
-  set: SetRecord | undefined;
+  set: ReviewedSet | undefined;
   review: PostSetReviewState | undefined;
   onNextSet: () => void;
   onEndWorkout: () => void;

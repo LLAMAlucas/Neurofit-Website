@@ -1,19 +1,22 @@
 /**
- * Workout controller — alternating-orientation squat sets.
+ * Workout controller — alternating-orientation squat and push-up sets.
  * ----------------------------------------------------------------------------
  * Drives the whole session: detect the camera orientation per set, lock when it
  * matches the set's target (front/side, alternating), run reps with the full
  * orientation-gated metric set, fire the velocity-triggered Gemini critique, and
  * on finish hand the structured session to the synthesis layer.
  *
- * Per-frame math is in the pure modules (squat/, vision/, session/); this hook
+ * Per-frame math is in the pure modules (squat/, pushup/, vision/, session/); this hook
  * is the only React-aware piece. State is pushed ~10×/sec off a timer.
+ *
+ * Push-ups run through the pure per-set engine in pushup/session.ts; the squat keeps its original
+ * inline path below, untouched. The exercise is fixed for a workout — changing it resets.
  */
 import { useEffect, useRef, useState } from "react";
 import type { PoseLandmarkerResult } from "@mediapipe/tasks-vision";
 import { MIN_VISIBILITY, type Landmark } from "../pose/landmarks";
 import { SQUAT, ORIENTATION, DEPTH_PRESETS, TRIGGERS, GEMINI, type DepthPreset, type SquatMode } from "../squat/config";
-import { LandmarkBuffer, ImageBuffer, BUFFER_LANDMARK_INDICES, type RepPhase, type ImageFrame } from "../ai/frameBuffer";
+import { LandmarkBuffer, ImageBuffer, BUFFER_LANDMARK_INDICES, PUSHUP_BUFFER_LANDMARK_INDICES, type RepPhase, type ImageFrame } from "../ai/frameBuffer";
 import { computeSquatFrame, type SquatFrame } from "../squat/frame";
 import { SquatRepTracker, type SquatRep } from "../squat/repCounter";
 import { VelocityTracker, type VelocitySample } from "../squat/velocity";
@@ -58,16 +61,26 @@ import {
 import { CoachingCoordinator, type CoachingBatch } from "../ai/coaching";
 import type { RepCoaching, RepRecord, SetRecord } from "../session/types";
 import { synthesize, type WorkoutReport } from "../session/synthesis";
+import { squatFaultTrends, velocityDegradationPerSet } from "../session/faultTrends";
 import { logShoulderHipFrame, downloadShoulderHipCsv } from "../debug/shoulderHipLog";
 import {
   DEV_EVAL_LOG,
   startSession as startEvalSession,
   logRep as logEvalRep,
   logGeminiObservation,
+  logPushupRep,
   downloadEvalLog,
 } from "../debug/evalLog";
 import { quota, recordWorkout, startUsageSession } from "../usage/usageStore";
 import { quotaMessage } from "../usage/ledger";
+import type { ExerciseId } from "../session/types";
+import { PUSHUP, PUSHUP_DEPTH_PRESETS, type PushupDepthPreset, type PushupVariant } from "../pushup/config";
+import { computePushupFrame, NearSideSelector, type PushupFrame } from "../pushup/frame";
+import type { PushupMetricId, PushupRepMetrics } from "../pushup/metrics";
+import { estimatePushupOrientation } from "../pushup/orientation";
+import { PushupSetSession, type PushupFrameEvents, type PushupSetRecord } from "../pushup/session";
+import { buildPushupPostSetData, buildPushupPostWorkoutData } from "../pushup/payload";
+import { synthesizePushup } from "../pushup/synthesis";
 
 export type WorkoutPhase = "positioning" | "countdown" | "active" | "set-review" | "finished";
 
@@ -189,10 +202,24 @@ export interface WorkoutLive {
   reviewSetIndex: number | null;
   /** During phase "set-review", which stage: end-of-set "choice" or requested "post-set". */
   reviewStage: SetReviewStage;
+
+  /** The exercise this workout is for. */
+  exercise: ExerciseId;
+  /** The counting landmarks are readable (squat: knee angle; push-up: shoulder + wrist). */
+  readable: boolean;
+  /** Push-up live FORM CHECKS (null on squat workouts, which use liveMetrics). */
+  pushupLiveMetrics: PushupRepMetrics | null;
+  /** Completed push-up sets (squat sets stay in completedSets). */
+  completedPushupSets: PushupSetRecord[];
+  /** Why the last attempt didn't count — shown while missedDepthFlash is true. */
+  missedFlashText: string;
+  /** Push-up live calibration readouts drawn beside a landmark (empty for squats). */
+  debugTags: { text: string; landmark: number }[];
 }
 
 export interface Workout extends WorkoutLive {
-  onResult: (result: PoseLandmarkerResult) => void;
+  /** `frameSize` = the image MediaPipe normalized against (push-up geometry is aspect-corrected). */
+  onResult: (result: PoseLandmarkerResult, frameSize?: { width: number; height: number }) => void;
   endSet: () => void;
   /** "Next set" from the end-of-set choice: fire the post-set analysis (the ONLY path that
    *  fires it) and move to the post-set stage. Does NOT start the next set — newSet() does. */
@@ -215,7 +242,20 @@ function alternate(o: Orientation): Orientation {
   return o === "side" ? "front" : "side";
 }
 
-export function useWorkout(captureFrame: () => string | null, depthPreset: DepthPreset, mode: SquatMode): Workout {
+export interface ExerciseSettings {
+  exercise: ExerciseId;
+  pushupDepthPreset: PushupDepthPreset;
+  pushupVariant: PushupVariant;
+}
+
+const DEFAULT_EXERCISE_SETTINGS: ExerciseSettings = { exercise: "squat", pushupDepthPreset: "parallel", pushupVariant: "toes" };
+
+export function useWorkout(
+  captureFrame: () => string | null,
+  depthPreset: DepthPreset,
+  mode: SquatMode,
+  exerciseSettings: ExerciseSettings = DEFAULT_EXERCISE_SETTINGS,
+): Workout {
   const captureRef = useRef(captureFrame);
   captureRef.current = captureFrame;
   // Live mirror of the selected depth target so the once-created frame closures
@@ -225,6 +265,15 @@ export function useWorkout(captureFrame: () => string | null, depthPreset: Depth
   // Live mirror of the training mode (bodyweight | loaded) for the same reason.
   const modeRef = useRef(mode);
   modeRef.current = mode;
+  // Exercise + push-up settings, mirrored for the same reason. The push-up engine captures the
+  // preset and variant when a set's trackers are built, so a Settings change applies from the next
+  // set; changing the EXERCISE resets the workout (see the effect below `reset`).
+  const exerciseRef = useRef<ExerciseId>(exerciseSettings.exercise);
+  exerciseRef.current = exerciseSettings.exercise;
+  const pushupPresetRef = useRef<PushupDepthPreset>(exerciseSettings.pushupDepthPreset);
+  pushupPresetRef.current = exerciseSettings.pushupDepthPreset;
+  const pushupVariantRef = useRef<PushupVariant>(exerciseSettings.pushupVariant);
+  pushupVariantRef.current = exerciseSettings.pushupVariant;
 
   const phaseRef = useRef<WorkoutPhase>("positioning");
   const setIndexRef = useRef(1);
@@ -312,6 +361,22 @@ export function useWorkout(captureFrame: () => string | null, depthPreset: Depth
   /** Per-frame metric evaluations of the rep in progress (worst-of at completion). */
   const repFramesRef = useRef<RepMetrics[]>([]);
 
+  // --- Push-up engine state (the squat refs above stay squat-only) -----------------------
+  /** Per-set push-up engine; rebuilt in newSetTrackers alongside the squat trackers. */
+  const pushupSessionRef = useRef<PushupSetSession | null>(null);
+  const pushupFrameRef = useRef<PushupFrame | null>(null);
+  const pushupSetsRef = useRef<PushupSetRecord[]>([]);
+  const nearSideRef = useRef(new NearSideSelector());
+  /** Lifter is in a plank — the push-up lock requires it (standing in view never starts a set). */
+  const inPlankRef = useRef(false);
+  /** W/H of the frame MediaPipe normalized against; every angle (squat and push-up) is
+   *  aspect-corrected with it. 16/9 until the first frame reports its size (the ideal
+   *  getUserMedia asks for, and the camera every recorded session used). */
+  const aspectRef = useRef(16 / 9);
+  const missedFlashTextRef = useRef("Depth not met — no count");
+  /** Separate coordinator so squat trigger batches keep their MetricId typing untouched. */
+  const pushupCoordinatorRef = useRef(new CoachingCoordinator<PushupMetricId>(PUSHUP.aiDedupWindowSec));
+
   /** Coordinates the velocity + fault-spike triggers and the 500 ms dedup window. */
   const coordinatorRef = useRef(new CoachingCoordinator(SQUAT.aiDedupWindowSec));
   /** AI cues keyed `${setIndex}:${repIndex}`, attached to the rep record at set end. */
@@ -360,6 +425,12 @@ export function useWorkout(captureFrame: () => string | null, depthPreset: Depth
       postSetReviews: {},
       reviewSetIndex: null,
       reviewStage: "choice",
+      exercise: exerciseRef.current,
+      readable: false,
+      pushupLiveMetrics: null,
+      completedPushupSets: [],
+      missedFlashText: missedFlashTextRef.current,
+      debugTags: [],
     };
   }
 
@@ -385,6 +456,15 @@ export function useWorkout(captureFrame: () => string | null, depthPreset: Depth
     triggerMomentRef.current = new Map();
     postSetFrameArchiveRef.current = { baseline: [], faults: new Map() };
     resetRepTriggers();
+    // Push-up per-set engine (built for every set; only fed frames on push-up workouts).
+    pushupSessionRef.current = new PushupSetSession({
+      setIndex: setIndexRef.current,
+      orientation,
+      depthPreset: pushupPresetRef.current,
+      variant: pushupVariantRef.current,
+      getLandmarkWindow: (startMs, endMs) => landmarkBufferRef.current.getWindow(startMs, endMs),
+    });
+    pushupCoordinatorRef.current.resetSet();
   }
 
   /** Reset the per-rep v2 trigger state (called when a rep arms). */
@@ -477,25 +557,65 @@ export function useWorkout(captureFrame: () => string | null, depthPreset: Depth
     archiveFaultFrame(triggerTs, faultType, severity);
   }
 
+  /** Push-up counterpart of fireCoaching: tag + archive the onset frame of EVERY fault in the batch,
+   *  each from the moment the session recorded for it. All push-up severities are higher-is-worse,
+   *  which is also tagMoreSevere's rule for fault types outside the squat's metric map. */
+  function firePushupCoaching(batch: CoachingBatch<PushupMetricId>): void {
+    const session = pushupSessionRef.current;
+    if (!session) return;
+    for (const metric of batch.faultChecks) {
+      const moment = session.momentFor(batch.repIndex, metric);
+      if (!moment) continue;
+      const ts = Math.round(moment.timestampMs);
+      imageBufferRef.current.tagFrames(ts, moment.faultType, moment.severity);
+      archiveFaultFrame(ts, moment.faultType, moment.severity);
+    }
+  }
+
   /** Worst (max |value|) among the reps where `id` warned, else null. */
   function worstWarn(reps: RepRecord[], id: MetricId): number | null {
     const vals = reps.filter((r) => r.metrics[id].status === "warn").map((r) => r.metrics[id].value).filter((v): v is number => v !== null);
     return vals.length ? Math.max(...vals.map((v) => Math.abs(v))) : null;
   }
 
-  /** Per-rep "fault fired" truth for post-set/post-workout fault accounting. Each fault reads
-   *  the layer that actually decided it: T11 hipShift its baseline-relative scored flag, T1/T7
-   *  their gated mid-set trigger (`triggeredMetrics` — NOT the ungated worst-of-frames metric
-   *  warn, which disagreed with the trigger layer), and eccentricControl its metric status,
-   *  which IS its trigger. (T10 kneeSymmetry is demoted — not a fault here.) */
-  function repFaultFired(r: RepRecord, id: MetricId): boolean {
-    if (id === "hipShift") return r.shiftTriggered;
-    if (id === "eccentricControl") return r.metrics[id].status === "warn";
-    return r.triggeredMetrics.includes(id);
+  /** Store a post-set response. Shared by both exercises (the handling is identical). */
+  function onPostSetText(setIndex: number, text: string | null): void {
+    if (text) {
+      coachLogRef.current = [...coachLogRef.current, { timestampMs: Date.now(), kind: "post_set", text }];
+      postSetBySetRef.current.set(setIndex, { status: "ok", text });
+      console.info("[coach] post-set:", text);
+    } else {
+      // No usable analysis. Distinguish "the usage cap refused it" from a generic
+      // failure — a limit the user can't see just looks like the app is broken.
+      // The gate lives in gemini.ts (so the refusal is recorded in the ledger);
+      // we only re-read the verdict here to pick the right message.
+      const v = quota("post_set");
+      postSetBySetRef.current.set(
+        setIndex,
+        v.allowed ? { status: "none" } : { status: "blocked", message: quotaMessage(v) },
+      );
+    }
+  }
+
+  /** Push-up post-set: the payload comes from the pure builder (plane-nulling, disarmed checks and
+   *  the prompt↔payload contract are unit-tested in check:pushup). */
+  function firePushupPostSet(): void {
+    const set = pushupSetsRef.current[pushupSetsRef.current.length - 1];
+    if (!set || set.reps.length === 0) return;
+    if (!geminiEnabled()) {
+      postSetBySetRef.current.set(set.index, { status: "disabled" });
+      return;
+    }
+    const archive = postSetFrameArchiveRef.current;
+    const archiveFrames: ImageFrame[] = [...archive.baseline, ...[...archive.faults.values()].map((x) => x.frame)];
+    const data = buildPushupPostSetData(set, { baselineFramesIncluded: archive.baseline.length });
+    postSetBySetRef.current.set(set.index, { status: "loading" });
+    callPostSet(data, archiveFrames, (text) => onPostSetText(set.index, text));
   }
 
   /** Post-set debrief for the set that just ended (blocking-ok Gemini call). */
   function firePostSet(): void {
+    if (exerciseRef.current === "pushup") return firePushupPostSet();
     const set = completedSetsRef.current[completedSetsRef.current.length - 1];
     if (!set || set.reps.length === 0) return; // no reps → no review entry (screen shows "no reps")
     if (!geminiEnabled()) {
@@ -685,23 +805,7 @@ export function useWorkout(captureFrame: () => string | null, depthPreset: Depth
     postSetBySetRef.current.set(set.index, { status: "loading" });
     // Send the whole archive. callPostSet extracts the JPEGs SYNCHRONOUSLY, so the per-set reset
     // in newSetTrackers (which only runs later, on Next set / next countdown) can't affect it.
-    callPostSet(data, archiveFrames, (text) => {
-      if (text) {
-        coachLogRef.current = [...coachLogRef.current, { timestampMs: Date.now(), kind: "post_set", text }];
-        postSetBySetRef.current.set(set.index, { status: "ok", text });
-        console.info("[coach] post-set:", text);
-      } else {
-        // No usable analysis. Distinguish "the usage cap refused it" from a generic
-        // failure — a limit the user can't see just looks like the app is broken.
-        // The gate lives in gemini.ts (so the refusal is recorded in the ledger);
-        // we only re-read the verdict here to pick the right message.
-        const v = quota("post_set");
-        postSetBySetRef.current.set(
-          set.index,
-          v.allowed ? { status: "none" } : { status: "blocked", message: quotaMessage(v) },
-        );
-      }
-    });
+    callPostSet(data, archiveFrames, (text) => onPostSetText(set.index, text));
   }
 
   /** Dev-only: fire the one-shot auto-export exactly once. Called when the async
@@ -713,35 +817,59 @@ export function useWorkout(captureFrame: () => string | null, depthPreset: Depth
     downloadEvalLog();
   }
 
+  /** Store the post-workout response. Shared by both exercises. */
+  function onPostWorkoutText(text: string | null): void {
+    if (text) {
+      coachLogRef.current = [...coachLogRef.current, { timestampMs: Date.now(), kind: "post_workout", text }];
+      analysisRef.current = { status: "ok", text };
+      console.info("[coach] post-workout:", text);
+    } else {
+      // No summary came back. Resolve the loading state finishWorkout set — never spin
+      // forever. Distinguish "the usage cap refused it" from a generic empty/error, the
+      // same way the post-set tier does: a limit the user can't see just looks broken.
+      // The gate itself lives in gemini.ts (so the refusal is recorded in the ledger);
+      // we only re-read the verdict here to pick the right message.
+      const v = quota("post_workout");
+      analysisRef.current = v.allowed ? { status: "idle" } : { status: "error", message: quotaMessage(v) };
+    }
+    // The post-workout observation is now recorded (gemini.ts emits it before this
+    // callback on every path — success/no_cue/skip/error). Export NOW so the file
+    // includes it; its ~15 s latency previously outran the finish+12 s auto-export.
+    maybeExportEval();
+  }
+
+  /** Push-up post-workout: pure builder over the push-up set records + stored debriefs. */
+  function firePushupPostWorkout(): void {
+    const sets = pushupSetsRef.current.filter((s) => s.reps.length > 0);
+    if (!sets.length) return;
+    const debriefs: { set_number: number; orientation: string; text: string }[] = [];
+    for (const s of sets) {
+      const review = postSetBySetRef.current.get(s.index);
+      if (review?.status === "ok") debriefs.push({ set_number: s.index, orientation: s.orientation, text: review.text });
+    }
+    const data = buildPushupPostWorkoutData(sets, debriefs);
+    analysisRef.current = { status: "loading" };
+    callPostWorkout(data, onPostWorkoutText);
+  }
+
   /** Post-workout summary over the whole session (blocking-ok Gemini call). */
   function firePostWorkout(): void {
     if (!geminiEnabled()) return;
+    if (exerciseRef.current === "pushup") return firePushupPostWorkout();
     const sets = completedSetsRef.current.filter((s) => s.reps.length > 0);
     if (!sets.length) return;
     const totalCounted = sets.reduce((n, s) => n + s.reps.filter((r) => r.counted).length, 0);
     const totalAttempted = sets.reduce((n, s) => n + s.reps.length, 0);
-    const lastSetIndex = sets[sets.length - 1].index;
 
-    // shoulderHipLevelness + kneeSymmetry DEMOTED to context-only (both structurally unreliable
-    // — levelness is aspect-distorted jitter; symmetry is anti-correlated with knee cave), so
-    // neither is a fault trend. hipShift (T11) uses its baseline-relative per-rep flag
-    // (repFaultFired), not the absolute warn.
-    const faultIds: MetricId[] = ["forwardLean", "kneeValgus", "eccentricControl", "hipShift"];
-    const fault_trends: PostWorkoutData["fault_trends"] = [];
-    for (const id of faultIds) {
-      const present = sets.filter((s) => s.reps.some((r) => repFaultFired(r, id))).map((s) => s.index);
-      if (!present.length) continue;
-      fault_trends.push({
-        type: METRIC_TO_FAULT[id] ?? id,
-        sets_present: present,
-        trend: present.length === sets.length ? "persistent" : "intermittent",
-        worsened_with_fatigue: present.includes(lastSetIndex),
-      });
-    }
-    const velPerSet = sets.map((s) => {
-      const ratios = s.reps.map((r) => r.velocity?.ratio ?? null).filter((v): v is number => v !== null);
-      return ratios.length ? Math.min(...ratios) : 1;
-    });
+    // shoulderHipLevelness + kneeSymmetry DEMOTED to context-only, so neither is a fault trend.
+    // Pure + unit-tested (session/faultTrends.ts): each fault reads the layer that decided it,
+    // `sets_observable` keeps a side-only fault from reading as "gone" in a front set, and
+    // `co_occurred_with_slowing` replaced `worsened_with_fatigue`, which only ever meant
+    // "present in the last set" while the prompt treated it as the fatigue authority.
+    const fault_trends: PostWorkoutData["fault_trends"] = squatFaultTrends(sets).map(({ id, ...trend }) => ({
+      type: METRIC_TO_FAULT[id] ?? id,
+      ...trend,
+    }));
     const missRate = totalAttempted ? (totalAttempted - totalCounted) / totalAttempted : 0;
 
     // Per-set debrief texts — the primary input now that post-workout is text-only. Pulled from
@@ -762,7 +890,8 @@ export function useWorkout(captureFrame: () => string | null, depthPreset: Depth
       per_set_debriefs,
       fault_trends,
       cross_set_metrics: {
-        velocity_degradation_per_set: velPerSet,
+        // null (not 1) for a set with no measured velocity — "no data" must not read as "no slowing".
+        velocity_degradation_per_set: velocityDegradationPerSet(sets),
         depth_consistency: missRate < 0.1 ? "good" : missRate < 0.3 ? "variable" : "poor",
         // asymmetry_trend removed: it was a hardcoded "stable" — a false assertion sent
         // to the model as if measured, worse than an absent field.
@@ -790,25 +919,7 @@ export function useWorkout(captureFrame: () => string | null, depthPreset: Depth
     // Loading state for the report's summary slot, set only now that the call is actually
     // being made (past the geminiEnabled / has-reps guards), so it can never stick.
     analysisRef.current = { status: "loading" };
-    callPostWorkout(data, (text) => {
-      if (text) {
-        coachLogRef.current = [...coachLogRef.current, { timestampMs: Date.now(), kind: "post_workout", text }];
-        analysisRef.current = { status: "ok", text };
-        console.info("[coach] post-workout:", text);
-      } else {
-        // No summary came back. Resolve the loading state finishWorkout set — never spin
-        // forever. Distinguish "the usage cap refused it" from a generic empty/error, the
-        // same way the post-set tier does: a limit the user can't see just looks broken.
-        // The gate itself lives in gemini.ts (so the refusal is recorded in the ledger);
-        // we only re-read the verdict here to pick the right message.
-        const v = quota("post_workout");
-        analysisRef.current = v.allowed ? { status: "idle" } : { status: "error", message: quotaMessage(v) };
-      }
-      // The post-workout observation is now recorded (gemini.ts emits it before this
-      // callback on every path — success/no_cue/skip/error). Export NOW so the file
-      // includes it; its ~15 s latency previously outran the finish+12 s auto-export.
-      maybeExportEval();
-    });
+    callPostWorkout(data, onPostWorkoutText);
   }
 
   /** Evaluate one frame's geometry against the locked orientation (no velocity).
@@ -1098,18 +1209,25 @@ export function useWorkout(captureFrame: () => string | null, depthPreset: Depth
     }
   }
 
-  const onResult = useRef((result: PoseLandmarkerResult) => {
+  const onResult = useRef((result: PoseLandmarkerResult, frameSize?: { width: number; height: number }) => {
+    if (frameSize && frameSize.width > 0 && frameSize.height > 0) aspectRef.current = frameSize.width / frameSize.height;
     const person = result.landmarks[0] as Landmark[] | undefined;
     if (!person) {
       frameRef.current = null;
+      pushupFrameRef.current = null;
       orientRef.current = null;
       return;
     }
     const t = nowSec();
-    const est = estimateOrientation(person, MIN_VISIBILITY);
+    if (exerciseRef.current === "pushup") {
+      onPushupResult(person, t);
+      return;
+    }
+    // Every squat ANGLE (lean, facing score, roll, levelness) is aspect-corrected — see squat/frame.ts.
+    const est = estimateOrientation(person, MIN_VISIBILITY, aspectRef.current);
     orientRef.current = est;
-    cameraRef.current = estimateCameraAngle(person, MIN_VISIBILITY);
-    frameRef.current = computeSquatFrame(person, MIN_VISIBILITY, t);
+    cameraRef.current = estimateCameraAngle(person, MIN_VISIBILITY, aspectRef.current);
+    frameRef.current = computeSquatFrame(person, MIN_VISIBILITY, t, aspectRef.current);
 
     // Smooth the facing angle so a noisy frame can't flip the orientation.
     if (est.facingAngleDeg !== null) {
@@ -1159,9 +1277,83 @@ export function useWorkout(captureFrame: () => string | null, depthPreset: Depth
     }
   });
 
+  /** Push-up frame path: aspect-corrected geometry → the per-set engine → act on its events. */
+  function onPushupResult(person: Landmark[], t: number): void {
+    const est = estimatePushupOrientation(person, MIN_VISIBILITY, aspectRef.current);
+    orientRef.current = est;
+    inPlankRef.current = est.inPlank;
+    cameraRef.current = estimateCameraAngle(person, MIN_VISIBILITY, aspectRef.current);
+    const nearSide = nearSideRef.current.update(person);
+    frameRef.current = null;
+    const frame = computePushupFrame(
+      person,
+      MIN_VISIBILITY,
+      t,
+      aspectRef.current,
+      targetRef.current === "side" ? nearSide : null,
+      pushupVariantRef.current,
+    );
+    pushupFrameRef.current = frame;
+    if (est.facingAngleDeg !== null) {
+      angleEmaRef.current =
+        angleEmaRef.current === null
+          ? est.facingAngleDeg
+          : ANGLE_EMA * angleEmaRef.current + (1 - ANGLE_EMA) * est.facingAngleDeg;
+    }
+    const session = pushupSessionRef.current;
+    if (phaseRef.current === "active" && session) handlePushupEvents(session.onFrame(frame, t, angleEmaRef.current), t);
+    if (phaseRef.current === "active" || phaseRef.current === "countdown") feedBuffers(person, t);
+  }
+
+  /** Act on one frame's push-up engine events: trigger requests, baseline frames, counters, eval log. */
+  function handlePushupEvents(ev: PushupFrameEvents, t: number): void {
+    const orientation = targetRef.current;
+    for (const f of ev.fired) {
+      const imm = pushupCoordinatorRef.current.requestTrigger({ setIndex: setIndexRef.current, repIndex: f.repIndex, orientation }, f.metric, t);
+      if (imm) firePushupCoaching(imm);
+    }
+    // Warm-up bottom frames, archived while still in the ring (same reason as the squat).
+    for (const ts of ev.baselineFrameTs) archiveBaselineFrame(ts);
+    for (const rec of ev.completed) {
+      if (rec.velocity) {
+        samplesRef.current = [...samplesRef.current, rec.velocity];
+        // T6 velocity collapse stays context only — attached, never fired.
+        pushupCoordinatorRef.current.attachVelocity({
+          rollingAverage: rec.velocity.rollingAverage,
+          current: rec.velocity.velocity,
+          pctSlower: rec.velocity.ratio !== null ? 1 - rec.velocity.ratio : null,
+          collapsed: rec.velocity.collapsed,
+        });
+      }
+      if (rec.counted) {
+        countedRepsRef.current += 1;
+      } else {
+        // Both views gate push-up counting (depth AND lockout), so both can flash.
+        missedFlashAtRef.current = nowSec();
+        missedFlashTextRef.current = rec.misses.some((m) => m.reason === "depth_miss")
+          ? "Depth not met — no count"
+          : "Lockout not reached — no count";
+      }
+      if (DEV_EVAL_LOG) {
+        const lmWindow = landmarkBufferRef.current.getWindow(rec.timing.startMs, rec.timing.endMs);
+        logPushupRep({
+          set: setIndexRef.current,
+          record: rec,
+          ctx: { view: orientation, variant: pushupVariantRef.current, depthPreset: pushupPresetRef.current },
+          trackingDegraded: lmWindow.length === 0 || (rec.minVisibility !== null && rec.minVisibility < MIN_VISIBILITY),
+          landmarks: lmWindow,
+          frames: imageBufferRef.current
+            .getAll()
+            .filter((fr) => fr.timestampMs >= rec.timing.startMs && fr.timestampMs <= rec.timing.endMs)
+            .map((fr) => ({ timestampMs: fr.timestampMs, repPhase: fr.repPhase, triggerTags: fr.triggerTags, jpegBase64: fr.jpegBase64 })),
+        });
+      }
+    }
+  }
+
   /** Derive rep phase from the tracker and push to the landmark + image buffers. */
   function feedBuffers(person: readonly Landmark[], t: number): void {
-    const tracker = repTrackerRef.current;
+    const tracker = exerciseRef.current === "pushup" ? pushupSessionRef.current?.tracker ?? null : repTrackerRef.current;
     const dr = tracker?.depthRatio ?? 0;
     const isDown = tracker?.isDown ?? false;
     const prev = prevDepthRatioRef.current;
@@ -1173,7 +1365,8 @@ export function useWorkout(captureFrame: () => string | null, depthPreset: Depth
     const tMs = t * 1000;
 
     const lm: Record<number, { x: number; y: number; visibility: number }> = {};
-    for (const i of BUFFER_LANDMARK_INDICES) {
+    const indices = exerciseRef.current === "pushup" ? PUSHUP_BUFFER_LANDMARK_INDICES : BUFFER_LANDMARK_INDICES;
+    for (const i of indices) {
       const p = person[i];
       if (p) lm[i] = { x: p.x, y: p.y, visibility: p.visibility };
     }
@@ -1246,6 +1439,12 @@ export function useWorkout(captureFrame: () => string | null, depthPreset: Depth
   }
 
   function finalizeSet(): void {
+    if (exerciseRef.current === "pushup") {
+      const session = pushupSessionRef.current;
+      if (session) pushupSetsRef.current = [...pushupSetsRef.current, session.toSetRecord(lockAngleRef.current)];
+      persistWorkoutUsage(false);
+      return;
+    }
     // Record the set even with zero attempts — the report shows it as a "no reps
     // recorded" advisory, while synthesis excludes empties from the totals.
     const reps = liveRepsRef.current;
@@ -1267,6 +1466,20 @@ export function useWorkout(captureFrame: () => string | null, depthPreset: Depth
   /** Upsert this session's usage row. Skips empty sessions so a stray Finish from
    *  the positioning screen can't pollute session length / completion stats. */
   function persistWorkoutUsage(completed: boolean): void {
+    if (exerciseRef.current === "pushup") {
+      const pushupSets = pushupSetsRef.current.filter((s) => s.reps.length > 0);
+      if (!pushupSets.length) return;
+      recordWorkout({
+        sets: pushupSets.length,
+        repsCounted: pushupSets.reduce((n, s) => n + s.reps.filter((r) => r.counted).length, 0),
+        repsAttempted: pushupSets.reduce((n, s) => n + s.reps.length, 0),
+        completed,
+        mode: pushupVariantRef.current,
+        depthPreset: PUSHUP_DEPTH_PRESETS[pushupPresetRef.current].specName,
+        exercise: "pushup",
+      });
+      return;
+    }
     const sets = completedSetsRef.current.filter((s) => s.reps.length > 0);
     if (!sets.length) return;
     recordWorkout({
@@ -1283,6 +1496,8 @@ export function useWorkout(captureFrame: () => string | null, depthPreset: Depth
     if (phaseRef.current !== "active") return;
     const last = coordinatorRef.current.forceFlush();
     if (last) fireCoaching(last);
+    const lastPushup = pushupCoordinatorRef.current.forceFlush();
+    if (lastPushup) firePushupCoaching(lastPushup);
     finalizeSet();
     reviewSetIndexRef.current = setIndexRef.current; // the set we just finished
     setReviewStageRef.current = "choice"; // end-of-set choice screen; NO analysis fired yet
@@ -1325,10 +1540,13 @@ export function useWorkout(captureFrame: () => string | null, depthPreset: Depth
     if (phaseRef.current === "active") {
       const last = coordinatorRef.current.forceFlush();
       if (last) fireCoaching(last);
+      const lastPushup = pushupCoordinatorRef.current.forceFlush();
+      if (lastPushup) firePushupCoaching(lastPushup);
       finalizeSet();
     }
     phaseRef.current = "finished";
-    reportRef.current = synthesize({ sets: completedSetsRef.current });
+    reportRef.current =
+      exerciseRef.current === "pushup" ? synthesizePushup(pushupSetsRef.current) : synthesize({ sets: completedSetsRef.current });
     // Mark this session's usage row COMPLETE (replaces the incomplete row written
     // when the first set ended).
     persistWorkoutUsage(true);
@@ -1352,18 +1570,25 @@ export function useWorkout(captureFrame: () => string | null, depthPreset: Depth
     downloadEvalLog();
   });
 
+  /** Eval-log session metadata for the current exercise. */
+  function evalSessionMeta() {
+    const pushup = exerciseRef.current === "pushup";
+    return {
+      exercise: exerciseRef.current,
+      mode: pushup ? pushupVariantRef.current : modeRef.current,
+      depthPreset: pushup ? PUSHUP_DEPTH_PRESETS[pushupPresetRef.current].specName : specPreset(depthPresetRef.current),
+      model: GEMINI_MODEL,
+      geminiEnabled: geminiEnabled(),
+    };
+  }
+
   const reset = useRef(() => {
     // New workout = new usage session, so calls and workout stats attribute to the
     // session they actually belong to.
     startUsageSession();
     if (DEV_EVAL_LOG) {
       // Fresh audit session per workout attempt (clears prior reps + Gemini calls).
-      startEvalSession({
-        mode: modeRef.current,
-        depthPreset: specPreset(depthPresetRef.current),
-        model: GEMINI_MODEL,
-        geminiEnabled: geminiEnabled(),
-      });
+      startEvalSession(evalSessionMeta());
       evalExportedRef.current = false;
       finishedAtRef.current = null;
     }
@@ -1374,6 +1599,10 @@ export function useWorkout(captureFrame: () => string | null, depthPreset: Depth
     countdownStartRef.current = null;
     repositionRef.current = false;
     completedSetsRef.current = [];
+    pushupSetsRef.current = [];
+    pushupFrameRef.current = null;
+    pushupCoordinatorRef.current.resetSet();
+    nearSideRef.current.reset();
     reportRef.current = null;
     angleEmaRef.current = null;
     coachingByRepRef.current.clear();
@@ -1392,6 +1621,14 @@ export function useWorkout(captureFrame: () => string | null, depthPreset: Depth
     setLive(initialLive());
   });
 
+  // Changing the exercise starts a fresh workout: sets, baselines and the report are per-exercise.
+  const prevExerciseRef = useRef(exerciseSettings.exercise);
+  useEffect(() => {
+    if (prevExerciseRef.current === exerciseSettings.exercise) return;
+    prevExerciseRef.current = exerciseSettings.exercise;
+    reset.current();
+  }, [exerciseSettings.exercise]);
+
   // Phase progression + snapshot push (~10×/sec).
   useEffect(() => {
     // Open the usage session for this mount (the first workout of the page load).
@@ -1399,12 +1636,7 @@ export function useWorkout(captureFrame: () => string | null, depthPreset: Depth
     // Dev-only: subscribe the eval logger to every Gemini call, and open a session.
     if (DEV_EVAL_LOG) {
       setGeminiCallObserver(logGeminiObservation);
-      startEvalSession({
-        mode: modeRef.current,
-        depthPreset: specPreset(depthPresetRef.current),
-        model: GEMINI_MODEL,
-        geminiEnabled: geminiEnabled(),
-      });
+      startEvalSession(evalSessionMeta());
     }
     const id = setInterval(() => {
       const now = nowSec();
@@ -1416,6 +1648,8 @@ export function useWorkout(captureFrame: () => string | null, depthPreset: Depth
       // §5: fire any coaching batch whose dedup window has elapsed.
       const due = coordinatorRef.current.flushDue(now);
       if (due) fireCoaching(due);
+      const duePushup = pushupCoordinatorRef.current.flushDue(now);
+      if (duePushup) firePushupCoaching(duePushup);
 
       const est = orientRef.current;
       const target = targetRef.current;
@@ -1424,7 +1658,11 @@ export function useWorkout(captureFrame: () => string | null, depthPreset: Depth
       const liveAngle = angleEmaRef.current;
       const liveClass: OrientationClass =
         est && liveAngle !== null && est.readable ? classify(liveAngle) : "ambiguous";
-      const aligned = liveClass === target;
+      // Push-ups also need a plank before a set can LOCK (someone standing in view must never start
+      // one). The mid-set reposition check below still uses liveClass alone — a deep bottom is not
+      // "out of position".
+      const postureOk = exerciseRef.current !== "pushup" || inPlankRef.current;
+      const aligned = liveClass === target && postureOk;
       if (aligned) lastAlignedRef.current = now;
       // A brief flicker out of the zone (common at the front edge) is tolerated.
       const heldRecently = now - lastAlignedRef.current <= ORIENTATION.LOCK_GRACE_SEC;
@@ -1486,6 +1724,21 @@ export function useWorkout(captureFrame: () => string | null, depthPreset: Depth
             : liveRepsRef.current[liveRepsRef.current.length - 1]?.metrics ?? null
           : null;
 
+      const pushupMode = exerciseRef.current === "pushup";
+      const pSession = pushupSessionRef.current;
+      const pFrame = pushupFrameRef.current;
+      const debugTags: { text: string; landmark: number }[] = [];
+      if (pushupMode && pFrame) {
+        const signed = (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(0)}°`;
+        if (target === "side" && pFrame.upperArmAngleDeg !== null) {
+          debugTags.push({ text: `arm ${signed(pFrame.upperArmAngleDeg)}`, landmark: pFrame.nearSide === "right" ? 12 : 11 });
+        }
+        if (target === "side" && pFrame.bodyLineDeg !== null) {
+          debugTags.push({ text: `line ${signed(pFrame.bodyLineDeg)}`, landmark: pFrame.nearSide === "right" ? 24 : 23 });
+        }
+        if (target === "front" && pFrame.flareRatio !== null) debugTags.push({ text: `flare ${pFrame.flareRatio.toFixed(2)}`, landmark: 13 });
+      }
+
       setLive({
         phase: phaseRef.current,
         setIndex: setIndexRef.current,
@@ -1500,14 +1753,14 @@ export function useWorkout(captureFrame: () => string | null, depthPreset: Depth
         repositionNeeded: reposition,
         reps: countedRepsRef.current,
         kneeAngle: tracker?.kneeAngle ?? null,
-        depthRatio: tracker?.depthRatio ?? 0,
+        depthRatio: pushupMode ? pSession?.tracker.depthRatio ?? 0 : tracker?.depthRatio ?? 0,
         liveDepthGap,
         liveValgusRatio,
         missedDepthFlash,
-        isDown: tracker?.isDown ?? false,
+        isDown: pushupMode ? pSession?.tracker.isDown ?? false : tracker?.isDown ?? false,
         liveMetrics,
         velocity: samplesRef.current,
-        bestVelocity: velocityRef.current.best(),
+        bestVelocity: pushupMode ? pSession?.velocity.best() ?? null : velocityRef.current.best(),
         camera: cameraRef.current,
         completedSets: completedSetsRef.current,
         report: reportRef.current,
@@ -1516,6 +1769,12 @@ export function useWorkout(captureFrame: () => string | null, depthPreset: Depth
         postSetReviews: Object.fromEntries(postSetBySetRef.current),
         reviewSetIndex: reviewSetIndexRef.current,
         reviewStage: setReviewStageRef.current,
+        exercise: exerciseRef.current,
+        readable: pushupMode ? !!(pFrame?.shoulder && pFrame?.wrist) : (tracker?.kneeAngle ?? null) !== null,
+        pushupLiveMetrics: pushupMode && phaseRef.current === "active" ? pSession?.liveMetrics() ?? null : null,
+        completedPushupSets: pushupSetsRef.current,
+        missedFlashText: pushupMode ? missedFlashTextRef.current : "Depth not met — no count",
+        debugTags,
       });
     }, 100);
     return () => {

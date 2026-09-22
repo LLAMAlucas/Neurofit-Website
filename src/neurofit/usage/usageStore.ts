@@ -200,6 +200,8 @@ export interface WorkoutRecordInput {
   completed: boolean;
   mode: string;
   depthPreset: string;
+  /** Omitted for squats so their rows are unchanged; see UsageWorkout.exercise. */
+  exercise?: "squat" | "pushup";
 }
 
 /**
@@ -224,6 +226,7 @@ export function recordWorkout(input: WorkoutRecordInput): void {
       completed: input.completed,
       mode: input.mode,
       depthPreset: input.depthPreset,
+      ...(input.exercise ? { exercise: input.exercise } : {}),
     };
     ledger = upsertWorkout(ledger, w, DEFAULT_LIMITS);
     save();

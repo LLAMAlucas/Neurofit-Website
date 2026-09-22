@@ -31,27 +31,28 @@ export interface VelocitySignal {
   collapsed: boolean;
 }
 
-export interface CoachingBatch {
+/** Generic over the metric vocabulary (squat MetricId by default; push-ups use PushupMetricId). */
+export interface CoachingBatch<Id extends string = MetricId> {
   setIndex: number;
   repIndex: number;
   orientation: Orientation;
   triggers: TriggerKind[];
-  faultChecks: MetricId[];
+  faultChecks: Id[];
   velocity: VelocitySignal | null;
 }
 
-interface PendingBatch {
+interface PendingBatch<Id extends string> {
   setIndex: number;
   repIndex: number;
   orientation: Orientation;
   triggers: Set<TriggerKind>;
-  faultChecks: Set<MetricId>;
+  faultChecks: Set<Id>;
   velocity: VelocitySignal | null;
   deadline: number;
 }
 
-export class CoachingCoordinator {
-  private pending: PendingBatch | null = null;
+export class CoachingCoordinator<Id extends string = MetricId> {
+  private pending: PendingBatch<Id> | null = null;
 
   constructor(private readonly dedupWindowSec: number) {}
 
@@ -61,7 +62,7 @@ export class CoachingCoordinator {
    * must be flushed immediately because a different rep superseded the pending one
    * (usually null).
    */
-  requestTrigger(ctx: RepContext, faultCheck: MetricId, now: number): CoachingBatch | null {
+  requestTrigger(ctx: RepContext, faultCheck: Id, now: number): CoachingBatch<Id> | null {
     return this.enqueue(ctx, now, (b) => {
       b.triggers.add("fault_spike");
       b.faultChecks.add(faultCheck);
@@ -74,7 +75,7 @@ export class CoachingCoordinator {
   }
 
   /** Flush the pending batch if its dedup window has elapsed. */
-  flushDue(now: number): CoachingBatch | null {
+  flushDue(now: number): CoachingBatch<Id> | null {
     if (this.pending && now >= this.pending.deadline) {
       const out = toBatch(this.pending);
       this.pending = null;
@@ -84,7 +85,7 @@ export class CoachingCoordinator {
   }
 
   /** Flush any pending batch unconditionally (e.g. at set end). */
-  forceFlush(): CoachingBatch | null {
+  forceFlush(): CoachingBatch<Id> | null {
     if (!this.pending) return null;
     const out = toBatch(this.pending);
     this.pending = null;
@@ -96,8 +97,8 @@ export class CoachingCoordinator {
     this.pending = null;
   }
 
-  private enqueue(ctx: RepContext, now: number, mutate: (b: PendingBatch) => void): CoachingBatch | null {
-    let flushed: CoachingBatch | null = null;
+  private enqueue(ctx: RepContext, now: number, mutate: (b: PendingBatch<Id>) => void): CoachingBatch<Id> | null {
+    let flushed: CoachingBatch<Id> | null = null;
     // A trigger for a different rep supersedes the pending one — flush it now.
     if (this.pending && (this.pending.repIndex !== ctx.repIndex || this.pending.setIndex !== ctx.setIndex)) {
       flushed = toBatch(this.pending);
@@ -119,7 +120,7 @@ export class CoachingCoordinator {
   }
 }
 
-function toBatch(p: PendingBatch): CoachingBatch {
+function toBatch<Id extends string>(p: PendingBatch<Id>): CoachingBatch<Id> {
   return {
     setIndex: p.setIndex,
     repIndex: p.repIndex,

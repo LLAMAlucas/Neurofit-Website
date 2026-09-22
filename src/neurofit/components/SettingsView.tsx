@@ -8,6 +8,8 @@
  * (localStorage via useDepthPreset). Wired to the depth check's target in config.
  */
 import type { DepthPreset, SquatMode } from "../squat/config";
+import { PUSHUP_DEPTH_PRESETS, type PushupDepthPreset, type PushupVariant } from "../pushup/config";
+import type { ExerciseId } from "../session/types";
 import type { ApiKeyControl } from "../hooks/useSettings";
 import { UsagePanel } from "./UsagePanel";
 
@@ -52,6 +54,40 @@ function DepthFigure({ hipY }: { hipY: number }) {
   );
 }
 
+const PUSHUP_PRESETS: { id: PushupDepthPreset; title: string; desc: string; sub: string }[] = [
+  { id: "chest", title: "CHEST TO FLOOR", desc: "Shoulders drop below the elbows", sub: "strong pressers, full range" },
+  { id: "parallel", title: "UPPER ARM PARALLEL", desc: "Upper arm reaches parallel to the floor (≈90° elbow)", sub: "most people — the military / fitness-test standard" },
+  { id: "above", title: "ABOVE PARALLEL", desc: "Shoulders stay a little above the elbows", sub: "beginners, rehab, building up range" },
+];
+
+const PUSHUP_VARIANTS: { id: PushupVariant; title: string; desc: string }[] = [
+  { id: "toes", title: "TOES", desc: "Standard push-up. The body line is judged shoulder → hip → ankle." },
+  { id: "knees", title: "KNEES", desc: "Knees on the floor. The body line is judged shoulder → hip → knee, so a straight knee push-up isn't read as sagging." },
+];
+
+/** Side-view push-up stick figure at a preset's bottom upper-arm angle (head left, toes right),
+ *  with a dashed elbow-height reference so "parallel" reads at a glance. */
+function PushupFigure({ upperArmDeg }: { upperArmDeg: number }) {
+  const ELBOW_Y = 96;
+  const wrist: [number, number] = [64, 124];
+  const elbow: [number, number] = [64, ELBOW_Y];
+  const a = (upperArmDeg * Math.PI) / 180;
+  const shoulder: [number, number] = [elbow[0] - 30 * Math.cos(a), elbow[1] + 30 * Math.sin(a)];
+  const toe: [number, number] = [122, 124];
+  const hip: [number, number] = [shoulder[0] + (toe[0] - shoulder[0]) * 0.42, shoulder[1] + (toe[1] - shoulder[1]) * 0.42];
+  return (
+    <svg className="depth-fig" viewBox="0 0 130 140" aria-hidden="true">
+      <line className="depth-fig__ground" x1="8" y1="128" x2="126" y2="128" />
+      <line className="depth-fig__ref" x1="8" y1={ELBOW_Y} x2="126" y2={ELBOW_Y} />
+      <polyline className="depth-fig__bone" fill="none" points={`${wrist} ${elbow} ${shoulder} ${hip} ${toe}`} />
+      <circle className="depth-fig__bone" cx={shoulder[0] - 11} cy={shoulder[1] - 5} r="7" fill="none" />
+      <circle className="depth-fig__joint" cx={wrist[0]} cy={wrist[1]} r="3.2" />
+      <circle className="depth-fig__joint" cx={elbow[0]} cy={elbow[1]} r="3.2" />
+      <circle className="depth-fig__hip" cx={shoulder[0]} cy={shoulder[1]} r="4.6" />
+    </svg>
+  );
+}
+
 const MODES: { id: SquatMode; title: string; desc: string }[] = [
   { id: "bodyweight", title: "BODYWEIGHT", desc: "No external load. Depth, lean and valgus are read as goal / motor-control signals, not safety faults." },
   { id: "loaded", title: "LOADED", desc: "Barbell / weighted. Enables early-onset butt-wink and excessive-depth flags; depth and valgus are read more cautiously." },
@@ -65,7 +101,17 @@ export function SettingsView({
   apiEnabled,
   onApiEnabledChange,
   apiKey,
+  exercise = "squat",
+  pushupPreset = "parallel",
+  onPushupPresetChange = () => {},
+  pushupVariant = "toes",
+  onPushupVariantChange = () => {},
 }: {
+  exercise?: ExerciseId;
+  pushupPreset?: PushupDepthPreset;
+  onPushupPresetChange?: (p: PushupDepthPreset) => void;
+  pushupVariant?: PushupVariant;
+  onPushupVariantChange?: (v: PushupVariant) => void;
   preset: DepthPreset;
   onChange: (p: DepthPreset) => void;
   mode: SquatMode;
@@ -153,6 +199,68 @@ export function SettingsView({
         </button>
       </div>
 
+      {exercise === "pushup" ? (
+        <>
+          <div className="panel settings-block">
+            <p className="panel__title">PUSH-UP VARIANT</p>
+            <p className="settings-block__hint">
+              Which push-up you're doing. It changes the straight-line reference the body-line check uses. Switching
+              exercise lives in the header.
+            </p>
+            <div className="mode-toggle">
+              {PUSHUP_VARIANTS.map((v) => {
+                const selected = v.id === pushupVariant;
+                return (
+                  <button
+                    key={v.id}
+                    type="button"
+                    className={"mode-card" + (selected ? " mode-card--active" : "")}
+                    aria-pressed={selected}
+                    onClick={() => onPushupVariantChange(v.id)}
+                  >
+                    <p className="mode-card__title">
+                      {v.title}
+                      {selected && <span className="depth-card__check">✓</span>}
+                    </p>
+                    <p className="mode-card__desc">{v.desc}</p>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="panel settings-block">
+            <p className="panel__title">PUSH-UP DEPTH TARGET</p>
+            <p className="settings-block__hint">
+              How low a rep must go to count. Every rep must also press back up to straight arms. Side sets judge the
+              upper-arm angle; head-on sets judge how far the shoulders drop. Changes apply from the next set.
+            </p>
+            <div className="depth-presets">
+              {PUSHUP_PRESETS.map((p) => {
+                const selected = p.id === pushupPreset;
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    className={"depth-card" + (selected ? " depth-card--active" : "")}
+                    aria-pressed={selected}
+                    onClick={() => onPushupPresetChange(p.id)}
+                  >
+                    <PushupFigure upperArmDeg={PUSHUP_DEPTH_PRESETS[p.id].targetUpperArmDeg} />
+                    <p className="depth-card__title">
+                      {p.title}
+                      {selected && <span className="depth-card__check">✓</span>}
+                    </p>
+                    <p className="depth-card__desc">{p.desc}</p>
+                    <p className="depth-card__sub">for: {p.sub}</p>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </>
+      ) : (
+        <>
       <div className="panel settings-block">
         <p className="panel__title">TRAINING MODE</p>
         <p className="settings-block__hint">
@@ -208,6 +316,9 @@ export function SettingsView({
           })}
         </div>
       </div>
+
+        </>
+      )}
 
       <UsagePanel />
     </section>

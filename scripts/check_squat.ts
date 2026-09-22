@@ -5,7 +5,7 @@
    They validate the math + gating (incl. severity zones, per-check tolerance
    EDGES, and the AI-trigger coordinator), NOT real footage. Real-footage edge
    validation is a manual step — see TOLERANCE_VALIDATION.md.                  */
-import { SQUAT, TRIGGERS } from "../src/neurofit/squat/config";
+import { ORIENTATION, SEVERITY, SQUAT, TRIGGERS } from "../src/neurofit/squat/config";
 import { computeSquatFrame, type SquatFrame } from "../src/neurofit/squat/frame";
 import { SquatRepTracker, type SquatRep } from "../src/neurofit/squat/repCounter";
 import { VelocityTracker } from "../src/neurofit/squat/velocity";
@@ -40,7 +40,12 @@ import { decideExposure } from "../src/neurofit/vision/exposure";
 import { estimateCameraAngle } from "../src/neurofit/vision/cameraAngle";
 import type { Landmark } from "../src/neurofit/pose/landmarks";
 import { buildTriggerTable, type RepEvalInputs } from "../src/neurofit/debug/evalLog";
-import { METRIC_ORDER } from "../src/neurofit/squat/metrics";
+import { METRIC_ORDER, type MetricId } from "../src/neurofit/squat/metrics";
+import { computeFacing } from "../src/neurofit/pose/facing";
+import { squatFaultTrends, velocityDegradationPerSet } from "../src/neurofit/session/faultTrends";
+import type { RepRecord, SetRecord } from "../src/neurofit/session/types";
+import type { VelocitySample } from "../src/neurofit/squat/velocity";
+import { POSTSET_SYSTEM, POSTWORKOUT_SYSTEM } from "../src/neurofit/ai/prompts";
 import {
   MONTH_MS,
   appendCall,
@@ -82,6 +87,7 @@ function sf(o: Partial<SquatFrame> & { t: number; kneeAngle: number | null }): S
     leftAnkle: o.leftAnkle ?? null,
     rightAnkle: o.rightAnkle ?? null,
     torsoLean: o.torsoLean ?? null,
+    levelnessDiffDeg: o.levelnessDiffDeg ?? null,
     shinAngleDeg: o.shinAngleDeg ?? null,
     footAngleDeg: o.footAngleDeg ?? null,
     shoulderWidth: o.shoulderWidth ?? null,
@@ -151,10 +157,13 @@ function body(ls: [number, number], rs: [number, number], legsVisible = true, zL
   a[27] = lm(0.45, 0.9, lv); a[28] = lm(0.55, 0.9, lv);
   return a;
 }
-check("orientation: wide shoulders -> front", estimateOrientation(body([0.35, 0.3], [0.65, 0.3]), 0.6).orientation === "front");
-check("orientation: stacked shoulders -> side", estimateOrientation(body([0.49, 0.3], [0.51, 0.3], false), 0.6).orientation === "side");
-check("orientation: half-turn -> ambiguous", estimateOrientation(body([0.46, 0.3], [0.54, 0.3]), 0.6).orientation === "ambiguous");
-check("orientation: standing front (low score) -> front", estimateOrientation(body([0.44, 0.3], [0.56, 0.3]), 0.6).orientation === "front");
+// The synthetic coordinates below are normalized coordinates on the 1280×720 camera every
+// recorded session used, so they are read with its aspect (see the aspect-space section below).
+const CAL_ASPECT = 1280 / 720;
+check("orientation: wide shoulders -> front", estimateOrientation(body([0.35, 0.3], [0.65, 0.3]), 0.6, CAL_ASPECT).orientation === "front");
+check("orientation: stacked shoulders -> side", estimateOrientation(body([0.49, 0.3], [0.51, 0.3], false), 0.6, CAL_ASPECT).orientation === "side");
+check("orientation: half-turn -> ambiguous", estimateOrientation(body([0.46, 0.3], [0.54, 0.3]), 0.6, CAL_ASPECT).orientation === "ambiguous");
+check("orientation: standing front (low score) -> front", estimateOrientation(body([0.44, 0.3], [0.56, 0.3]), 0.6, CAL_ASPECT).orientation === "front");
 check("classify 90 = front", classify(90) === "front");
 check("classify 0 = side", classify(0) === "side");
 check("classify 45 = ambiguous", classify(45) === "ambiguous");
@@ -175,7 +184,7 @@ check("barPath always unavailable", sideEval.barPath.status === "unavailable");
 const frontFrame = sf({
   t: 0, kneeAngle: 80, hipMid: [0.5, 0.6], kneeMid: [0.5, 0.6], ankleMid: [0.5, 0.9],
   kneeWidth: 0.19, ankleWidth: 0.2, bothLegsVisible: true,
-  leftShoulder: [0.4, 0.3], rightShoulder: [0.6, 0.3], leftHip: [0.45, 0.6], rightHip: [0.55, 0.6],
+  leftShoulder: [0.4, 0.3], rightShoulder: [0.6, 0.3], leftHip: [0.45, 0.6], rightHip: [0.55, 0.6], levelnessDiffDeg: 0,
 });
 const frontEval = evaluateRep({ frame: frontFrame, orientation: "front", facingAngleDeg: 90, velocity: VEL(false), cfg: SQUAT });
 check("front: knee valgus checked", frontEval.kneeValgus.status === "ok");
@@ -192,7 +201,7 @@ occluded[11] = lm(0.5, 0.30, 0.9);
 occluded[23] = lm(0.5, 0.62, 0.9);
 occluded[25] = lm(0.52, 0.60, 0.9);
 occluded[27] = lm(0.5, 0.90, 0.9);
-const occFrame = computeSquatFrame(occluded, 0.6, 0);
+const occFrame = computeSquatFrame(occluded, 0.6, 0, CAL_ASPECT);
 check("side occlusion: hipMid falls back to near side", occFrame.hipMid !== null);
 const occEval = evaluateRep({ frame: occFrame, orientation: "side", facingAngleDeg: 0, velocity: VEL(false), cfg: SQUAT });
 check("side occlusion: depth resolves (not 'can't see')", occEval.depth.status === "ok");
@@ -271,11 +280,12 @@ check("warnedMetrics lists the aggregated lean warn", warnedMetrics(leanAgg).inc
 
 // The aggregated value must be the PEAK of the warn frames, not whichever came last.
 // Regression (2026-07-27 set 1): the old `>=` reduce returned the final frame in the top
-// severity band, so reps measuring 43.8°/69.8° reported a peak_severity_ratio of 50.7 while
-// the archived photo showed the worst rep. Values below sit in the SAME band (warn >35,
-// critical >=50) so the test distinguishes "most extreme" from "last seen".
-const leanPeak = aggregateRep(evalLean(20), [evalLean(40), evalLean(48), evalLean(38)]);
-check("aggregate: lean peak is the MAX warn frame, not the last", leanPeak.forwardLean.value === 48);
+// severity band, so reps measuring 43.8°/69.8° (normalized-space degrees) reported a
+// peak_severity_ratio of 50.7 while the archived photo showed the worst rep. Values below sit
+// in the SAME band (warn >51, critical >=65 real degrees) so the test distinguishes "most
+// extreme" from "last seen".
+const leanPeak = aggregateRep(evalLean(20), [evalLean(55), evalLean(62), evalLean(53)]);
+check("aggregate: lean peak is the MAX warn frame, not the last", leanPeak.forwardLean.value === 62);
 // Valgus runs the other way (lower ratio = more caved) — the peak must be the MINIMUM.
 // 0.50 and 0.60 are both critical; the old reduce kept 0.60 (last), the fix keeps 0.50.
 const valgusEval = (kw: number) => evaluateRep({ frame: frontBase(kw), orientation: "front", facingAngleDeg: 90, velocity: null, cfg: SQUAT });
@@ -353,13 +363,14 @@ check("eccentric: real fast drop fires (0.59 vs 0.156 baseline)", evalEccentric(
 check("eccentric: set-3 false positive now silent (0.39 vs 0.228)", evalEccentric(0.39, 0.228, 935, true).status === "ok");
 check("eccentric: set-3 false positive now silent (0.35 vs 0.228)", evalEccentric(0.35, 0.228, 896, true).status === "ok");
 
-// T1 lean trigger: baseline + 10° past depth gate 0.3 (widened from 0.5 — faults are performed
-// throughout the rep, and normal reps measured only 19.9–23.5° in the shallow phase).
+// T1 lean trigger: baseline + 12° (real degrees) past depth gate 0.3 (widened from 0.5 — faults
+// are performed throughout the rep, and normal reps measured only 32.8–37.7° real in the shallow
+// phase). Real-run numbers below are the 2026-07-31 values converted to aspect space.
 check("lean trigger: fires baseline+12° when deep", leanTriggerActive(32, 20, 0.6) === true);
-check("lean trigger: fires in the shallow phase past the widened gate", leanTriggerActive(41.9, 24.4, 0.35) === true);
+check("lean trigger: fires in the shallow phase past the widened gate", leanTriggerActive(57.9, 38.9, 0.35) === true);
 check("lean trigger: silent before depth gate", leanTriggerActive(32, 20, 0.2) === false);
-check("lean trigger: real normal rep stays silent at the gate", leanTriggerActive(23.5, 24.4, 0.35) === false);
-check("lean trigger: silent under +10°", leanTriggerActive(25, 20, 0.6) === false);
+check("lean trigger: real normal rep stays silent at the gate", leanTriggerActive(37.7, 38.9, 0.35) === false);
+check("lean trigger: silent under the delta", leanTriggerActive(20 + TRIGGERS.lean.baselineDeltaDeg - 1, 20, 0.6) === false);
 check("lean trigger: silent during warm-up (null baseline)", leanTriggerActive(40, null, 0.6) === false);
 
 // T7 valgus trigger: below warn past depth gate 0.15 (widened from 0.3 — the measured cave was
@@ -553,9 +564,9 @@ function repInputs(over: Partial<RepEvalInputs>): RepEvalInputs {
 }
 const find = (t: ReturnType<typeof buildTriggerTable>, id: string) => t.find((e) => e.id === id)!;
 
-// T1 forward lean fires when peak deep-lean exceeds baseline + 10° and it actually fired.
+// T1 forward lean fires when peak deep-lean exceeds baseline + delta and it actually fired.
 const t1Fire = find(buildTriggerTable(repInputs({ view: "side", peakTrunkAngleDeg: 45, leanBaselineDeg: 30, firedMidSet: ["forwardLean"] }), true), "T1_forward_lean");
-check("evallog T1: eligible + fired, threshold = baseline+10", t1Fire.eligible && t1Fire.fired && t1Fire.threshold === 40);
+check("evallog T1: eligible + fired, threshold = baseline+delta", t1Fire.eligible && t1Fire.fired && t1Fire.threshold === 30 + TRIGGERS.lean.baselineDeltaDeg);
 // Non-firing but close → logged as an explicit near-miss (false negatives stay visible).
 const t1Near = find(buildTriggerTable(repInputs({ view: "side", peakTrunkAngleDeg: 37, leanBaselineDeg: 30, firedMidSet: [] }), true), "T1_forward_lean");
 check("evallog T1: eligible not-fired near-miss logged", t1Near.eligible && !t1Near.fired && t1Near.near_miss);
@@ -602,7 +613,7 @@ check("evallog levelness: demoted to non-firing context", lvl.tier === "context"
 check("exposure: good -> none", decideExposure({ meanLuma: 130, darkFraction: 0.05, brightFraction: 0.05 }).filter === "none");
 check("exposure: dark -> brighten", decideExposure({ meanLuma: 50, darkFraction: 0.5, brightFraction: 0 }).gain > 1);
 check("exposure: backlit detected", decideExposure({ meanLuma: 95, darkFraction: 0.5, brightFraction: 0.3 }).quality === "backlit");
-check("camera: roll detected", (estimateCameraAngle(body([0.35, 0.3], [0.65, 0.4]), 0.6).rollDeg ?? 0) > 8);
+check("camera: roll detected", (estimateCameraAngle(body([0.35, 0.3], [0.65, 0.4]), 0.6, CAL_ASPECT).rollDeg ?? 0) > 8);
 
 // --- Usage ledger + quota (pure) ------------------------------------------
 // The quota gate decides whether a paid API call goes out, so its arithmetic is
@@ -707,6 +718,135 @@ check("usage upsert: finish marks the row complete", upserted.workouts[0].comple
 // A session abandoned after one set stays incomplete — the case that makes the metric real.
 const abandoned = summarize(upsertWorkout(emptyLedger("i", T0), wIn), T0 + 200_000);
 check("usage upsert: abandoned session stays incomplete", abandoned.workouts.completionRate === 0 && abandoned.workouts.count === 1);
+
+// --- Aspect space (2026-09-18) ----------------------------------------------------------------
+// MediaPipe normalizes x by the frame WIDTH and y by the HEIGHT, so an angle computed on raw
+// landmarks depends on the camera. One physical body, filmed by three cameras, must now give the
+// same angles, the same facing score and the same orientation on all three.
+{
+  const toAspectDeg = (deg: number, a: number) => (Math.atan(Math.tan((deg * Math.PI) / 180) * a) * 180) / Math.PI;
+  // A squat bottom with a clear trunk lean, in image PIXELS (square pixels, y down).
+  const SQUAT_PX: Record<number, [number, number]> = {
+    11: [330, 330], 12: [360, 336], 23: [480, 560], 24: [500, 566],
+    25: [600, 600], 26: [612, 596], 27: [560, 820], 28: [574, 816], 31: [640, 840], 32: [652, 836],
+  };
+  // A standing body turned ~3/4 toward side: shoulder spread 60 px over a 220 px torso (score 0.27).
+  const TURNED_PX: Record<number, [number, number]> = {
+    11: [470, 300], 12: [530, 300], 23: [480, 520], 24: [520, 520],
+    25: [482, 680], 26: [518, 680], 27: [484, 840], 28: [516, 840],
+  };
+  // Filming = a similarity transform into the frame, then MediaPipe's per-axis normalization.
+  const film = (px: Record<number, [number, number]>, W: number, H: number, scale: number, ox: number, oy: number): Landmark[] => {
+    const a = Array.from({ length: 33 }, () => lm(0, 0, 0));
+    for (const [i, [x, y]] of Object.entries(px)) a[Number(i)] = lm((x * scale + ox) / W, (y * scale + oy) / H, 0.9, i === "11" ? -0.1 : 0);
+    return a;
+  };
+  const cams = [
+    { W: 1280, H: 720, scale: 0.8, ox: 100, oy: 20 }, // 16:9 laptop — the calibration camera
+    { W: 640, H: 480, scale: 0.5, ox: 20, oy: 30 }, // 4:3 webcam
+    { W: 720, H: 1280, scale: 0.9, ox: 50, oy: 300 }, // portrait phone
+  ];
+  const frames = cams.map((c) => computeSquatFrame(film(SQUAT_PX, c.W, c.H, c.scale, c.ox, c.oy), 0.6, 0, c.W / c.H));
+  const sameOnEveryCamera = (get: (f: SquatFrame) => number | null) =>
+    frames.every((f) => get(f) !== null && Math.abs((get(f) as number) - (get(frames[0]) as number)) < 1e-9);
+  check("aspect: trunk lean identical on 16:9, 4:3 and portrait", sameOnEveryCamera((f) => f.torsoLean));
+  check("aspect: knee angle identical on every camera", sameOnEveryCamera((f) => f.kneeAngle));
+  check("aspect: shin + foot angles identical on every camera", sameOnEveryCamera((f) => f.shinAngleDeg) && sameOnEveryCamera((f) => f.footAngleDeg));
+  check("aspect: levelness identical on every camera", sameOnEveryCamera((f) => f.levelnessDiffDeg));
+  // …and it is the REAL image angle: shoulder-mid (345,333) over hip-mid (490,563) = atan(145/230).
+  const trueLean = (Math.atan2(145, 230) * 180) / Math.PI;
+  check("aspect: trunk lean is the real pixel-space angle (32.2°)", Math.abs((frames[0].torsoLean ?? 0) - trueLean) < 1e-9);
+  // The bug this fixes: the raw normalized angle of the same body was camera-dependent.
+  const naiveLean = (c: (typeof cams)[number]) => {
+    const l = film(SQUAT_PX, c.W, c.H, c.scale, c.ox, c.oy);
+    const dx = (l[11].x + l[12].x) / 2 - (l[23].x + l[24].x) / 2;
+    const dy = (l[11].y + l[12].y) / 2 - (l[23].y + l[24].y) / 2;
+    return (Math.atan2(Math.abs(dx), Math.abs(dy)) * 180) / Math.PI;
+  };
+  check("aspect: the OLD normalized lean read ~19.5° on 16:9 and ~48° on portrait for one body",
+    Math.abs(naiveLean(cams[0]) - 19.5) < 0.5 && naiveLean(cams[2]) - naiveLean(cams[0]) > 25);
+
+  const turned = cams.map((c) => film(TURNED_PX, c.W, c.H, c.scale, c.ox, c.oy));
+  const scores = turned.map((l, i) => computeFacing(l, 0.6, cams[i].W / cams[i].H)?.score ?? NaN);
+  check("aspect: facing score identical on every camera", scores.every((x) => Math.abs(x - scores[0]) < 1e-9));
+  const orients = turned.map((l, i) => estimateOrientation(l, 0.6, cams[i].W / cams[i].H).orientation);
+  check("aspect: a 3/4-turned stance classifies the same (side) on every camera", orients.every((o) => o === "side"));
+  const rawScore = (i: number) => computeFacing(turned[i], 0.6, 1)?.score ?? NaN;
+  check("aspect: the raw normalized facing score differed 3.2× between 16:9 and portrait", Math.abs(rawScore(2) / rawScore(0) - (16 / 9) ** 2) < 1e-6);
+  const rolls = cams.map((c) => estimateCameraAngle(film(SQUAT_PX, c.W, c.H, c.scale, c.ox, c.oy), 0.6, c.W / c.H).rollDeg ?? NaN);
+  check("aspect: camera roll identical on every camera", rolls.every((r) => Math.abs(r - rolls[0]) < 1e-9));
+
+  // Thresholds tuned on the 16:9 recordings were converted with atan(tan θ · 16/9).
+  check("aspect: forward-lean warn = the old 35° on 16:9 (51.2°)", Math.abs(SQUAT.forwardLeanWarnDeg - toAspectDeg(35, 16 / 9)) < 0.5);
+  check("aspect: forward-lean critical = the old 50° on 16:9 (64.7°)", Math.abs((SEVERITY.forwardLean?.critical ?? 0) - toAspectDeg(50, 16 / 9)) < 0.5);
+  const OLD_SCORE = { FRONT_FULL: 0.5, FRONT_EDGE: 0.3, SIDE_EDGE: 0.2, SIDE_FULL: 0.1 };
+  check("aspect: orientation anchors = the old ones × 16/9",
+    (Object.keys(OLD_SCORE) as (keyof typeof OLD_SCORE)[]).every((k) => Math.abs(ORIENTATION.SCORE[k] - OLD_SCORE[k] * (16 / 9)) < 0.01));
+  // Replay of every eligible side rep with a resolved baseline in the 07-31, 08-02 and 08-27 runs
+  // (normalized degrees as logged, all from a 1280×720 camera): [baseline, peak deep lean, T1 fired].
+  const REPLAY: Array<[number, number, boolean]> = [
+    [24.4, 23.5, false], [24.4, 29.4, false], [24.4, 45.1, true], [24.4, 75.0, true],
+    [25.9, 25.0, false], [25.9, 25.8, false], [25.9, 84.3, true], [25.9, 26.1, false],
+    [26.1, 26.2, false], [26.1, 27.1, false], [26.1, 27.9, false], [26.1, 29.2, false],
+    [25.3, 26.8, false], [25.3, 31.5, false], [25.3, 53.2, true], [25.3, 89.7, true], [25.3, 28.1, false],
+    [25.8, 27.7, false], [25.8, 25.0, false], [25.8, 25.9, false], [25.8, 28.1, false],
+    [18.1, 54.6, true], [18.1, 79.3, true],
+  ];
+  check("aspect replay: the table reproduces the logged decisions under the old +10° rule",
+    REPLAY.every(([b, p, fired]) => (p - b >= 10) === fired));
+  check("aspect replay: T1 in real degrees makes every recorded decision the same (23 reps)",
+    REPLAY.every(([b, p, fired]) => leanTriggerActive(toAspectDeg(p, 16 / 9), toAspectDeg(b, 16 / 9), 0.5) === fired));
+}
+
+// --- Post-workout fault trends (session/faultTrends.ts) ----------------------------------------
+// `worsened_with_fatigue` was `present.includes(lastSetIndex)` — any fault in the final set read
+// as fatigue, velocity never consulted. Its replacement only claims what the data holds.
+{
+  const mkRep = (index: number, o: { fired?: MetricId[]; ratio?: number | null; ecc?: boolean } = {}): RepRecord => ({
+    index,
+    metrics: stubMetrics(o.ecc ? { eccentricControl: "warn" } : {}),
+    velocity: o.ratio === undefined || o.ratio === null ? null : ({ ratio: o.ratio } as unknown as VelocitySample),
+    bottomKneeAngle: 90,
+    counted: true,
+    depthRatio: 0.6,
+    depthGap: 0.05,
+    triggeredMetrics: o.fired ?? [],
+    shiftTriggered: false,
+    landmarkUnreliable: false,
+    coaching: null,
+  });
+  const sets: SetRecord[] = [
+    { index: 1, orientation: "side", facingAngleDeg: 0, reps: [mkRep(1, { ratio: 1 }), mkRep(2, { ratio: 1 }), mkRep(3, { fired: ["forwardLean"], ratio: 1.1, ecc: true })] },
+    { index: 2, orientation: "front", facingAngleDeg: 90, reps: [mkRep(1, { ratio: 1 }), mkRep(2, { ratio: 1 }), mkRep(3, { ratio: 0.95 }), mkRep(4, { fired: ["kneeValgus"], ratio: 0.8 })] },
+    { index: 3, orientation: "side", facingAngleDeg: 0, reps: [mkRep(1), mkRep(2), mkRep(3, { fired: ["forwardLean"] })] },
+  ];
+  const trends = squatFaultTrends(sets);
+  const trend = (id: MetricId) => trends.find((t) => t.id === id);
+  check("fault trends: a fault in the LAST set is not fatigue by itself (no slower rep)", trend("forwardLean")?.co_occurred_with_slowing === false);
+  check("fault trends: a fault on a rep slower than average co-occurred with slowing", trend("kneeValgus")?.co_occurred_with_slowing === true);
+  check("fault trends: a rep FASTER than average (1.1) is not slowing", trend("eccentricControl")?.co_occurred_with_slowing === false);
+  const lean = trend("forwardLean");
+  check("fault trends: side-only fault observable only in side sets",
+    JSON.stringify(lean?.sets_observable) === "[1,3]" && JSON.stringify(lean?.sets_present) === "[1,3]");
+  check("fault trends: present in every set that could SEE it = persistent", lean?.trend === "persistent");
+  check("fault trends: agnostic fault observable in every set → intermittent when in one",
+    JSON.stringify(trend("eccentricControl")?.sets_observable) === "[1,2,3]" && trend("eccentricControl")?.trend === "intermittent");
+  check("fault trends: a fault that never fired is absent", trend("hipShift") === undefined);
+  const vel = velocityDegradationPerSet(sets);
+  check("velocity per set: slowest ratio per set, null (not 1) when unmeasured",
+    vel.length === 3 && vel[0] === 1 && vel[1] === 0.8 && vel[2] === null);
+
+  // Prompt ↔ payload: the two stale references are gone, and every fault_trends field the
+  // post-workout prompt names exists on the builder's output.
+  check("prompt: squat prompts no longer name rep_context or worsened_with_fatigue",
+    !/rep_context|worsened_with_fatigue/.test(POSTSET_SYSTEM + POSTWORKOUT_SYSTEM));
+  check("prompt: squat post-set rule 2 reads the view from set_summary.orientation",
+    POSTSET_SYSTEM.split("\n").find((l) => l.startsWith("2. "))?.includes("set_summary.orientation") === true);
+  const named = [...POSTWORKOUT_SYSTEM.matchAll(/fault_trends\[\]\.([a-z_]+)/g)].map((m) => m[1]);
+  const built = new Set(["type", ...Object.keys(trends[0] ?? {})]);
+  check("prompt: every fault_trends[] field in POSTWORKOUT_SYSTEM exists in the payload",
+    named.length >= 3 && named.every((k) => built.has(k)));
+}
 
 console.log(failures === 0 ? "\nALL PASSED" : `\n${failures} FAILED`);
 process.exit(failures === 0 ? 0 : 1);

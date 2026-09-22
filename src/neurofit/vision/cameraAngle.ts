@@ -34,9 +34,13 @@ export interface CameraAngleEstimate {
   label: string;
 }
 
-// Facing-score bands (frontal vs side cutoffs on the shoulder/torso ratio).
-const FRONTAL_MIN = 0.6;
-const SIDE_MAX = 0.3;
+// Facing-score bands (frontal vs side cutoffs on the shoulder/torso ratio). The score is in
+// aspect space now (pose/facing.ts): these are the old normalized-space 0.6 / 0.3 × 16/9, the
+// 1280×720 camera every recorded session used, so the label reads exactly as before there.
+const FRONTAL_MIN = 1.07;
+const SIDE_MAX = 0.53;
+// Real degrees of camera roll. Kept at 8 through the aspect fix: it is a geometric intent, not a
+// value tuned on footage — and in normalized space it had meant ~4.5° of real tilt on 16:9.
 const ROLL_WARN_DEG = 8;
 
 const UNREADABLE: CameraAngleEstimate = {
@@ -53,11 +57,14 @@ function v(landmarks: readonly Landmark[], name: Parameters<typeof getLandmark>[
   return p && p.visibility >= minVis ? p : null;
 }
 
+/** `aspect` = frame W/H. A rolled camera rotates the image in PIXEL space, so the roll is only
+ *  a true angle on [x·W/H, y]; in normalized space a 4.5° tilt read as 8° on a 16:9 frame. */
 export function estimateCameraAngle(
   landmarks: readonly Landmark[],
   minVis: number,
+  aspect: number,
 ): CameraAngleEstimate {
-  const facing = computeFacing(landmarks, minVis);
+  const facing = computeFacing(landmarks, minVis, aspect);
   if (!facing) return UNREADABLE;
 
   const ls = v(landmarks, "LEFT_SHOULDER", minVis);
@@ -65,7 +72,7 @@ export function estimateCameraAngle(
   let rollDeg: number | null = null;
   if (ls && rs) {
     // Tilt of the shoulder line off horizontal. (Mirrored display doesn't change magnitude.)
-    rollDeg = (Math.atan2(rs.y - ls.y, rs.x - ls.x) * 180) / Math.PI;
+    rollDeg = (Math.atan2(rs.y - ls.y, (rs.x - ls.x) * aspect) * 180) / Math.PI;
     if (rollDeg > 90) rollDeg -= 180;
     if (rollDeg < -90) rollDeg += 180;
   }

@@ -1,5 +1,6 @@
 /**
- * Persisted user settings (Phase 1: squat depth target only).
+ * Persisted user settings: exercise, squat depth target + training mode, push-up depth target +
+ * variant, and the Gemini key / kill-switch.
  * ----------------------------------------------------------------------------
  * Stored in localStorage so the choice survives reloads. Defaults to PARALLEL on
  * first load. React glue — the only place the depth preset touches the browser.
@@ -12,6 +13,14 @@ import {
   type DepthPreset,
   type SquatMode,
 } from "../squat/config";
+import {
+  DEFAULT_PUSHUP_DEPTH_PRESET,
+  DEFAULT_PUSHUP_VARIANT,
+  PUSHUP_DEPTH_PRESETS,
+  type PushupDepthPreset,
+  type PushupVariant,
+} from "../pushup/config";
+import type { ExerciseId } from "../session/types";
 import {
   apiCallsDisabled,
   apiKeyIsUserSupplied,
@@ -73,6 +82,45 @@ export function useMode(): [SquatMode, (m: SquatMode) => void] {
     }
   }, [mode]);
   return [mode, setMode];
+}
+
+/** A localStorage-backed enum setting; bad or missing data falls back to the default. */
+function usePersisted<T extends string>(key: string, fallback: T, valid: (v: unknown) => v is T): [T, (v: T) => void] {
+  const [value, setValue] = useState<T>(() => {
+    try {
+      const v = localStorage.getItem(key);
+      return valid(v) ? v : fallback;
+    } catch {
+      return fallback;
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem(key, value);
+    } catch {
+      /* private mode / storage disabled — in-memory only */
+    }
+  }, [key, value]);
+  return [value, setValue];
+}
+
+/** [exercise, setter] — squat | pushup. Switching resets the workout (see useWorkout). */
+export function useExercise(): [ExerciseId, (e: ExerciseId) => void] {
+  return usePersisted<ExerciseId>("neurofit.exercise", "squat", (v): v is ExerciseId => v === "squat" || v === "pushup");
+}
+
+/** [push-up depth preset, setter] — chest | parallel | above. */
+export function usePushupDepthPreset(): [PushupDepthPreset, (p: PushupDepthPreset) => void] {
+  return usePersisted<PushupDepthPreset>(
+    "neurofit.pushupDepthPreset",
+    DEFAULT_PUSHUP_DEPTH_PRESET,
+    (v): v is PushupDepthPreset => typeof v === "string" && v in PUSHUP_DEPTH_PRESETS,
+  );
+}
+
+/** [push-up variant, setter] — toes | knees (changes the body-line reference). */
+export function usePushupVariant(): [PushupVariant, (v: PushupVariant) => void] {
+  return usePersisted<PushupVariant>("neurofit.pushupVariant", DEFAULT_PUSHUP_VARIANT, (v): v is PushupVariant => v === "toes" || v === "knees");
 }
 
 /**

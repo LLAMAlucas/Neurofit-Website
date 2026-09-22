@@ -11,11 +11,14 @@ export function EnvPanel({
   camera,
   corrected,
   onToggleCorrected,
+  exercise = "squat",
 }: {
   exposure: ExposureDecision | null;
   camera: CameraAngleEstimate | null;
   corrected: boolean;
   onToggleCorrected: (v: boolean) => void;
+  /** The knee-visibility footnote only applies to squats. */
+  exercise?: "squat" | "pushup";
 }) {
   return (
     <section className="panel">
@@ -46,7 +49,7 @@ export function EnvPanel({
           {camera ? camera.label : "—"}
         </span>
       </div>
-      {camera?.view === "side" && (
+      {exercise === "squat" && camera?.view === "side" && (
         <p className="panel__foot">Turn more toward the camera so both knees are visible for valgus checks.</p>
       )}
     </section>
