@@ -34,11 +34,11 @@ export function SetBar({ workout }: { workout: Workout }) {
 
       <div className="setbar__controls">
         {phase === "active" && (
-          <button className="btn btn--primary" onClick={workout.endSet}>
+          <button className="lg-btn btn btn--primary" onClick={workout.endSet}>
             End set
           </button>
         )}
-        <button className="btn" onClick={workout.finishWorkout} disabled={phase === "finished"}>
+        <button className="lg-btn btn" onClick={workout.finishWorkout} disabled={phase === "finished"}>
           Finish workout
         </button>
       </div>

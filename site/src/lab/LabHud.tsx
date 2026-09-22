@@ -10,6 +10,7 @@
 import { useEffect, useRef } from "react";
 import { FAULTS, FAULT_ORDER, planeVisibility, viewLabel, type FaultId } from "@/lib/faultDemo";
 import { store } from "@/stage/store";
+import { GlassSegment, installGlassPointer } from "@/lib/liquidGlass";
 
 const GLYPHS = "▮▯/\\_-=+<>:01";
 const SCRAMBLE_MS = 420;
@@ -28,9 +29,14 @@ export function LabHud() {
   const dot = useRef<SVGCircleElement>(null);
   const boot = useRef<HTMLDivElement>(null);
   const buttons = useRef<Partial<Record<FaultId, HTMLButtonElement>>>({});
+  const row = useRef<HTMLElement>(null);
 
   useEffect(() => {
     let raf = 0;
+    // The picker's glass droplet forms on the rep being played (see Journey.tsx).
+    const glass = row.current ? new GlassSegment(row.current) : null;
+    const offPointer = installGlassPointer();
+    let pressed: HTMLElement | null = null;
     let target = "";
     let shown = "";
     let since = 0;
@@ -100,17 +106,27 @@ export function LabHud() {
       }
 
       const busy = s.phase !== "idle" || s.request !== null;
+      let on: HTMLElement | null = null;
       for (const id of FAULT_ORDER) {
         const b = buttons.current[id];
         if (!b) continue;
         b.setAttribute("aria-disabled", String(busy));
         b.setAttribute("aria-pressed", String(busy && s.fault === id));
+        if (busy && s.fault === id) on = b;
+      }
+      if (on !== pressed) {
+        pressed = on;
+        glass?.setActive(on);
       }
 
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
+    return () => {
+      cancelAnimationFrame(raf);
+      glass?.destroy();
+      offPointer();
+    };
   }, []);
 
   const pick = (id: FaultId) => {
@@ -155,12 +171,14 @@ export function LabHud() {
         </div>
       </div>
 
-      <nav className="picker" aria-label="Pick a rep">
+      <nav className="lg-seg picker" aria-label="Pick a rep" ref={row}>
+        <span className="lg-seg__thumb" aria-hidden="true" />
         {FAULT_ORDER.map((id) => (
           <button
             key={id}
             type="button"
-            className="bracket"
+            className="lg-seg__item"
+            data-lg-item=""
             ref={(el) => {
               if (el) buttons.current[id] = el;
             }}
@@ -169,6 +187,7 @@ export function LabHud() {
             {FAULTS[id].label}
           </button>
         ))}
+        <span className="lg-seg__lens" aria-hidden="true" />
       </nav>
 
       <div className="hud__br">Drag to orbit · ← →</div>

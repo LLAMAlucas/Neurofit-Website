@@ -22,6 +22,7 @@ import { store } from "@/stage/store";
 import { onTick } from "@/hooks/ticker";
 import { Scrambler } from "@/hooks/scramble";
 import { Foot } from "./Foot";
+import { GlassSegment, refract } from "@/lib/liquidGlass";
 
 const TRY_URL = "https://try.neurofit-training.com";
 /** The hint to touch the body shows once it has formed. */
@@ -49,6 +50,10 @@ const DEBRIEF_BLOCKS: string[] = [POST_SET.label, ...POST_SET.paras, POST_SET.cu
 
 export function Journey({ live }: { live: boolean }) {
   const root = useRef<HTMLDivElement>(null);
+  const cta = useRef<HTMLAnchorElement>(null);
+
+  // The finale's button bends the scene through its rim (Chromium; elsewhere frosted).
+  useEffect(() => (cta.current ? refract(cta.current, { blur: 6, saturate: 1.8, strength: 1.2 }) : undefined), []);
 
   useEffect(() => {
     const el = root.current;
@@ -68,6 +73,12 @@ export function Journey({ live }: { live: boolean }) {
     const labels = Array.from(el.querySelectorAll<HTMLElement>(".set-label"));
     const typed = Array.from(el.querySelectorAll<HTMLElement>("[data-typed]"));
     const buttons = Array.from(el.querySelectorAll<HTMLButtonElement>("[data-fault]"));
+    // One glass droplet for the picker: it forms on the rep being played and melts
+    // away when the demo is free again. Picking is by tap only (no drag): the row is
+    // locked while a rep plays, which is exactly when the droplet exists.
+    const row = q(".picker__row");
+    const glass = row ? new GlassSegment(row) : null;
+    let pressed: HTMLElement | null = null;
     const debriefStop = el.querySelector<HTMLElement>("[data-stop=afterSet]");
     const tagText = tag ? new Scrambler(tag) : null;
     const viewText = view ? new Scrambler(view) : null;
@@ -75,7 +86,7 @@ export function Journey({ live }: { live: boolean }) {
     let readyAt = 0;
     const typedLen = typed.map(() => -1);
 
-    return onTick((now) => {
+    const off = onTick((now) => {
       const s = store;
       if (s.ready && !readyAt) readyAt = now;
       hint?.classList.toggle("is-on", readyAt > 0 && now - readyAt > HINT_AFTER_S * 1000);
@@ -135,9 +146,16 @@ export function Journey({ live }: { live: boolean }) {
         }
       }
       const busy = s.phase !== "idle" || s.request !== null;
+      let on: HTMLElement | null = null;
       for (const b of buttons) {
+        const isOn = busy && s.fault === b.dataset.fault;
         b.setAttribute("aria-disabled", String(busy));
-        b.setAttribute("aria-pressed", String(busy && s.fault === b.dataset.fault));
+        b.setAttribute("aria-pressed", String(isOn));
+        if (isOn) on = b;
+      }
+      if (on !== pressed) {
+        pressed = on;
+        glass?.setActive(on);
       }
 
       // In frame: the phone's own readout, over the phone. It faces the body
@@ -167,6 +185,10 @@ export function Journey({ live }: { live: boolean }) {
         }
       });
     });
+    return () => {
+      off();
+      glass?.destroy();
+    };
   }, [live]);
 
   const pick = (id: FaultId) => {
@@ -257,12 +279,21 @@ export function Journey({ live }: { live: boolean }) {
           <p className="picker__prompt" id="picker-prompt">
             Pick a rep for it to catch
           </p>
-          <div className="picker__row" role="group" aria-labelledby="picker-prompt">
+          <div className="lg-seg picker__row" role="group" aria-labelledby="picker-prompt">
+            <span className="lg-seg__thumb" aria-hidden="true" />
             {FAULT_ORDER.map((id) => (
-              <button key={id} type="button" className="bracket" data-fault={id} onClick={() => pick(id)}>
+              <button
+                key={id}
+                type="button"
+                className="lg-seg__item"
+                data-lg-item=""
+                data-fault={id}
+                onClick={() => pick(id)}
+              >
                 {FAULTS[id].label}
               </button>
             ))}
+            <span className="lg-seg__lens" aria-hidden="true" />
           </div>
           <p className="picker__hint" aria-hidden="true">
             <span className="hint__mouse">Drag the body to look around · ← →</span>
@@ -327,7 +358,7 @@ export function Journey({ live }: { live: boolean }) {
           <h2 className="h2" id="h-finale">
             Try it on your next set.
           </h2>
-          <a className="bracket bracket--big" href={TRY_URL} data-focus-only>
+          <a className="lg-btn lg-btn--big" href={TRY_URL} data-focus-only ref={cta}>
             Try it out
           </a>
           <p className="price">

@@ -6,6 +6,7 @@
 
 :root {
   --fog: #abc0d8;
+  --fog-2: #c9d6e5;
   --ink: #15191e;
   --ink-2: #3d444c;
   --fault-ink: #a0261f;
@@ -156,60 +157,302 @@ body {
   color: var(--ink-2);
 }
 
-/* ── picker: igloo's [ bracket ] buttons ─────────────────────────────────── */
+/* ── liquid glass (Apple's control material) ───────────────────────────────
+   ⚠️ Copied from site/src/styles/site.css (itself mirrored in the tracker) — keep in step.
+
+   Glass reads as glass from three things together: a frost of what's behind it
+   (backdrop blur + saturation), a rim that catches light — bright where the light
+   enters top-left and exits bottom-right — and a specular bloom that follows the
+   pointer. Pressed glass swells, like a drop under a fingertip; it never shrinks.
+   Switches carry one droplet that slides between options on a spring
+   (lib/liquidGlass.ts); on Chromium its rim also bends what's under it.
+   --lg-spring / --lg-spring-soft are sampled from damped springs (ζ 0.6, ζ 0.8). */
+
+:root {
+  --lg-fill: rgba(255, 255, 255, 0.22);
+  --lg-tint: rgba(21, 25, 30, 0.8);
+  --lg-edge:
+    inset 0 0 0 0.5px rgba(255, 255, 255, 0.5), inset 0 1px 1px rgba(255, 255, 255, 0.85),
+    inset 0 -1px 1px rgba(255, 255, 255, 0.28), inset 0 0 16px rgba(255, 255, 255, 0.16);
+  --lg-drop: 0 10px 26px -12px rgba(21, 25, 30, 0.38), 0 2px 5px -2px rgba(21, 25, 30, 0.14);
+  --lg-spring: linear(0, 0.083, 0.273, 0.494, 0.701, 0.868, 0.985, 1.056, 1.089, 1.094, 1.083, 1.064, 1.043, 1.024, 1.009, 0.999, 0.994, 0.991, 0.991, 0.993, 0.994, 0.996, 0.998, 0.999, 1);
+  --lg-spring-soft: linear(0, 0.103, 0.311, 0.526, 0.705, 0.836, 0.922, 0.974, 1.001, 1.012, 1.015, 1.014, 1.01, 1.007, 1.004, 1.002, 1.001, 1);
+}
+
+.lg-btn,
+.lg-seg {
+  position: relative;
+  isolation: isolate;
+  border: 0;
+  border-radius: 999px;
+  backdrop-filter: blur(12px) saturate(180%);
+  -webkit-backdrop-filter: blur(12px) saturate(180%);
+  box-shadow: var(--lg-edge), var(--lg-drop);
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* The rim: a hairline gradient border cut out of a full-size layer. */
+.lg-btn::before,
+.lg-seg::before,
+.lg-seg__lens::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  padding: 1px;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.95) 0%,
+    rgba(255, 255, 255, 0.25) 28%,
+    rgba(255, 255, 255, 0) 50%,
+    rgba(255, 255, 255, 0.2) 72%,
+    rgba(255, 255, 255, 0.75) 100%
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+}
+
+/* The specular bloom, parked wherever the pointer last was. */
+.lg-btn::after,
+.lg-seg::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  border-radius: inherit;
+  pointer-events: none;
+  background: radial-gradient(
+    90px circle at var(--lg-x, 50%) var(--lg-y, 0%),
+    rgba(255, 255, 255, 0.6),
+    rgba(255, 255, 255, 0) 70%
+  );
+  opacity: 0;
+  transition: opacity 0.35s var(--ease-out);
+}
+.lg-btn:hover::after {
+  opacity: 0.55;
+}
+.lg-seg:hover::after {
+  opacity: 0.35;
+}
+.lg-btn:active::after {
+  opacity: 1;
+  transition-duration: 0.06s;
+}
+
+.lg-btn {
+  --lg-bg: var(--lg-fill);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 11px 18px 10px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 1.5;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-decoration: none;
+  white-space: nowrap;
+  color: var(--ink);
+  cursor: pointer;
+  background: var(--lg-bg);
+  touch-action: manipulation;
+  transition:
+    transform 0.7s var(--lg-spring),
+    background-color 0.3s var(--ease-out),
+    color 0.2s var(--ease-out),
+    box-shadow 0.3s var(--ease-out);
+}
+.lg-btn:hover:not(:disabled, [aria-disabled="true"]) {
+  transform: scale(1.03);
+}
+.lg-btn:active:not(:disabled, [aria-disabled="true"]) {
+  transform: scale(1.07);
+  transition-duration: 0.45s;
+  transition-timing-function: var(--lg-spring-soft);
+}
+.lg-btn:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 3px;
+}
+.lg-btn:disabled,
+.lg-btn[aria-disabled="true"] {
+  color: var(--ink-2);
+  cursor: default;
+  opacity: 0.5;
+}
+/* Tinted glass for the primary action: the same material, dyed ink. */
+.lg-btn--tint {
+  --lg-bg: var(--lg-tint);
+  color: var(--fog-2);
+  box-shadow:
+    inset 0 0 0 0.5px rgba(255, 255, 255, 0.18),
+    inset 0 1px 1px rgba(255, 255, 255, 0.35),
+    inset 0 -1px 1px rgba(255, 255, 255, 0.08),
+    var(--lg-drop);
+}
+.lg-btn--tint::before {
+  opacity: 0.45;
+}
+.lg-btn--tint::after {
+  mix-blend-mode: soft-light;
+}
+.lg-btn--big {
+  padding: 18px 34px 17px;
+  font-size: 14px;
+  letter-spacing: 0.12em;
+}
+
+/* Switch: a glass track, labels, and one droplet (thumb under, lens over). */
+.lg-seg {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 2px;
+  padding: 4px;
+  background: rgba(255, 255, 255, 0.16);
+  touch-action: pan-y;
+}
+.lg-seg__item {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 0;
+  padding: 7px 16px 6px;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 1.5;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--ink-2);
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: color 0.3s var(--ease-out);
+}
+.lg-seg__item:hover:not(:disabled) {
+  color: var(--ink);
+}
+.lg-seg__item[aria-pressed="true"],
+.lg-seg__item[aria-current="page"] {
+  color: var(--ink);
+}
+.lg-seg__item:disabled,
+.lg-seg__item[aria-disabled="true"]:not([aria-pressed="true"]) {
+  cursor: default;
+  opacity: 0.42;
+}
+.lg-seg__item:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: -3px;
+}
+.lg-seg__thumb,
+.lg-seg__lens {
+  position: absolute;
+  left: 0;
+  top: 0;
+  border-radius: 999px;
+  pointer-events: none;
+  opacity: 0;
+  transform-origin: 50% 50%;
+  will-change: transform, opacity;
+}
+/* The droplet's body. Pressed, it clears (less milk, more glass) as it swells. */
+.lg-seg__thumb {
+  z-index: 0;
+  background: rgba(255, 255, 255, calc(0.62 - 0.34 * var(--lg-lift, 0)));
+  backdrop-filter: blur(4px) saturate(160%);
+  -webkit-backdrop-filter: blur(4px) saturate(160%);
+  box-shadow:
+    0 6px 16px -8px rgba(21, 25, 30, 0.42),
+    0 1px 3px rgba(21, 25, 30, 0.12),
+    inset 0 1px 1px #fff,
+    inset 0 -1px 1px rgba(21, 25, 30, 0.06);
+}
+/* Its rim, drawn over the labels so the edge catches light above them. */
+.lg-seg__lens {
+  z-index: 2;
+  box-shadow:
+    inset 0 0 0 0.5px rgba(255, 255, 255, 0.6),
+    inset 0 0 calc(10px + 14px * var(--lg-lift, 0)) rgba(255, 255, 255, calc(0.12 + 0.22 * var(--lg-lift, 0)));
+}
+
+/* A grid of cards: no track of its own (the panel is the surface); the droplet
+   is a glass slab sized to the chosen card. */
+.lg-seg--cards {
+  display: grid;
+  padding: 0;
+  gap: 10px;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  touch-action: auto;
+}
+.lg-seg--cards::before,
+.lg-seg--cards::after {
+  display: none;
+}
+.lg-seg--cards > .lg-seg__item {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 0;
+  border-radius: 18px;
+  font-family: var(--sans);
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
+  white-space: normal;
+  color: var(--ink-2);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .lg-btn,
+  .lg-seg,
+  .lg-seg__thumb {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  .lg-btn {
+    --lg-bg: var(--fog-2);
+  }
+  .lg-seg {
+    background: var(--fog-2);
+  }
+  .lg-seg__thumb {
+    background: #fff;
+  }
+}
+
+/* ── picker: one glass switch ───────────────────────────────────────────── */
 
 .picker {
   position: absolute;
   left: 50%;
   bottom: 28px;
   transform: translateX(-50%);
-  display: flex;
-  gap: 10px;
   pointer-events: auto;
-}
-
-.bracket {
-  --c: var(--ink);
-  --l: 9px;
-  position: relative;
-  padding: 11px 18px 10px;
-  border: 0;
-  border-radius: 0;
-  font: inherit;
-  letter-spacing: inherit;
-  text-transform: inherit;
-  color: var(--ink);
-  cursor: pointer;
-  background:
-    linear-gradient(var(--c), var(--c)) top left / var(--l) 1px no-repeat,
-    linear-gradient(var(--c), var(--c)) top left / 1px var(--l) no-repeat,
-    linear-gradient(var(--c), var(--c)) top right / var(--l) 1px no-repeat,
-    linear-gradient(var(--c), var(--c)) top right / 1px var(--l) no-repeat,
-    linear-gradient(var(--c), var(--c)) bottom left / var(--l) 1px no-repeat,
-    linear-gradient(var(--c), var(--c)) bottom left / 1px var(--l) no-repeat,
-    linear-gradient(var(--c), var(--c)) bottom right / var(--l) 1px no-repeat,
-    linear-gradient(var(--c), var(--c)) bottom right / 1px var(--l) no-repeat,
-    var(--glass);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-  transition:
-    color 0.2s var(--ease-out),
-    background-color 0.2s var(--ease-out);
-}
-.bracket:hover:not([aria-disabled="true"]),
-.bracket:focus-visible {
-  --l: 14px;
-  outline: none;
-}
-.bracket[aria-pressed="true"] {
-  --c: var(--fog);
-  color: var(--fog);
-  background-color: var(--ink);
-}
-.bracket[aria-disabled="true"]:not([aria-pressed="true"]) {
-  color: var(--ink-2);
-  cursor: default;
-  opacity: 0.55;
+  font-family: var(--mono);
 }
 
 /* ── boot ────────────────────────────────────────────────────────────────── */
@@ -272,12 +515,12 @@ body {
   }
   .picker {
     bottom: 16px;
+    display: flex;
     width: calc(100% - 32px);
-    gap: 6px;
   }
-  .bracket {
+  .picker > .lg-seg__item {
     flex: 1;
-    padding: 11px 6px 10px;
+    padding: 9px 6px 8px;
     font-size: 10px;
   }
 }

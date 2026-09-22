@@ -44,7 +44,7 @@ export function SynthesisReport({
     <div className="report">
       <div className="report__head">
         <h2>Workout report</h2>
-        <button className="btn" onClick={onNewWorkout}>
+        <button className="lg-btn btn" onClick={onNewWorkout}>
           New workout
         </button>
       </div>

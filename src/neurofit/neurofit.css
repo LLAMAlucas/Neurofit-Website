@@ -2,7 +2,7 @@
    Neuro-Fit — the tracker, in the marketing site's language (site/src/styles/site.css).
 
    Same tokens, same type, same parts: fog behind everything, dark ink on it, glass
-   panels, mono readouts, [bracket] buttons, and red only for what the camera caught.
+   panels, mono readouts, liquid-glass controls, and red only for what the camera caught.
    No 3D here — the camera feed is the scene.
 
    Contrast on the fog (#abc0d8): --ink ≈ 9.5:1, --ink-2 ≈ 5.3:1. Red TEXT is always
@@ -77,7 +77,6 @@ code {
 .panel__title,
 .stat__label,
 .nf-brand__sub,
-.nf-tab,
 .postset-review__eyebrow,
 .postset-review__title,
 .report-set__sub,
@@ -92,75 +91,292 @@ code {
   color: var(--ink-2);
 }
 
-/* ── the bracket button: the site's [ corners ] ────────────────────────── */
-.btn,
-.nf-reset,
-.nf-exercise__opt,
-.apikey__save,
-.nf-evallog-btn {
-  --c: var(--ink);
-  --l: 8px;
+/* ── liquid glass (Apple's control material) ───────────────────────────────
+   ⚠️ Mirrored in site/src/styles/site.css (same section) — keep the two in step.
+
+   Glass reads as glass from three things together: a frost of what's behind it
+   (backdrop blur + saturation), a rim that catches light — bright where the light
+   enters top-left and exits bottom-right — and a specular bloom that follows the
+   pointer. Pressed glass swells, like a drop under a fingertip; it never shrinks.
+   Switches carry one droplet that slides between options on a spring
+   (components/glass/liquidGlass.ts); on Chromium its rim also bends what's under it.
+   --lg-spring / --lg-spring-soft are sampled from damped springs (ζ 0.6, ζ 0.8). */
+
+:root {
+  --lg-fill: rgba(255, 255, 255, 0.22);
+  --lg-tint: rgba(21, 25, 30, 0.8);
+  --lg-edge:
+    inset 0 0 0 0.5px rgba(255, 255, 255, 0.5), inset 0 1px 1px rgba(255, 255, 255, 0.85),
+    inset 0 -1px 1px rgba(255, 255, 255, 0.28), inset 0 0 16px rgba(255, 255, 255, 0.16);
+  --lg-drop: 0 10px 26px -12px rgba(21, 25, 30, 0.38), 0 2px 5px -2px rgba(21, 25, 30, 0.14);
+  --lg-spring: linear(0, 0.083, 0.273, 0.494, 0.701, 0.868, 0.985, 1.056, 1.089, 1.094, 1.083, 1.064, 1.043, 1.024, 1.009, 0.999, 0.994, 0.991, 0.991, 0.993, 0.994, 0.996, 0.998, 0.999, 1);
+  --lg-spring-soft: linear(0, 0.103, 0.311, 0.526, 0.705, 0.836, 0.922, 0.974, 1.001, 1.012, 1.015, 1.014, 1.01, 1.007, 1.004, 1.002, 1.001, 1);
+}
+
+.lg-btn,
+.lg-seg {
   position: relative;
+  isolation: isolate;
+  border: 0;
+  border-radius: 999px;
+  backdrop-filter: blur(12px) saturate(180%);
+  -webkit-backdrop-filter: blur(12px) saturate(180%);
+  box-shadow: var(--lg-edge), var(--lg-drop);
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* The rim: a hairline gradient border cut out of a full-size layer. */
+.lg-btn::before,
+.lg-seg::before,
+.lg-seg__lens::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  padding: 1px;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.95) 0%,
+    rgba(255, 255, 255, 0.25) 28%,
+    rgba(255, 255, 255, 0) 50%,
+    rgba(255, 255, 255, 0.2) 72%,
+    rgba(255, 255, 255, 0.75) 100%
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+}
+
+/* The specular bloom, parked wherever the pointer last was. */
+.lg-btn::after,
+.lg-seg::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  border-radius: inherit;
+  pointer-events: none;
+  background: radial-gradient(
+    90px circle at var(--lg-x, 50%) var(--lg-y, 0%),
+    rgba(255, 255, 255, 0.6),
+    rgba(255, 255, 255, 0) 70%
+  );
+  opacity: 0;
+  transition: opacity 0.35s var(--ease-out);
+}
+.lg-btn:hover::after {
+  opacity: 0.55;
+}
+.lg-seg:hover::after {
+  opacity: 0.35;
+}
+.lg-btn:active::after {
+  opacity: 1;
+  transition-duration: 0.06s;
+}
+
+.lg-btn {
+  --lg-bg: var(--lg-fill);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 10px 16px 9px;
-  border: 0;
-  border-radius: 0;
+  padding: 11px 18px 10px;
   font-family: var(--mono);
   font-size: 11.5px;
   font-weight: 500;
+  line-height: 1.5;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   text-decoration: none;
   white-space: nowrap;
   color: var(--ink);
   cursor: pointer;
-  background:
-    linear-gradient(var(--c), var(--c)) top left / var(--l) 1px no-repeat,
-    linear-gradient(var(--c), var(--c)) top left / 1px var(--l) no-repeat,
-    linear-gradient(var(--c), var(--c)) top right / var(--l) 1px no-repeat,
-    linear-gradient(var(--c), var(--c)) top right / 1px var(--l) no-repeat,
-    linear-gradient(var(--c), var(--c)) bottom left / var(--l) 1px no-repeat,
-    linear-gradient(var(--c), var(--c)) bottom left / 1px var(--l) no-repeat,
-    linear-gradient(var(--c), var(--c)) bottom right / var(--l) 1px no-repeat,
-    linear-gradient(var(--c), var(--c)) bottom right / 1px var(--l) no-repeat,
-    var(--glass);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  background: var(--lg-bg);
+  touch-action: manipulation;
   transition:
+    transform 0.7s var(--lg-spring),
+    background-color 0.3s var(--ease-out),
     color 0.2s var(--ease-out),
-    background-color 0.2s var(--ease-out),
-    background-size 0.2s var(--ease-out);
+    box-shadow 0.3s var(--ease-out);
 }
-:is(.btn, .nf-reset, .nf-exercise__opt, .apikey__save, .nf-evallog-btn):hover:not(:disabled),
-:is(.btn, .nf-reset, .nf-exercise__opt, .apikey__save, .nf-evallog-btn):focus-visible {
-  --l: 13px;
-  outline: none;
+.lg-btn:hover:not(:disabled, [aria-disabled="true"]) {
+  transform: scale(1.03);
 }
-:is(.btn, .nf-reset, .nf-exercise__opt, .apikey__save, .nf-evallog-btn):active:not(:disabled) {
-  transform: translateY(1px);
+.lg-btn:active:not(:disabled, [aria-disabled="true"]) {
+  transform: scale(1.07);
+  transition-duration: 0.45s;
+  transition-timing-function: var(--lg-spring-soft);
 }
-/* Pressed / primary: solid ink, like the site's aria-pressed bracket. */
-.btn--primary,
-.nf-exercise__opt--active,
-.apikey__save:not(:disabled) {
-  --c: var(--fog-2);
-  color: var(--fog-2);
-  background-color: var(--ink);
+.lg-btn:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 3px;
 }
-:is(.btn, .nf-reset, .nf-exercise__opt, .apikey__save):disabled {
+.lg-btn:disabled,
+.lg-btn[aria-disabled="true"] {
   color: var(--ink-2);
   cursor: default;
   opacity: 0.5;
 }
-.nf-exercise__opt--active:disabled {
-  opacity: 1;
+/* Tinted glass for the primary action: the same material, dyed ink. */
+.lg-btn--tint,
+.btn--primary,
+.apikey__save:not(:disabled) {
+  --lg-bg: var(--lg-tint);
+  color: var(--fog-2);
+  box-shadow:
+    inset 0 0 0 0.5px rgba(255, 255, 255, 0.18),
+    inset 0 1px 1px rgba(255, 255, 255, 0.35),
+    inset 0 -1px 1px rgba(255, 255, 255, 0.08),
+    var(--lg-drop);
+}
+:is(.lg-btn--tint, .btn--primary, .apikey__save:not(:disabled))::before {
+  opacity: 0.45;
+}
+:is(.lg-btn--tint, .btn--primary, .apikey__save:not(:disabled))::after {
+  mix-blend-mode: soft-light;
 }
 .btn--sm {
-  padding: 7px 11px 6px;
+  padding: 8px 13px 7px;
   font-size: 10.5px;
+}
+
+/* Switch: a glass track, labels, and one droplet (thumb under, lens over). */
+.lg-seg {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 2px;
+  padding: 4px;
+  background: rgba(255, 255, 255, 0.16);
+  touch-action: pan-y;
+}
+.lg-seg__item {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 0;
+  padding: 7px 16px 6px;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 1.5;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--ink-2);
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: color 0.3s var(--ease-out);
+}
+.lg-seg__item:hover:not(:disabled) {
+  color: var(--ink);
+}
+.lg-seg__item[aria-pressed="true"],
+.lg-seg__item[aria-current="page"] {
+  color: var(--ink);
+}
+.lg-seg__item:disabled,
+.lg-seg__item[aria-disabled="true"]:not([aria-pressed="true"]) {
+  cursor: default;
+  opacity: 0.42;
+}
+.lg-seg__item:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: -3px;
+}
+.lg-seg__thumb,
+.lg-seg__lens {
+  position: absolute;
+  left: 0;
+  top: 0;
+  border-radius: 999px;
+  pointer-events: none;
+  opacity: 0;
+  transform-origin: 50% 50%;
+  will-change: transform, opacity;
+}
+/* The droplet's body. Pressed, it clears (less milk, more glass) as it swells. */
+.lg-seg__thumb {
+  z-index: 0;
+  background: rgba(255, 255, 255, calc(0.62 - 0.34 * var(--lg-lift, 0)));
+  backdrop-filter: blur(4px) saturate(160%);
+  -webkit-backdrop-filter: blur(4px) saturate(160%);
+  box-shadow:
+    0 6px 16px -8px rgba(21, 25, 30, 0.42),
+    0 1px 3px rgba(21, 25, 30, 0.12),
+    inset 0 1px 1px #fff,
+    inset 0 -1px 1px rgba(21, 25, 30, 0.06);
+}
+/* Its rim, drawn over the labels so the edge catches light above them. */
+.lg-seg__lens {
+  z-index: 2;
+  box-shadow:
+    inset 0 0 0 0.5px rgba(255, 255, 255, 0.6),
+    inset 0 0 calc(10px + 14px * var(--lg-lift, 0)) rgba(255, 255, 255, calc(0.12 + 0.22 * var(--lg-lift, 0)));
+}
+
+/* A grid of cards: no track of its own (the panel is the surface); the droplet
+   is a glass slab sized to the chosen card. */
+.lg-seg--cards {
+  display: grid;
+  padding: 0;
+  gap: 10px;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  touch-action: auto;
+}
+.lg-seg--cards::before,
+.lg-seg--cards::after {
+  display: none;
+}
+.lg-seg--cards > .lg-seg__item {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 0;
+  border-radius: 18px;
+  font-family: var(--sans);
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
+  white-space: normal;
+  color: var(--ink-2);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .lg-btn,
+  .lg-seg,
+  .lg-seg__thumb {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  .lg-btn {
+    --lg-bg: var(--fog-2);
+  }
+  .lg-seg {
+    background: var(--fog-2);
+  }
+  .lg-seg__thumb {
+    background: #fff;
+  }
 }
 
 /* ── shell ─────────────────────────────────────────────────────────────── */
@@ -254,39 +470,12 @@ code {
   align-items: center;
   gap: 10px;
 }
-.nf-exercise {
-  display: inline-flex;
-  gap: 4px;
-}
-
-/* ── tabs: numbered like the site's stop index ─────────────────────────── */
+/* ── tabs: a glass switch, numbered like the site stop index ─────────── */
 .nf-tabs {
   display: flex;
-  gap: 22px;
-}
-.nf-tab {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 8px;
-  padding: 4px 0 6px;
-  border: 0;
-  border-bottom: 1px solid transparent;
-  background: none;
-  color: var(--ink-2);
-  cursor: pointer;
-  transition:
-    color 0.2s var(--ease-out),
-    border-color 0.2s var(--ease-out);
 }
 .nf-tab__num {
-  opacity: 0.6;
-}
-.nf-tab:hover {
-  color: var(--ink);
-}
-.nf-tab--active {
-  color: var(--ink);
-  border-bottom-color: var(--ink);
+  opacity: 0.55;
 }
 
 /* ── body layout ───────────────────────────────────────────────────────── */
@@ -348,26 +537,6 @@ code {
   aspect-ratio: 16 / 9;
   background: var(--ink);
   overflow: hidden;
-}
-/* Viewfinder corners over the feed (above the canvases, never catching a click). */
-.coach-cam::after {
-  --c: rgba(230, 242, 251, 0.75);
-  --l: 22px;
-  --i: 12px;
-  content: "";
-  position: absolute;
-  inset: var(--i);
-  z-index: 3;
-  pointer-events: none;
-  background:
-    linear-gradient(var(--c), var(--c)) top left / var(--l) 1px no-repeat,
-    linear-gradient(var(--c), var(--c)) top left / 1px var(--l) no-repeat,
-    linear-gradient(var(--c), var(--c)) top right / var(--l) 1px no-repeat,
-    linear-gradient(var(--c), var(--c)) top right / 1px var(--l) no-repeat,
-    linear-gradient(var(--c), var(--c)) bottom left / var(--l) 1px no-repeat,
-    linear-gradient(var(--c), var(--c)) bottom left / 1px var(--l) no-repeat,
-    linear-gradient(var(--c), var(--c)) bottom right / var(--l) 1px no-repeat,
-    linear-gradient(var(--c), var(--c)) bottom right / 1px var(--l) no-repeat;
 }
 .coach-cam__layer {
   position: absolute;
@@ -1130,7 +1299,7 @@ code {
   color: var(--ink-2);
 }
 
-/* Selectable cards (mode, depth preset): glass, ink edge when chosen. */
+/* Selectable cards (mode, depth preset): clear glass panes; the droplet marks the chosen one. */
 .mode-toggle {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -1144,29 +1313,23 @@ code {
 .mode-card,
 .depth-card {
   color: var(--ink-2);
-  background: rgba(255, 255, 255, 0.3);
-  border: 1px solid var(--rule);
-  border-radius: 0;
+  background: rgba(255, 255, 255, 0.16);
+  box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.55);
   cursor: pointer;
-  transition:
-    border-color 0.2s var(--ease-out),
-    background-color 0.2s var(--ease-out),
-    color 0.2s var(--ease-out);
+  transition: background-color 0.3s var(--ease-out);
 }
 .mode-card {
-  padding: 13px 15px;
+  padding: 14px 16px;
   text-align: left;
 }
-.mode-card:hover,
-.depth-card:hover {
-  border-color: var(--ink-2);
+.mode-card:hover:not([aria-pressed="true"]),
+.depth-card:hover:not([aria-pressed="true"]) {
+  background: rgba(255, 255, 255, 0.28);
 }
-.mode-card--active,
-.depth-card--active {
+.mode-card[aria-pressed="true"],
+.depth-card[aria-pressed="true"] {
   color: var(--ink);
-  background: rgba(255, 255, 255, 0.62);
-  border-color: var(--ink);
-  box-shadow: inset 0 0 0 1px var(--ink);
+  background: transparent;
 }
 .mode-card__title {
   margin: 0 0 4px;
@@ -1183,9 +1346,7 @@ code {
   line-height: 1.5;
   color: var(--ink-2);
 }
-.depth-card {
-  display: flex;
-  flex-direction: column;
+.lg-seg--cards > .depth-card {
   align-items: center;
   gap: 3px;
   padding: 14px 12px 16px;
@@ -1238,7 +1399,7 @@ code {
 .depth-fig__hip {
   fill: var(--ink);
 }
-.depth-card--active .depth-fig__hip {
+.depth-card[aria-pressed="true"] .depth-fig__hip {
   fill: var(--fault-ink);
 }
 .depth-fig__ground {
@@ -1261,17 +1422,15 @@ code {
   padding: 12px 14px;
   text-align: left;
   color: inherit;
-  background: rgba(255, 255, 255, 0.3);
-  border: 1px solid var(--rule);
-  border-radius: 0;
+  background: rgba(255, 255, 255, 0.16);
+  border: 0;
+  border-radius: 18px;
+  box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.55);
   cursor: pointer;
-  transition:
-    border-color 0.2s var(--ease-out),
-    background-color 0.2s var(--ease-out);
+  transition: background-color 0.3s var(--ease-out);
 }
 .api-toggle--on {
-  background: rgba(255, 255, 255, 0.62);
-  border-color: var(--ink);
+  background: rgba(255, 255, 255, 0.4);
 }
 .api-toggle:disabled {
   opacity: 0.55;
@@ -1280,25 +1439,39 @@ code {
 .api-toggle__track {
   position: relative;
   flex: 0 0 auto;
-  width: 38px;
-  height: 20px;
-  background: var(--rule);
-  transition: background-color 0.2s var(--ease-out);
+  width: 46px;
+  height: 26px;
+  border-radius: 999px;
+  background: rgba(21, 25, 30, 0.16);
+  box-shadow: inset 0 1px 2px rgba(21, 25, 30, 0.18);
+  transition: background-color 0.3s var(--ease-out);
 }
 .api-toggle--on .api-toggle__track {
   background: var(--ink);
 }
 .api-toggle__thumb {
   position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 14px;
-  height: 14px;
-  background: var(--hot);
-  transition: transform 0.2s var(--ease-out);
+  top: 2px;
+  left: 2px;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow:
+    0 3px 8px -2px rgba(21, 25, 30, 0.35),
+    inset 0 1px 1px #fff,
+    inset 0 -1px 1px rgba(21, 25, 30, 0.08);
+  transition: transform 0.6s var(--lg-spring);
+}
+.api-toggle:active:not(:disabled) .api-toggle__thumb {
+  transform: scaleX(1.25);
+  transform-origin: left center;
 }
 .api-toggle--on .api-toggle__thumb {
-  transform: translateX(18px);
+  transform: translateX(20px);
+}
+.api-toggle--on:active:not(:disabled) .api-toggle__thumb {
+  transform: translateX(15px) scaleX(1.25);
 }
 .api-toggle__label {
   font-family: var(--mono);
@@ -1317,16 +1490,16 @@ code {
 .apikey__input {
   flex: 1 1 auto;
   min-width: 0;
-  padding: 10px 12px;
+  padding: 10px 16px;
   /* The value is a secret in a password field: a proportional face turns a
      mistyped key into a needle-in-a-haystack, so keep the dots evenly spaced. */
   font-family: var(--mono);
   font-size: 13px;
   letter-spacing: 0.06em;
   color: var(--ink);
-  background: rgba(255, 255, 255, 0.55);
+  background: rgba(255, 255, 255, 0.5);
   border: 1px solid var(--rule);
-  border-radius: 0;
+  border-radius: 999px;
 }
 .apikey__input:focus-visible {
   outline: none;
@@ -1509,7 +1682,7 @@ code {
   .nf-exercise {
     flex: 1;
   }
-  .nf-exercise__opt {
+  .nf-exercise > .lg-seg__item {
     flex: 1;
   }
   .apikey {
@@ -1517,10 +1690,6 @@ code {
   }
   .coach-cam {
     aspect-ratio: 4 / 3;
-  }
-  .coach-cam::after {
-    --l: 16px;
-    --i: 8px;
   }
   .fps-badge {
     top: 14px;

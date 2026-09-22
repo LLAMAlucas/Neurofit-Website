@@ -1,6 +1,6 @@
 /**
  * The viewfinder's frame, on every stop: the brand and the way out to the app
- * at the top, where-am-I and the sound at the bottom. Mono, bracketed, igloo's
+ * at the top, where-am-I and the sound at the bottom. Mono, igloo's
  * HUD language — and every control in it is a real link or button.
  *
  * `live` is false for the still page (reduced motion, no WebGL): no stop index
@@ -13,6 +13,7 @@ import { store } from "@/stage/store";
 import { onTick } from "@/hooks/ticker";
 import { Scrambler } from "@/hooks/scramble";
 import type { Sfx } from "@/audio/sfx";
+import { installGlassPointer, refract } from "@/lib/liquidGlass";
 
 const TRY_URL = "https://try.neurofit-training.com";
 
@@ -20,6 +21,12 @@ export function Hud({ live, sfx }: { live: boolean; sfx?: Sfx }) {
   const index = useRef<HTMLSpanElement>(null);
   const boot = useRef<HTMLDivElement>(null);
   const [sound, setSound] = useState(false);
+  const tryIt = useRef<HTMLAnchorElement>(null);
+
+  // Liquid glass: the highlight follows the pointer everywhere on the page, and the
+  // button's rim bends the scene behind it (Chromium; elsewhere it stays frosted).
+  useEffect(() => installGlassPointer(), []);
+  useEffect(() => (tryIt.current ? refract(tryIt.current, { blur: 5, saturate: 1.8, strength: 1.1 }) : undefined), []);
 
   useEffect(() => {
     if (!live) return;
@@ -55,7 +62,7 @@ export function Hud({ live, sfx }: { live: boolean; sfx?: Sfx }) {
       {/* A separate origin (its own deployment off the same repo), so the
           camera permission the app asks for is scoped to it alone and never to
           this page. */}
-      <a className="bracket hud__try" href={TRY_URL}>
+      <a className="lg-btn hud__try" href={TRY_URL} ref={tryIt}>
         Try it out
       </a>
 

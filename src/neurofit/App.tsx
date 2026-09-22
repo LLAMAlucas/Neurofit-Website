@@ -9,7 +9,7 @@
  * No accounts/backend/multi-exercise/persistence — out of scope. StakeFit source
  * remains on disk as reference but isn't rendered.
  */
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CoachCamera, type CaptureFn } from "./components/CoachCamera";
 import { SetBar } from "./components/SetBar";
 import { MetricsPanel, type MetricRow } from "./components/MetricsPanel";
@@ -18,6 +18,8 @@ import { EnvPanel } from "./components/EnvPanel";
 import { SynthesisReport } from "./components/SynthesisReport";
 import { PostSetReview } from "./components/PostSetReview";
 import { SettingsView } from "./components/SettingsView";
+import { GlassSegmented } from "./components/glass/GlassSegmented";
+import { installGlassPointer } from "./components/glass/liquidGlass";
 import { useWorkout } from "./hooks/useWorkout";
 import {
   useDepthPreset,
@@ -55,6 +57,7 @@ export default function App() {
   const pushup = exercise === "pushup";
 
   const [tab, setTab] = useState<Tab>("coach");
+  useEffect(() => installGlassPointer(), []);
   const [corrected, setCorrected] = useState(true);
   const [exposure, setExposure] = useState<ExposureDecision | null>(null);
 
@@ -102,40 +105,41 @@ export default function App() {
         </div>
 
         <div className="nf-controls">
-          <div className="nf-exercise" role="group" aria-label="Exercise">
-            {(["squat", "pushup"] as const).map((id) => (
-              <button
-                key={id}
-                type="button"
-                className={"nf-exercise__opt" + (exercise === id ? " nf-exercise__opt--active" : "")}
-                aria-pressed={exercise === id}
-                disabled={exercise !== id && !canSwitchExercise}
-                title={canSwitchExercise ? undefined : "Finish or reset the workout to switch exercise"}
-                onClick={() => setExercise(id)}
-              >
-                {id === "squat" ? "Squat" : "Push-ups"}
-              </button>
-            ))}
-          </div>
-          <button type="button" className="nf-reset" onClick={workout.reset}>
+          <GlassSegmented
+            className="nf-exercise"
+            label="Exercise"
+            value={exercise}
+            onChange={setExercise}
+            options={(["squat", "pushup"] as const).map((id) => ({
+              value: id,
+              label: id === "squat" ? "Squat" : "Push-ups",
+              disabled: exercise !== id && !canSwitchExercise,
+              title: canSwitchExercise ? undefined : "Finish or reset the workout to switch exercise",
+            }))}
+          />
+          <button type="button" className="lg-btn nf-reset" onClick={workout.reset}>
             Reset
           </button>
         </div>
       </header>
 
       <nav className="nf-tabs" aria-label="View">
-        {(["coach", "settings"] as const).map((id, i) => (
-          <button
-            key={id}
-            type="button"
-            className={"nf-tab" + (tab === id ? " nf-tab--active" : "")}
-            aria-current={tab === id ? "page" : undefined}
-            onClick={() => setTab(id)}
-          >
-            <span className="nf-tab__num">{String(i + 1).padStart(2, "0")}</span>
-            {id === "coach" ? "Coach" : "Settings"}
-          </button>
-        ))}
+        <GlassSegmented
+          className="nf-tabs__seg"
+          label="View"
+          current
+          value={tab}
+          onChange={setTab}
+          options={(["coach", "settings"] as const).map((id, i) => ({
+            value: id,
+            label: (
+              <>
+                <span className="nf-tab__num">{String(i + 1).padStart(2, "0")}</span>
+                {id === "coach" ? "Coach" : "Settings"}
+              </>
+            ),
+          }))}
+        />
       </nav>
 
       {tab === "settings" ? (
@@ -161,7 +165,7 @@ export default function App() {
           {finished ? (
             <main className="nf-body nf-body--report">
               {workout.devEvalLog && (
-                <button className="nf-evallog-btn" onClick={workout.downloadEvalLog} title="Export the dev workout evaluation log (JSON + Markdown)">
+                <button className="lg-btn nf-evallog-btn" onClick={workout.downloadEvalLog} title="Export the dev workout evaluation log (JSON + Markdown)">
                   ⬇ Download eval log (JSON + MD)
                 </button>
               )}

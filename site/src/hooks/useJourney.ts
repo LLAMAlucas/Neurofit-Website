@@ -109,6 +109,11 @@ export function useJourney(live: boolean) {
           // Fully out of focus: no blur to composite for a layer nobody sees.
           el.toggleAttribute("data-off", f === 0);
         }
+        // Fully sharp: drop the focus filter too, so the liquid-glass controls in the
+        // stop can see — and bend — the scene behind them (site.css). Outside the
+        // change threshold above, which could otherwise stall it at 0.998.
+        const sharp = f >= 0.999;
+        if (sharp !== el.hasAttribute("data-sharp")) el.toggleAttribute("data-sharp", sharp);
         el.style.setProperty("--local", sample.local[i].toFixed(4));
         // Controls in a stop that is out of focus can't be reached — the text
         // stays readable to a screen reader, but a hidden button can't be

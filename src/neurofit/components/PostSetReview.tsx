@@ -53,10 +53,10 @@ export function PostSetReview({
           <>
             <p className="postset-review__prompt">Review this set, or wrap up the workout?</p>
             <div className="postset-review__actions">
-              <button className="btn btn--primary" onClick={onNextSet}>
+              <button className="lg-btn btn btn--primary" onClick={onNextSet}>
                 Next set →
               </button>
-              <button className="btn" onClick={onEndWorkout}>
+              <button className="lg-btn btn" onClick={onEndWorkout}>
                 End workout
               </button>
             </div>
@@ -68,7 +68,7 @@ export function PostSetReview({
           <>
             <p className="postset-review__title">Coach debrief</p>
             <div className="postset-review__body">{body(review)}</div>
-            <button className="btn btn--primary postset-review__next" onClick={onStartNextSet}>
+            <button className="lg-btn btn btn--primary postset-review__next" onClick={onStartNextSet}>
               Start set {setIndex != null ? setIndex + 1 : ""} →
             </button>
           </>

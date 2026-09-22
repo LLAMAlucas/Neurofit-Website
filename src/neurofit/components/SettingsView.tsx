@@ -12,6 +12,7 @@ import { PUSHUP_DEPTH_PRESETS, type PushupDepthPreset, type PushupVariant } from
 import type { ExerciseId } from "../session/types";
 import type { ApiKeyControl } from "../hooks/useSettings";
 import { UsagePanel } from "./UsagePanel";
+import { GlassSegmented } from "./glass/GlassSegmented";
 
 interface PresetCard {
   id: DepthPreset;
@@ -147,7 +148,7 @@ export function SettingsView({
             autoComplete="off"
             spellCheck={false}
           />
-          <button type="submit" className="apikey__save" disabled={!apiKey.dirty}>
+          <button type="submit" className="lg-btn apikey__save" disabled={!apiKey.dirty}>
             Save
           </button>
         </form>
@@ -207,26 +208,26 @@ export function SettingsView({
               Which push-up you're doing. It changes the straight-line reference the body-line check uses. Switching
               exercise lives in the header.
             </p>
-            <div className="mode-toggle">
-              {PUSHUP_VARIANTS.map((v) => {
-                const selected = v.id === pushupVariant;
-                return (
-                  <button
-                    key={v.id}
-                    type="button"
-                    className={"mode-card" + (selected ? " mode-card--active" : "")}
-                    aria-pressed={selected}
-                    onClick={() => onPushupVariantChange(v.id)}
-                  >
+            <GlassSegmented
+              className="mode-toggle lg-seg--cards"
+              label="Push-up variant"
+              draggable={false}
+              value={pushupVariant}
+              onChange={onPushupVariantChange}
+              options={PUSHUP_VARIANTS.map((v) => ({
+                value: v.id,
+                className: "mode-card",
+                label: (
+                  <>
                     <p className="mode-card__title">
                       {v.title}
-                      {selected && <span className="depth-card__check">✓</span>}
+                      {v.id === pushupVariant && <span className="depth-card__check">✓</span>}
                     </p>
                     <p className="mode-card__desc">{v.desc}</p>
-                  </button>
-                );
-              })}
-            </div>
+                  </>
+                ),
+              }))}
+            />
           </div>
 
           <div className="panel settings-block">
@@ -235,28 +236,28 @@ export function SettingsView({
               How low a rep must go to count. Every rep must also press back up to straight arms. Side sets judge the
               upper-arm angle; head-on sets judge how far the shoulders drop. Changes apply from the next set.
             </p>
-            <div className="depth-presets">
-              {PUSHUP_PRESETS.map((p) => {
-                const selected = p.id === pushupPreset;
-                return (
-                  <button
-                    key={p.id}
-                    type="button"
-                    className={"depth-card" + (selected ? " depth-card--active" : "")}
-                    aria-pressed={selected}
-                    onClick={() => onPushupPresetChange(p.id)}
-                  >
+            <GlassSegmented
+              className="depth-presets lg-seg--cards"
+              label="Push-up depth target"
+              draggable={false}
+              value={pushupPreset}
+              onChange={onPushupPresetChange}
+              options={PUSHUP_PRESETS.map((p) => ({
+                value: p.id,
+                className: "depth-card",
+                label: (
+                  <>
                     <PushupFigure upperArmDeg={PUSHUP_DEPTH_PRESETS[p.id].targetUpperArmDeg} />
                     <p className="depth-card__title">
                       {p.title}
-                      {selected && <span className="depth-card__check">✓</span>}
+                      {p.id === pushupPreset && <span className="depth-card__check">✓</span>}
                     </p>
                     <p className="depth-card__desc">{p.desc}</p>
                     <p className="depth-card__sub">for: {p.sub}</p>
-                  </button>
-                );
-              })}
-            </div>
+                  </>
+                ),
+              }))}
+            />
           </div>
         </>
       ) : (
@@ -266,26 +267,26 @@ export function SettingsView({
         <p className="settings-block__hint">
           Whether you're lifting under load. This changes how cautiously the coach reads depth, butt wink and valgus.
         </p>
-        <div className="mode-toggle">
-          {MODES.map((m) => {
-            const selected = m.id === mode;
-            return (
-              <button
-                key={m.id}
-                type="button"
-                className={"mode-card" + (selected ? " mode-card--active" : "")}
-                aria-pressed={selected}
-                onClick={() => onModeChange(m.id)}
-              >
+        <GlassSegmented
+          className="mode-toggle lg-seg--cards"
+          label="Training mode"
+          draggable={false}
+          value={mode}
+          onChange={onModeChange}
+          options={MODES.map((m) => ({
+            value: m.id,
+            className: "mode-card",
+            label: (
+              <>
                 <p className="mode-card__title">
                   {m.title}
-                  {selected && <span className="depth-card__check">✓</span>}
+                  {m.id === mode && <span className="depth-card__check">✓</span>}
                 </p>
                 <p className="mode-card__desc">{m.desc}</p>
-              </button>
-            );
-          })}
-        </div>
+              </>
+            ),
+          }))}
+        />
       </div>
 
       <div className="panel settings-block">
@@ -293,28 +294,28 @@ export function SettingsView({
         <p className="settings-block__hint">
           How deep a rep must go to count as good depth. Side-view depth checks score against this target.
         </p>
-        <div className="depth-presets">
-          {PRESETS.map((p) => {
-            const selected = p.id === preset;
-            return (
-              <button
-                key={p.id}
-                type="button"
-                className={"depth-card" + (selected ? " depth-card--active" : "")}
-                aria-pressed={selected}
-                onClick={() => onChange(p.id)}
-              >
+        <GlassSegmented
+          className="depth-presets lg-seg--cards"
+          label="Squat depth target"
+          draggable={false}
+          value={preset}
+          onChange={onChange}
+          options={PRESETS.map((p) => ({
+            value: p.id,
+            className: "depth-card",
+            label: (
+              <>
                 <DepthFigure hipY={p.hipY} />
                 <p className="depth-card__title">
                   {p.title}
-                  {selected && <span className="depth-card__check">✓</span>}
+                  {p.id === preset && <span className="depth-card__check">✓</span>}
                 </p>
                 <p className="depth-card__desc">{p.desc}</p>
                 <p className="depth-card__sub">for: {p.sub}</p>
-              </button>
-            );
-          })}
-        </div>
+              </>
+            ),
+          }))}
+        />
       </div>
 
         </>
