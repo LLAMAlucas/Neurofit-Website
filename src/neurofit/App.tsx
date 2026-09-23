@@ -12,8 +12,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CoachCamera, type CaptureFn } from "./components/CoachCamera";
 import { SetBar } from "./components/SetBar";
-import { MetricsPanel, type MetricRow } from "./components/MetricsPanel";
-import { VelocityPanel } from "./components/VelocityPanel";
 import { SynthesisReport } from "./components/SynthesisReport";
 import { PostSetReview } from "./components/PostSetReview";
 import { SettingsView } from "./components/SettingsView";
@@ -29,8 +27,6 @@ import {
   usePushupDepthPreset,
   usePushupVariant,
 } from "./hooks/useSettings";
-import { METRIC_ORDER, METRICS } from "./squat/metrics";
-import { PUSHUP_METRIC_ORDER, PUSHUP_METRICS } from "./pushup/metrics";
 import type { ExposureDecision } from "./vision/exposure";
 
 type Tab = "coach" | "settings";
@@ -69,11 +65,6 @@ export default function App() {
   const canSwitchExercise =
     workout.phase === "finished" ||
     (workout.phase === "positioning" && workout.completedSets.length === 0 && workout.completedPushupSets.length === 0);
-  const squatMetrics = workout.liveMetrics;
-  const pushupMetrics = workout.pushupLiveMetrics;
-  const metricRows: MetricRow[] | null = pushup
-    ? pushupMetrics && PUSHUP_METRIC_ORDER.map((id) => ({ ...pushupMetrics[id], id, label: PUSHUP_METRICS[id].label }))
-    : squatMetrics && METRIC_ORDER.map((id) => ({ ...squatMetrics[id], id, label: METRICS[id].label }));
 
   return (
     <div className="nf">
@@ -212,14 +203,6 @@ export default function App() {
               )}
             </CoachCamera>
           </div>
-
-          <aside className="nf-rail">
-            <MetricsPanel
-              rows={metricRows}
-              emptyText={pushup ? "Lock a set and start your push-ups to see gated form checks." : "Lock a set and start squatting to see gated form checks."}
-            />
-            <VelocityPanel samples={workout.velocity} best={workout.bestVelocity} />
-          </aside>
         </main>
           )}
         </>

@@ -477,7 +477,7 @@ code {
 /* ── body layout ───────────────────────────────────────────────────────── */
 .nf-body {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 348px;
+  grid-template-columns: minmax(0, 1fr);
   gap: 14px;
   align-items: start;
   flex: 1;
@@ -486,11 +486,6 @@ code {
   display: flex;
   flex-direction: column;
   gap: 10px;
-}
-.nf-rail {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
 }
 
 /* ── panel ─────────────────────────────────────────────────────────────── */
@@ -1623,9 +1618,6 @@ code {
   }
 }
 @media (max-width: 920px) {
-  .nf-body {
-    grid-template-columns: 1fr;
-  }
   .setbar {
     grid-template-columns: 1fr;
     gap: 10px;
