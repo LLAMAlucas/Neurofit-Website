@@ -28,6 +28,7 @@ export default defineConfig({
   resolve: {
     alias: { "@": path.join(here, "src") },
   },
-  server: { port: 5180, strictPort: true },
+  // PORT lets a second checkout (a worktree) run beside the main one's 5180.
+  server: { port: Number(process.env.PORT) || 5180, strictPort: true },
   build: { outDir: path.join(here, "dist"), emptyOutDir: true },
 });
