@@ -16,6 +16,7 @@ uniform float uRise;       // 0 = let go at random, 1 = from the feet up
 
 layout(location = 0) out vec4 outOffset;
 layout(location = 1) out vec4 outVelocity;
+layout(location = 2) out vec4 outGrip;
 
 float hash11(float n) { return fract(sin(n * 12.9898 + 4.1414) * 43758.5453); }
 
@@ -49,4 +50,5 @@ void main() {
 
   outOffset = vec4(p - h.xyz, heat);
   outVelocity = vec4(v, wait);
+  outGrip = vec4(0.0); // no stroke has held it yet
 }

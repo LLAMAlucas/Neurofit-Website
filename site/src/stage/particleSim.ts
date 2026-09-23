@@ -12,7 +12,8 @@
  *
  * Two passes a frame, each one texel per particle:
  *  skin — its home on the posed body, and its normal;
- *  step — its offset from home (+ heat) and its velocity, advanced by dt.
+ *  step — its offset from home (+ heat), its velocity, and how much of the
+ *         cursor's hold on it is used up, advanced by dt.
  * The body's points are drawn at home + offset. A third pass, seed, runs only
  * when asked: it scatters every particle into the fog, and the step pass's pull
  * home then assembles the body out of it.
@@ -164,19 +165,21 @@ export class ParticleSim {
     // Full float where the GPU can render to it. Half float would put home
     // positions on a ~1 mm grid, which is still fine to look at.
     const type = gl.extensions.has("EXT_color_buffer_float") ? FloatType : HalfFloatType;
-    const target = () =>
+    const target = (count: number) =>
       new WebGLRenderTarget(this.width, this.height, {
-        count: 2,
+        count,
         type,
         format: RGBAFormat,
         minFilter: NearestFilter,
         magFilter: NearestFilter,
         depthBuffer: false,
       });
-    this.home = target();
-    this.homePrev = target();
-    this.read = target(); // zero-initialised: every particle starts at home, at rest
-    this.write = target();
+    this.home = target(2);
+    this.homePrev = target(2);
+    // Offset + heat, velocity + wait, grip. Zero-initialised: every particle
+    // starts at home, at rest, with no stroke holding it.
+    this.read = target(3);
+    this.write = target(3);
 
     this.skin = new ShaderMaterial({
       glslVersion: GLSL3,
@@ -206,6 +209,7 @@ export class ParticleSim {
         tHome: { value: null },
         tHomePrev: { value: null },
         tNormal: { value: null },
+        tGrip: { value: null },
         uDt: { value: MAX_STEP },
         uTime: { value: 0 },
         uFirst: { value: 0 },
@@ -372,6 +376,7 @@ export class ParticleSim {
       u.uFirst.value = i === 0 ? 1 : 0;
       u.tOffset.value = this.read.textures[0];
       u.tVelocity.value = this.read.textures[1];
+      u.tGrip.value = this.read.textures[2];
       gl.setRenderTarget(this.write);
       gl.render(this.scene, this.camera);
       [this.read, this.write] = [this.write, this.read];
