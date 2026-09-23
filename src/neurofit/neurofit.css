@@ -1,8 +1,8 @@
 /* ============================================================================
    Neuro-Fit — the tracker, in the marketing site's language (site/src/styles/site.css).
 
-   Same tokens, same type, same parts: fog behind everything, dark ink on it, glass
-   panels, mono readouts, liquid-glass controls, and red only for what the camera caught.
+   Same tokens, same type, same parts: fog behind everything, dark ink on it, hairline-
+   separated panels, mono readouts, liquid-glass controls, and red only for what the camera caught.
    No 3D here — the camera feed is the scene.
 
    Contrast on the fog (#abc0d8): --ink ≈ 9.5:1, --ink-2 ≈ 5.3:1. Red TEXT is always
@@ -76,7 +76,6 @@ code {
 /* Mono label: the site's eyebrow / HUD voice. */
 .panel__title,
 .stat__label,
-.nf-brand__sub,
 .postset-review__eyebrow,
 .postset-review__title,
 .report-set__sub,
@@ -413,9 +412,6 @@ code {
   width: 24px;
   height: 24px;
 }
-.nf-brand__sub {
-  margin: 4px 0 0;
-}
 
 .nf-stats {
   display: flex;
@@ -491,25 +487,16 @@ code {
   flex-direction: column;
   gap: 10px;
 }
-.nf-stage__hint {
-  margin: 0;
-  max-width: 62rem;
-  font-size: 13px;
-  color: var(--ink-2);
-}
 .nf-rail {
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
 
-/* ── glass panel ───────────────────────────────────────────────────────── */
+/* ── panel ─────────────────────────────────────────────────────────────── */
 .panel {
-  padding: 14px 16px 16px;
-  background: var(--glass-2);
-  border: 1px solid var(--glass-edge);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  padding: 14px 0 16px;
+  border-top: 1px solid var(--rule);
 }
 .panel__title {
   margin: 0 0 12px;
@@ -672,11 +659,8 @@ code {
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 18px;
-  padding: 12px 16px;
-  background: var(--glass-2);
-  border: 1px solid var(--glass-edge);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  padding: 12px 0;
+  border-bottom: 1px solid var(--rule);
 }
 .setbar__id {
   display: flex;
@@ -1626,18 +1610,6 @@ code {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-}
-
-/* ── footer ────────────────────────────────────────────────────────────── */
-.nf-foot {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 18px;
-  padding-top: 12px;
-  border-top: 1px solid var(--rule);
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--ink-2);
 }
 
 /* ── narrow screens ────────────────────────────────────────────────────── */
