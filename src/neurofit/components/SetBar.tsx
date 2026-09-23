@@ -14,6 +14,13 @@ const PUSHUP_ORIENT_HINT: Record<"front" | "side", string> = {
   front: "Camera on the floor in front of your head — get into the top of a push-up.",
   side: "Camera on the floor side-on, whole body in profile — get into the top of a push-up.",
 };
+// Pull-ups lock STANDING under the bar (hanging through the lock + countdown would burn the grip);
+// the lifter jumps up once the set goes live.
+const PULLUP_ORIENT_HINT: Record<"front" | "side", string> = {
+  front: "Stand under the bar facing the camera — bar, hands-up reach and whole body in frame.",
+  side: "Stand under the bar side-on to the camera — bar, hands-up reach and whole body in frame.",
+};
+const HINTS = { squat: ORIENT_HINT, pushup: PUSHUP_ORIENT_HINT, pullup: PULLUP_ORIENT_HINT } as const;
 
 export function SetBar({ workout }: { workout: Workout }) {
   const { phase, setIndex, targetOrientation, aligned, lockProgress, countdown, orientationLabel, repositionNeeded } = workout;
@@ -55,7 +62,10 @@ export function SetBar({ workout }: { workout: Workout }) {
           Off {targetOrientation}-on — checks paused. Return to {ORIENT_LABEL[targetOrientation]}.
         </span>
       ) : (
-        <span className="setbar__msg setbar__msg--go">Set live · {ORIENT_LABEL[targetOrientation]}</span>
+        <span className="setbar__msg setbar__msg--go">
+          Set live · {ORIENT_LABEL[targetOrientation]}
+          {workout.exercise === "pullup" && !workout.readable ? " — jump up and hang to start" : ""}
+        </span>
       );
     }
     // positioning
@@ -64,7 +74,7 @@ export function SetBar({ workout }: { workout: Workout }) {
         <span className={"setbar__msg" + (aligned ? " setbar__msg--go" : "")}>
           {aligned
             ? "Hold it…"
-            : `${(workout.exercise === "pushup" ? PUSHUP_ORIENT_HINT : ORIENT_HINT)[targetOrientation]} (${orientationLabel})`}
+            : `${HINTS[workout.exercise][targetOrientation]} (${orientationLabel})`}
         </span>
         <div className="setbar__lock">
           <div className="setbar__lock-fill" style={{ width: Math.round(lockProgress * 100) + "%" }} />

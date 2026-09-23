@@ -1284,6 +1284,10 @@ code {
   grid-template-columns: repeat(2, 1fr);
   gap: 10px;
 }
+/* Three-option card row (pull-up grip). The ≤720px rule below still stacks it to one column. */
+.mode-toggle--3 {
+  grid-template-columns: repeat(3, 1fr);
+}
 .depth-presets {
   display: grid;
   grid-template-columns: repeat(3, 1fr);

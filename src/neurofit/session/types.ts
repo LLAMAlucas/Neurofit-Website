@@ -10,9 +10,9 @@ import type { MetricId, Orientation } from "../squat/metrics";
 import type { RepMetrics } from "../squat/checks";
 import type { VelocitySample } from "../squat/velocity";
 
-/** The exercise a workout session is for. Squat records use the types below; push-up records
- *  live in pushup/session.ts (PushupSetRecord). */
-export type ExerciseId = "squat" | "pushup";
+/** The exercise a workout session is for. Squat records use the types below; push-up and pull-up
+ *  records live in pushup/session.ts (PushupSetRecord) and pullup/session.ts (PullupSetRecord). */
+export type ExerciseId = "squat" | "pushup" | "pullup";
 
 /** Which trigger requested an AI coaching call for a rep (spec §2 & §3). */
 export type TriggerKind = "velocity" | "fault_spike";

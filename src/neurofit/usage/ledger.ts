@@ -83,8 +83,9 @@ export interface UsageWorkout {
   depthPreset: string;
   /** Which exercise the session was. OPTIONAL on purpose: absent = squat (every row written
    *  before push-ups existed), and adding a required field would need a USAGE_SCHEMA_VERSION bump,
-   *  which makes the store discard the whole ledger. For push-ups `mode` holds the variant. */
-  exercise?: "squat" | "pushup";
+   *  which makes the store discard the whole ledger. For push-ups `mode` holds the variant, for
+   *  pull-ups the grip. */
+  exercise?: "squat" | "pushup" | "pullup";
 }
 
 export interface UsageLedger {

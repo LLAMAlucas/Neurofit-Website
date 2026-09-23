@@ -1,5 +1,5 @@
 /**
- * Settings tab (Phase 1: squat depth target only).
+ * Settings tab — the Gemini key + kill-switch, then the selected exercise's own settings.
  * ----------------------------------------------------------------------------
  * Three selectable depth presets, each with a simple side-view stick figure
  * (hip/knee/ankle landmarks connected by segments) posed at the preset's depth,
@@ -9,6 +9,7 @@
  */
 import type { DepthPreset, SquatMode } from "../squat/config";
 import { PUSHUP_DEPTH_PRESETS, type PushupDepthPreset, type PushupVariant } from "../pushup/config";
+import type { PullupCameraPlan, PullupGrip, PullupTopPreset } from "../pullup/config";
 import type { ExerciseId } from "../session/types";
 import type { ApiKeyControl } from "../hooks/useSettings";
 import { UsagePanel } from "./UsagePanel";
@@ -89,6 +90,53 @@ function PushupFigure({ upperArmDeg }: { upperArmDeg: number }) {
   );
 }
 
+const PULLUP_PRESETS: { id: PullupTopPreset; title: string; desc: string; sub: string; chinY: number }[] = [
+  { id: "chest", title: "CHEST TO BAR", desc: "Collarbone reaches the bar", sub: "advanced, strict strength work", chinY: 17 },
+  { id: "chin", title: "CHIN OVER BAR", desc: "Chin clears the top of the bar", sub: "most people — the military / fitness-test standard", chinY: 28 },
+  { id: "nose", title: "NOSE TO BAR", desc: "Nose reaches the bar, chin just under it", sub: "beginners, building up range", chinY: 38 },
+];
+
+const PULLUP_GRIPS: { id: PullupGrip; title: string; desc: string }[] = [
+  { id: "overhand", title: "OVERHAND", desc: "Palms facing away — a pull-up." },
+  { id: "underhand", title: "UNDERHAND", desc: "Palms facing you — a chin-up." },
+  { id: "neutral", title: "NEUTRAL", desc: "Palms facing each other, on parallel handles." },
+];
+
+const PULLUP_PLANS: { id: PullupCameraPlan; title: string; desc: string }[] = [
+  {
+    id: "alternate",
+    title: "ALTERNATE VIEWS",
+    desc: "Head-on, then side-on, then head-on… Side sets are the only way to judge body swing (kipping) and leg drive.",
+  },
+  {
+    id: "front-only",
+    title: "HEAD-ON ONLY",
+    desc: "For a doorway bar, where the wall blocks any side view. Swing and leg drive are then reported as not assessed — never as clean.",
+  },
+];
+
+/** Side-view pull-up stick figure at a preset's top position: the bar (y = 32), the hand on it, and
+ *  the chin marked where the preset needs it — above the bar, level with it, or just under it. */
+function PullupFigure({ chinY }: { chinY: number }) {
+  const BAR_Y = 32;
+  const hand: [number, number] = [74, BAR_Y];
+  const shoulder: [number, number] = [60, chinY + 8];
+  const elbow: [number, number] = [82, (hand[1] + shoulder[1]) / 2 + 10];
+  const hip: [number, number] = [60, shoulder[1] + 38];
+  const knee: [number, number] = [64, hip[1] + 22];
+  const ankle: [number, number] = [60, hip[1] + 44];
+  return (
+    <svg className="depth-fig" viewBox="0 0 130 140" aria-hidden="true">
+      <line className="depth-fig__ground" x1="14" y1={BAR_Y} x2="116" y2={BAR_Y} />
+      <polyline className="depth-fig__bone" fill="none" points={`${hand} ${elbow} ${shoulder} ${hip} ${knee} ${ankle}`} />
+      <circle className="depth-fig__bone" cx={shoulder[0] + 2} cy={chinY - 8} r="8" fill="none" />
+      <circle className="depth-fig__joint" cx={hand[0]} cy={hand[1]} r="3.2" />
+      <circle className="depth-fig__joint" cx={elbow[0]} cy={elbow[1]} r="3.2" />
+      <circle className="depth-fig__hip" cx={shoulder[0] + 4} cy={chinY} r="4.2" />
+    </svg>
+  );
+}
+
 const MODES: { id: SquatMode; title: string; desc: string }[] = [
   { id: "bodyweight", title: "BODYWEIGHT", desc: "No external load. Depth, lean and valgus are read as goal / motor-control signals, not safety faults." },
   { id: "loaded", title: "LOADED", desc: "Barbell / weighted. Enables early-onset butt-wink and excessive-depth flags; depth and valgus are read more cautiously." },
@@ -107,12 +155,24 @@ export function SettingsView({
   onPushupPresetChange = () => {},
   pushupVariant = "toes",
   onPushupVariantChange = () => {},
+  pullupPreset = "chin",
+  onPullupPresetChange = () => {},
+  pullupGrip = "overhand",
+  onPullupGripChange = () => {},
+  pullupPlan = "alternate",
+  onPullupPlanChange = () => {},
 }: {
   exercise?: ExerciseId;
   pushupPreset?: PushupDepthPreset;
   onPushupPresetChange?: (p: PushupDepthPreset) => void;
   pushupVariant?: PushupVariant;
   onPushupVariantChange?: (v: PushupVariant) => void;
+  pullupPreset?: PullupTopPreset;
+  onPullupPresetChange?: (p: PullupTopPreset) => void;
+  pullupGrip?: PullupGrip;
+  onPullupGripChange?: (g: PullupGrip) => void;
+  pullupPlan?: PullupCameraPlan;
+  onPullupPlanChange?: (p: PullupCameraPlan) => void;
   preset: DepthPreset;
   onChange: (p: DepthPreset) => void;
   mode: SquatMode;
@@ -200,7 +260,96 @@ export function SettingsView({
         </button>
       </div>
 
-      {exercise === "pushup" ? (
+      {exercise === "pullup" ? (
+        <>
+          <div className="panel settings-block">
+            <p className="panel__title">PULL-UP GRIP</p>
+            <p className="settings-block__hint">
+              Which grip you're using. It doesn't change the counting — it tells the coach whether this is a pull-up
+              or a chin-up. Switching exercise lives in the header.
+            </p>
+            <GlassSegmented
+              className="mode-toggle mode-toggle--3 lg-seg--cards"
+              label="Pull-up grip"
+              draggable={false}
+              value={pullupGrip}
+              onChange={onPullupGripChange}
+              options={PULLUP_GRIPS.map((g) => ({
+                value: g.id,
+                className: "mode-card",
+                label: (
+                  <>
+                    <p className="mode-card__title">
+                      {g.title}
+                      {g.id === pullupGrip && <span className="depth-card__check">✓</span>}
+                    </p>
+                    <p className="mode-card__desc">{g.desc}</p>
+                  </>
+                ),
+              }))}
+            />
+          </div>
+
+          <div className="panel settings-block">
+            <p className="panel__title">PULL-UP TOP TARGET</p>
+            <p className="settings-block__hint">
+              How high a rep must go to count. Every rep must also start from a full hang with straight arms. The
+              coach reads your chin against the bar; with the camera behind you it falls back to how far your
+              shoulders rose. Changes apply from the next set.
+            </p>
+            <GlassSegmented
+              className="depth-presets lg-seg--cards"
+              label="Pull-up top target"
+              draggable={false}
+              value={pullupPreset}
+              onChange={onPullupPresetChange}
+              options={PULLUP_PRESETS.map((p) => ({
+                value: p.id,
+                className: "depth-card",
+                label: (
+                  <>
+                    <PullupFigure chinY={p.chinY} />
+                    <p className="depth-card__title">
+                      {p.title}
+                      {p.id === pullupPreset && <span className="depth-card__check">✓</span>}
+                    </p>
+                    <p className="depth-card__desc">{p.desc}</p>
+                    <p className="depth-card__sub">for: {p.sub}</p>
+                  </>
+                ),
+              }))}
+            />
+          </div>
+
+          <div className="panel settings-block">
+            <p className="panel__title">CAMERA VIEWS</p>
+            <p className="settings-block__hint">
+              Pull-up sets start head-on — the view that sees your chin against the bar. Changes apply from the next
+              set.
+            </p>
+            <GlassSegmented
+              className="mode-toggle lg-seg--cards"
+              label="Pull-up camera views"
+              draggable={false}
+              value={pullupPlan}
+              onChange={onPullupPlanChange}
+              options={PULLUP_PLANS.map((p) => ({
+                value: p.id,
+                className: "mode-card",
+                label: (
+                  <>
+                    <p className="mode-card__title">
+                      {p.title}
+                      {p.id === pullupPlan && <span className="depth-card__check">✓</span>}
+                    </p>
+                    <p className="mode-card__desc">{p.desc}</p>
+                  </>
+                ),
+              }))}
+            />
+          </div>
+        </>
+      ) : exercise === "pushup" ? (
         <>
           <div className="panel settings-block">
             <p className="panel__title">PUSH-UP VARIANT</p>

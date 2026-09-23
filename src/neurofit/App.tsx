@@ -1,5 +1,5 @@
 /**
- * Neuro-Fit — squat + push-up coach with orientation-aware, alternating-set coaching.
+ * Neuro-Fit — squat, push-up and pull-up coach with orientation-aware, alternating-set coaching.
  * ----------------------------------------------------------------------------
  * Phase 1.5: each set is filmed front- or side-on (alternating); the orientation
  * gate decides which of the full validated metric set can be checked, the live
@@ -24,15 +24,21 @@ import {
   useApiEnabled,
   useApiKey,
   useExercise,
+  usePullupCameraPlan,
+  usePullupGrip,
+  usePullupTopPreset,
   usePushupDepthPreset,
   usePushupVariant,
 } from "./hooks/useSettings";
+import type { ExerciseId } from "./session/types";
 import type { ExposureDecision } from "./vision/exposure";
 
 type Tab = "coach" | "settings";
 
 /** The marketing site — its own origin, so the camera permission stays scoped to this app. */
 const SITE_URL = "https://neurofit-training.com";
+
+const EXERCISE_LABEL: Record<ExerciseId, string> = { squat: "Squat", pushup: "Push-ups", pullup: "Pull-ups" };
 
 export default function App() {
   const captureRef = useRef<CaptureFn | null>(null);
@@ -44,12 +50,20 @@ export default function App() {
   const [exercise, setExercise] = useExercise();
   const [pushupPreset, setPushupPreset] = usePushupDepthPreset();
   const [pushupVariant, setPushupVariant] = usePushupVariant();
+  const [pullupPreset, setPullupPreset] = usePullupTopPreset();
+  const [pullupGrip, setPullupGrip] = usePullupGrip();
+  const [pullupPlan, setPullupPlan] = usePullupCameraPlan();
   const workout = useWorkout(grabFrame, depthPreset, mode, {
     exercise,
     pushupDepthPreset: pushupPreset,
     pushupVariant,
+    pullupTopPreset: pullupPreset,
+    pullupGrip,
+    pullupCameraPlan: pullupPlan,
   });
   const pushup = exercise === "pushup";
+  const pullup = exercise === "pullup";
+  const squat = exercise === "squat";
 
   const [tab, setTab] = useState<Tab>("coach");
   useEffect(() => installGlassPointer(), []);
@@ -57,14 +71,18 @@ export default function App() {
   const [corrected] = useState(true);
   const [, setExposure] = useState<ExposureDecision | null>(null);
 
-  const kneeWarn = !pushup && workout.liveMetrics?.kneeValgus.status === "warn";
-  const phaseLabel = !workout.readable ? "—" : workout.isDown ? "DOWN" : "UP";
+  const kneeWarn = squat && workout.liveMetrics?.kneeValgus.status === "warn";
+  // A pull-up rests at the bottom: an attempt in progress is the PULL, between attempts the HANG.
+  const phaseLabel = !workout.readable ? "—" : pullup ? (workout.isDown ? "PULL" : "HANG") : workout.isDown ? "DOWN" : "UP";
   const finished = workout.phase === "finished";
   const depthPct = Math.round(Math.min(1, Math.max(0, workout.depthRatio)) * 100);
   // Switching exercise resets the workout, so only offer it before any set is done (or after finishing).
   const canSwitchExercise =
     workout.phase === "finished" ||
-    (workout.phase === "positioning" && workout.completedSets.length === 0 && workout.completedPushupSets.length === 0);
+    (workout.phase === "positioning" &&
+      workout.completedSets.length === 0 &&
+      workout.completedPushupSets.length === 0 &&
+      workout.completedPullupSets.length === 0);
 
   return (
     <div className="nf">
@@ -85,7 +103,7 @@ export default function App() {
             <span className="stat__value">{workout.reps}</span>
           </div>
           <div className="stat">
-            <span className="stat__label">Depth</span>
+            <span className="stat__label">{pullup ? "Height" : "Depth"}</span>
             <span className="stat__value">{!workout.readable ? "--" : depthPct + "%"}</span>
           </div>
           <div className="stat">
@@ -100,9 +118,9 @@ export default function App() {
             label="Exercise"
             value={exercise}
             onChange={setExercise}
-            options={(["squat", "pushup"] as const).map((id) => ({
+            options={(["squat", "pushup", "pullup"] as const).map((id) => ({
               value: id,
-              label: id === "squat" ? "Squat" : "Push-ups",
+              label: EXERCISE_LABEL[id],
               disabled: exercise !== id && !canSwitchExercise,
               title: canSwitchExercise ? undefined : "Finish or reset the workout to switch exercise",
             }))}
@@ -147,6 +165,12 @@ export default function App() {
             onPushupPresetChange={setPushupPreset}
             pushupVariant={pushupVariant}
             onPushupVariantChange={setPushupVariant}
+            pullupPreset={pullupPreset}
+            onPullupPresetChange={setPullupPreset}
+            pullupGrip={pullupGrip}
+            onPullupGripChange={setPullupGrip}
+            pullupPlan={pullupPlan}
+            onPullupPlanChange={setPullupPlan}
           />
         </main>
       ) : (
@@ -174,8 +198,8 @@ export default function App() {
               corrected={corrected}
               onExposure={setExposure}
               kneeWarn={kneeWarn}
-              debugGap={!pushup && workout.targetOrientation === "side" ? workout.liveDepthGap : null}
-              debugValgus={!pushup && workout.targetOrientation === "front" ? workout.liveValgusRatio : null}
+              debugGap={squat && workout.targetOrientation === "side" ? workout.liveDepthGap : null}
+              debugValgus={squat && workout.targetOrientation === "front" ? workout.liveValgusRatio : null}
               debugTags={workout.debugTags}
               captureRef={captureRef}
             >
@@ -193,7 +217,9 @@ export default function App() {
                   set={
                     pushup
                       ? workout.completedPushupSets.find((s) => s.index === workout.reviewSetIndex)
-                      : workout.completedSets.find((s) => s.index === workout.reviewSetIndex)
+                      : pullup
+                        ? workout.completedPullupSets.find((s) => s.index === workout.reviewSetIndex)
+                        : workout.completedSets.find((s) => s.index === workout.reviewSetIndex)
                   }
                   review={workout.reviewSetIndex != null ? workout.postSetReviews[workout.reviewSetIndex] : undefined}
                   onNextSet={workout.requestPostSet}

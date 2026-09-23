@@ -1,6 +1,6 @@
 /**
  * Persisted user settings: exercise, squat depth target + training mode, push-up depth target +
- * variant, and the Gemini key / kill-switch.
+ * variant, pull-up top target + grip + camera plan, and the Gemini key / kill-switch.
  * ----------------------------------------------------------------------------
  * Stored in localStorage so the choice survives reloads. Defaults to PARALLEL on
  * first load. React glue — the only place the depth preset touches the browser.
@@ -20,6 +20,15 @@ import {
   type PushupDepthPreset,
   type PushupVariant,
 } from "../pushup/config";
+import {
+  DEFAULT_PULLUP_CAMERA_PLAN,
+  DEFAULT_PULLUP_GRIP,
+  DEFAULT_PULLUP_TOP_PRESET,
+  PULLUP_TOP_PRESETS,
+  type PullupCameraPlan,
+  type PullupGrip,
+  type PullupTopPreset,
+} from "../pullup/config";
 import type { ExerciseId } from "../session/types";
 import {
   apiCallsDisabled,
@@ -104,9 +113,32 @@ function usePersisted<T extends string>(key: string, fallback: T, valid: (v: unk
   return [value, setValue];
 }
 
-/** [exercise, setter] — squat | pushup. Switching resets the workout (see useWorkout). */
+/** [exercise, setter] — squat | pushup | pullup. Switching resets the workout (see useWorkout). */
 export function useExercise(): [ExerciseId, (e: ExerciseId) => void] {
-  return usePersisted<ExerciseId>("neurofit.exercise", "squat", (v): v is ExerciseId => v === "squat" || v === "pushup");
+  return usePersisted<ExerciseId>("neurofit.exercise", "squat", (v): v is ExerciseId => v === "squat" || v === "pushup" || v === "pullup");
+}
+
+/** [pull-up top target, setter] — chest | chin | nose. */
+export function usePullupTopPreset(): [PullupTopPreset, (p: PullupTopPreset) => void] {
+  return usePersisted<PullupTopPreset>(
+    "neurofit.pullupTopPreset",
+    DEFAULT_PULLUP_TOP_PRESET,
+    (v): v is PullupTopPreset => typeof v === "string" && v in PULLUP_TOP_PRESETS,
+  );
+}
+
+/** [pull-up grip, setter] — overhand | underhand | neutral (context for the coach only). */
+export function usePullupGrip(): [PullupGrip, (g: PullupGrip) => void] {
+  return usePersisted<PullupGrip>("neurofit.pullupGrip", DEFAULT_PULLUP_GRIP, (v): v is PullupGrip => v === "overhand" || v === "underhand" || v === "neutral");
+}
+
+/** [pull-up camera plan, setter] — alternate | front-only (a doorway bar can't be filmed side-on). */
+export function usePullupCameraPlan(): [PullupCameraPlan, (p: PullupCameraPlan) => void] {
+  return usePersisted<PullupCameraPlan>(
+    "neurofit.pullupCameraPlan",
+    DEFAULT_PULLUP_CAMERA_PLAN,
+    (v): v is PullupCameraPlan => v === "alternate" || v === "front-only",
+  );
 }
 
 /** [push-up depth preset, setter] — chest | parallel | above. */

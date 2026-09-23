@@ -18,7 +18,7 @@ export function EnvPanel({
   corrected: boolean;
   onToggleCorrected: (v: boolean) => void;
   /** The knee-visibility footnote only applies to squats. */
-  exercise?: "squat" | "pushup";
+  exercise?: "squat" | "pushup" | "pullup";
 }) {
   return (
     <section className="panel">

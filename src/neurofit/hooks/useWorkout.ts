@@ -1,5 +1,5 @@
 /**
- * Workout controller — alternating-orientation squat and push-up sets.
+ * Workout controller — alternating-orientation squat, push-up and pull-up sets.
  * ----------------------------------------------------------------------------
  * Drives the whole session: detect the camera orientation per set, lock when it
  * matches the set's target (front/side, alternating), run reps with the full
@@ -9,14 +9,24 @@
  * Per-frame math is in the pure modules (squat/, pushup/, vision/, session/); this hook
  * is the only React-aware piece. State is pushed ~10×/sec off a timer.
  *
- * Push-ups run through the pure per-set engine in pushup/session.ts; the squat keeps its original
- * inline path below, untouched. The exercise is fixed for a workout — changing it resets.
+ * Push-ups and pull-ups run through their pure per-set engines (pushup/session.ts,
+ * pullup/session.ts); the squat keeps its original inline path below, untouched. The exercise is
+ * fixed for a workout — changing it resets. Pull-ups start HEAD-ON (the view that sees the chin
+ * against the bar) and can stay head-on for a doorway bar; see firstOrientationFor/nextOrientation.
  */
 import { useEffect, useRef, useState } from "react";
 import type { PoseLandmarkerResult } from "@mediapipe/tasks-vision";
 import { MIN_VISIBILITY, type Landmark } from "../pose/landmarks";
 import { SQUAT, ORIENTATION, DEPTH_PRESETS, TRIGGERS, GEMINI, type DepthPreset, type SquatMode } from "../squat/config";
-import { LandmarkBuffer, ImageBuffer, BUFFER_LANDMARK_INDICES, PUSHUP_BUFFER_LANDMARK_INDICES, type RepPhase, type ImageFrame } from "../ai/frameBuffer";
+import {
+  LandmarkBuffer,
+  ImageBuffer,
+  BUFFER_LANDMARK_INDICES,
+  PULLUP_BUFFER_LANDMARK_INDICES,
+  PUSHUP_BUFFER_LANDMARK_INDICES,
+  type RepPhase,
+  type ImageFrame,
+} from "../ai/frameBuffer";
 import { computeSquatFrame, type SquatFrame } from "../squat/frame";
 import { SquatRepTracker, type SquatRep } from "../squat/repCounter";
 import { VelocityTracker, type VelocitySample } from "../squat/velocity";
@@ -69,6 +79,7 @@ import {
   logRep as logEvalRep,
   logGeminiObservation,
   logPushupRep,
+  logPullupRep,
   downloadEvalLog,
 } from "../debug/evalLog";
 import { quota, recordWorkout, startUsageSession } from "../usage/usageStore";
@@ -81,6 +92,12 @@ import { estimatePushupOrientation } from "../pushup/orientation";
 import { PushupSetSession, type PushupFrameEvents, type PushupSetRecord } from "../pushup/session";
 import { buildPushupPostSetData, buildPushupPostWorkoutData } from "../pushup/payload";
 import { synthesizePushup } from "../pushup/synthesis";
+import { PULLUP, PULLUP_TOP_PRESETS, type PullupCameraPlan, type PullupGrip, type PullupTopPreset } from "../pullup/config";
+import { computePullupFrame, type PullupFrame } from "../pullup/frame";
+import type { PullupMetricId, PullupRepMetrics } from "../pullup/metrics";
+import { PullupSetSession, type PullupFrameEvents, type PullupSetRecord } from "../pullup/session";
+import { buildPullupPostSetData, buildPullupPostWorkoutData } from "../pullup/payload";
+import { synthesizePullup } from "../pullup/synthesis";
 
 export type WorkoutPhase = "positioning" | "countdown" | "active" | "set-review" | "finished";
 
@@ -205,15 +222,19 @@ export interface WorkoutLive {
 
   /** The exercise this workout is for. */
   exercise: ExerciseId;
-  /** The counting landmarks are readable (squat: knee angle; push-up: shoulder + wrist). */
+  /** The counting landmarks are readable (squat: knee angle; push-up / pull-up: shoulder + wrist). */
   readable: boolean;
   /** Push-up live FORM CHECKS (null on squat workouts, which use liveMetrics). */
   pushupLiveMetrics: PushupRepMetrics | null;
   /** Completed push-up sets (squat sets stay in completedSets). */
   completedPushupSets: PushupSetRecord[];
+  /** Pull-up FORM CHECKS — the last closed attempt's verdicts (every pull-up check is whole-rep). */
+  pullupLiveMetrics: PullupRepMetrics | null;
+  /** Completed pull-up sets. */
+  completedPullupSets: PullupSetRecord[];
   /** Why the last attempt didn't count — shown while missedDepthFlash is true. */
   missedFlashText: string;
-  /** Push-up live calibration readouts drawn beside a landmark (empty for squats). */
+  /** Push-up / pull-up live calibration readouts drawn beside a landmark (empty for squats). */
   debugTags: { text: string; landmark: number }[];
 }
 
@@ -246,9 +267,25 @@ export interface ExerciseSettings {
   exercise: ExerciseId;
   pushupDepthPreset: PushupDepthPreset;
   pushupVariant: PushupVariant;
+  pullupTopPreset: PullupTopPreset;
+  pullupGrip: PullupGrip;
+  pullupCameraPlan: PullupCameraPlan;
 }
 
-const DEFAULT_EXERCISE_SETTINGS: ExerciseSettings = { exercise: "squat", pushupDepthPreset: "parallel", pushupVariant: "toes" };
+const DEFAULT_EXERCISE_SETTINGS: ExerciseSettings = {
+  exercise: "squat",
+  pushupDepthPreset: "parallel",
+  pushupVariant: "toes",
+  pullupTopPreset: "chin",
+  pullupGrip: "overhand",
+  pullupCameraPlan: "alternate",
+};
+
+/** Set 1's view. Pull-ups open HEAD-ON: it sees the chin against the bar and both arms, and it is
+ *  the only view a doorway bar allows. Squats and push-ups keep their side-first order. */
+function firstOrientationFor(exercise: ExerciseId): Orientation {
+  return exercise === "pullup" ? "front" : FIRST_ORIENTATION;
+}
 
 export function useWorkout(
   captureFrame: () => string | null,
@@ -274,10 +311,18 @@ export function useWorkout(
   pushupPresetRef.current = exerciseSettings.pushupDepthPreset;
   const pushupVariantRef = useRef<PushupVariant>(exerciseSettings.pushupVariant);
   pushupVariantRef.current = exerciseSettings.pushupVariant;
+  // Pull-up settings, same pattern: top target + grip are captured per set; the camera plan is read
+  // whenever the next set's view is chosen.
+  const pullupPresetRef = useRef<PullupTopPreset>(exerciseSettings.pullupTopPreset);
+  pullupPresetRef.current = exerciseSettings.pullupTopPreset;
+  const pullupGripRef = useRef<PullupGrip>(exerciseSettings.pullupGrip);
+  pullupGripRef.current = exerciseSettings.pullupGrip;
+  const pullupPlanRef = useRef<PullupCameraPlan>(exerciseSettings.pullupCameraPlan);
+  pullupPlanRef.current = exerciseSettings.pullupCameraPlan;
 
   const phaseRef = useRef<WorkoutPhase>("positioning");
   const setIndexRef = useRef(1);
-  const targetRef = useRef<Orientation>(FIRST_ORIENTATION);
+  const targetRef = useRef<Orientation>(firstOrientationFor(exerciseSettings.exercise));
 
   const orientRef = useRef<OrientationEstimate | null>(null);
   const angleEmaRef = useRef<number | null>(null);
@@ -377,6 +422,18 @@ export function useWorkout(
   /** Separate coordinator so squat trigger batches keep their MetricId typing untouched. */
   const pushupCoordinatorRef = useRef(new CoachingCoordinator<PushupMetricId>(PUSHUP.aiDedupWindowSec));
 
+  // --- Pull-up engine state (same shape as the push-up block above) ------------------------
+  const pullupSessionRef = useRef<PullupSetSession | null>(null);
+  const pullupFrameRef = useRef<PullupFrame | null>(null);
+  const pullupSetsRef = useRef<PullupSetRecord[]>([]);
+  const pullupCoordinatorRef = useRef(new CoachingCoordinator<PullupMetricId>(PULLUP.aiDedupWindowSec));
+
+  /** The view of the set after `o`: alternate, except pull-ups on "head-on only" (a doorway bar). */
+  function nextOrientation(o: Orientation): Orientation {
+    if (exerciseRef.current === "pullup" && pullupPlanRef.current === "front-only") return "front";
+    return alternate(o);
+  }
+
   /** Coordinates the velocity + fault-spike triggers and the 500 ms dedup window. */
   const coordinatorRef = useRef(new CoachingCoordinator(SQUAT.aiDedupWindowSec));
   /** AI cues keyed `${setIndex}:${repIndex}`, attached to the rep record at set end. */
@@ -398,7 +455,7 @@ export function useWorkout(
     return {
       phase: "positioning",
       setIndex: 1,
-      targetOrientation: FIRST_ORIENTATION,
+      targetOrientation: targetRef.current,
       orientation: "ambiguous",
       facingAngleDeg: null,
       facingScore: null,
@@ -429,6 +486,8 @@ export function useWorkout(
       readable: false,
       pushupLiveMetrics: null,
       completedPushupSets: [],
+      pullupLiveMetrics: null,
+      completedPullupSets: [],
       missedFlashText: missedFlashTextRef.current,
       debugTags: [],
     };
@@ -465,6 +524,15 @@ export function useWorkout(
       getLandmarkWindow: (startMs, endMs) => landmarkBufferRef.current.getWindow(startMs, endMs),
     });
     pushupCoordinatorRef.current.resetSet();
+    // Pull-up per-set engine (likewise built for every set; only fed on pull-up workouts).
+    pullupSessionRef.current = new PullupSetSession({
+      setIndex: setIndexRef.current,
+      orientation,
+      topPreset: pullupPresetRef.current,
+      grip: pullupGripRef.current,
+      getLandmarkWindow: (startMs, endMs) => landmarkBufferRef.current.getWindow(startMs, endMs),
+    });
+    pullupCoordinatorRef.current.resetSet();
   }
 
   /** Reset the per-rep v2 trigger state (called when a rep arms). */
@@ -572,6 +640,20 @@ export function useWorkout(
     }
   }
 
+  /** Pull-up counterpart: tag + archive each fault's PEAK frame (widest swing, biggest leg change,
+   *  worst tilt, mid-drop), recorded by the session when the attempt closed. Higher-is-worse. */
+  function firePullupCoaching(batch: CoachingBatch<PullupMetricId>): void {
+    const session = pullupSessionRef.current;
+    if (!session) return;
+    for (const metric of batch.faultChecks) {
+      const moment = session.momentFor(batch.repIndex, metric);
+      if (!moment) continue;
+      const ts = Math.round(moment.timestampMs);
+      imageBufferRef.current.tagFrames(ts, moment.faultType, moment.severity);
+      archiveFaultFrame(ts, moment.faultType, moment.severity);
+    }
+  }
+
   /** Worst (max |value|) among the reps where `id` warned, else null. */
   function worstWarn(reps: RepRecord[], id: MetricId): number | null {
     const vals = reps.filter((r) => r.metrics[id].status === "warn").map((r) => r.metrics[id].value).filter((v): v is number => v !== null);
@@ -613,9 +695,25 @@ export function useWorkout(
     callPostSet(data, archiveFrames, (text) => onPostSetText(set.index, text));
   }
 
+  /** Pull-up post-set: pure builder (unit-tested in check:pullup), same archive as the others. */
+  function firePullupPostSet(): void {
+    const set = pullupSetsRef.current[pullupSetsRef.current.length - 1];
+    if (!set || set.reps.length === 0) return;
+    if (!geminiEnabled()) {
+      postSetBySetRef.current.set(set.index, { status: "disabled" });
+      return;
+    }
+    const archive = postSetFrameArchiveRef.current;
+    const archiveFrames: ImageFrame[] = [...archive.baseline, ...[...archive.faults.values()].map((x) => x.frame)];
+    const data = buildPullupPostSetData(set, { baselineFramesIncluded: archive.baseline.length });
+    postSetBySetRef.current.set(set.index, { status: "loading" });
+    callPostSet(data, archiveFrames, (text) => onPostSetText(set.index, text));
+  }
+
   /** Post-set debrief for the set that just ended (blocking-ok Gemini call). */
   function firePostSet(): void {
     if (exerciseRef.current === "pushup") return firePushupPostSet();
+    if (exerciseRef.current === "pullup") return firePullupPostSet();
     const set = completedSetsRef.current[completedSetsRef.current.length - 1];
     if (!set || set.reps.length === 0) return; // no reps → no review entry (screen shows "no reps")
     if (!geminiEnabled()) {
@@ -852,10 +950,25 @@ export function useWorkout(
     callPostWorkout(data, onPostWorkoutText);
   }
 
+  /** Pull-up post-workout: pure builder over the pull-up set records + stored debriefs. */
+  function firePullupPostWorkout(): void {
+    const sets = pullupSetsRef.current.filter((s) => s.reps.length > 0);
+    if (!sets.length) return;
+    const debriefs: { set_number: number; orientation: string; text: string }[] = [];
+    for (const s of sets) {
+      const review = postSetBySetRef.current.get(s.index);
+      if (review?.status === "ok") debriefs.push({ set_number: s.index, orientation: s.orientation, text: review.text });
+    }
+    const data = buildPullupPostWorkoutData(sets, debriefs);
+    analysisRef.current = { status: "loading" };
+    callPostWorkout(data, onPostWorkoutText);
+  }
+
   /** Post-workout summary over the whole session (blocking-ok Gemini call). */
   function firePostWorkout(): void {
     if (!geminiEnabled()) return;
     if (exerciseRef.current === "pushup") return firePushupPostWorkout();
+    if (exerciseRef.current === "pullup") return firePullupPostWorkout();
     const sets = completedSetsRef.current.filter((s) => s.reps.length > 0);
     if (!sets.length) return;
     const totalCounted = sets.reduce((n, s) => n + s.reps.filter((r) => r.counted).length, 0);
@@ -1215,12 +1328,17 @@ export function useWorkout(
     if (!person) {
       frameRef.current = null;
       pushupFrameRef.current = null;
+      pullupFrameRef.current = null;
       orientRef.current = null;
       return;
     }
     const t = nowSec();
     if (exerciseRef.current === "pushup") {
       onPushupResult(person, t);
+      return;
+    }
+    if (exerciseRef.current === "pullup") {
+      onPullupResult(person, t);
       return;
     }
     // Every squat ANGLE (lean, facing score, roll, levelness) is aspect-corrected — see squat/frame.ts.
@@ -1351,21 +1469,98 @@ export function useWorkout(
     }
   }
 
+  /** Pull-up frame path: the squat's facing score (a hanging body is vertical, like a standing
+   *  one — no plank-style lock gate: the set locks standing under the bar, then the lifter jumps
+   *  up) → aspect-corrected geometry → the per-set engine → act on its events. */
+  function onPullupResult(person: Landmark[], t: number): void {
+    const est = estimateOrientation(person, MIN_VISIBILITY, aspectRef.current);
+    orientRef.current = est;
+    cameraRef.current = estimateCameraAngle(person, MIN_VISIBILITY, aspectRef.current);
+    const nearSide = nearSideRef.current.update(person);
+    frameRef.current = null;
+    const frame = computePullupFrame(person, MIN_VISIBILITY, t, aspectRef.current, targetRef.current === "side" ? nearSide : null);
+    pullupFrameRef.current = frame;
+    if (est.facingAngleDeg !== null) {
+      angleEmaRef.current =
+        angleEmaRef.current === null
+          ? est.facingAngleDeg
+          : ANGLE_EMA * angleEmaRef.current + (1 - ANGLE_EMA) * est.facingAngleDeg;
+    }
+    const session = pullupSessionRef.current;
+    if (phaseRef.current === "active" && session) handlePullupEvents(session.onFrame(frame, t, angleEmaRef.current), t);
+    if (phaseRef.current === "active" || phaseRef.current === "countdown") feedBuffers(person, t);
+  }
+
+  /** Act on one frame's pull-up engine events (same contract as handlePushupEvents). */
+  function handlePullupEvents(ev: PullupFrameEvents, t: number): void {
+    const orientation = targetRef.current;
+    for (const f of ev.fired) {
+      const imm = pullupCoordinatorRef.current.requestTrigger({ setIndex: setIndexRef.current, repIndex: f.repIndex, orientation }, f.metric, t);
+      if (imm) firePullupCoaching(imm);
+    }
+    // Warm-up TOP frames (chin vs bar is the pull-up's key position), archived while in the ring.
+    for (const ts of ev.baselineFrameTs) archiveBaselineFrame(ts);
+    for (const rec of ev.completed) {
+      if (rec.velocity) {
+        samplesRef.current = [...samplesRef.current, rec.velocity];
+        pullupCoordinatorRef.current.attachVelocity({
+          rollingAverage: rec.velocity.rollingAverage,
+          current: rec.velocity.velocity,
+          pctSlower: rec.velocity.ratio !== null ? 1 - rec.velocity.ratio : null,
+          collapsed: rec.velocity.collapsed,
+        });
+      }
+      if (rec.counted) {
+        countedRepsRef.current += 1;
+      } else {
+        missedFlashAtRef.current = nowSec();
+        const hang = rec.misses.some((m) => m.reason === "extension_miss");
+        const top = rec.misses.some((m) => m.reason === "top_miss");
+        missedFlashTextRef.current = hang && top
+          ? "No full hang, short of the top — no count"
+          : hang
+            ? "Start from straight arms — no count"
+            : "Chin didn't clear the bar — no count";
+      }
+      if (DEV_EVAL_LOG) {
+        const lmWindow = landmarkBufferRef.current.getWindow(rec.timing.startMs, rec.timing.endMs);
+        logPullupRep({
+          set: setIndexRef.current,
+          record: rec,
+          ctx: { view: orientation, grip: pullupGripRef.current, topPreset: pullupPresetRef.current },
+          trackingDegraded: lmWindow.length === 0 || (rec.minVisibility !== null && rec.minVisibility < MIN_VISIBILITY),
+          landmarks: lmWindow,
+          frames: imageBufferRef.current
+            .getAll()
+            .filter((fr) => fr.timestampMs >= rec.timing.startMs && fr.timestampMs <= rec.timing.endMs)
+            .map((fr) => ({ timestampMs: fr.timestampMs, repPhase: fr.repPhase, triggerTags: fr.triggerTags, jpegBase64: fr.jpegBase64 })),
+        });
+      }
+    }
+  }
+
   /** Derive rep phase from the tracker and push to the landmark + image buffers. */
   function feedBuffers(person: readonly Landmark[], t: number): void {
-    const tracker = exerciseRef.current === "pushup" ? pushupSessionRef.current?.tracker ?? null : repTrackerRef.current;
-    const dr = tracker?.depthRatio ?? 0;
-    const isDown = tracker?.isDown ?? false;
+    const exercise = exerciseRef.current;
+    const pullup = exercise === "pullup";
+    const tracker =
+      exercise === "pushup" ? pushupSessionRef.current?.tracker ?? null : pullup ? null : repTrackerRef.current;
+    const pullTracker = pullup ? pullupSessionRef.current?.tracker ?? null : null;
+    const dr = pullTracker ? pullTracker.pullRatio : tracker?.depthRatio ?? 0;
+    const isDown = pullTracker ? pullTracker.isDown : tracker?.isDown ?? false;
     const prev = prevDepthRatioRef.current;
     let phase: RepPhase = "standing";
-    if (isDown) phase = dr > prev + 0.01 ? "descent" : dr < prev - 0.01 ? "ascent" : "bottom";
+    // A pull-up's ratio RISES as the body goes up, so the labels flip; "bottom" marks the
+    // turnaround, which for a pull-up is the top of the rep.
+    if (isDown && pullup) phase = dr > prev + 0.01 ? "ascent" : dr < prev - 0.01 ? "descent" : "bottom";
+    else if (isDown) phase = dr > prev + 0.01 ? "descent" : dr < prev - 0.01 ? "ascent" : "bottom";
     prevDepthRatioRef.current = dr;
 
-    const repNumber = tracker?.reps ?? 0;
+    const repNumber = pullTracker ? pullTracker.reps : tracker?.reps ?? 0;
     const tMs = t * 1000;
 
     const lm: Record<number, { x: number; y: number; visibility: number }> = {};
-    const indices = exerciseRef.current === "pushup" ? PUSHUP_BUFFER_LANDMARK_INDICES : BUFFER_LANDMARK_INDICES;
+    const indices = exercise === "pushup" ? PUSHUP_BUFFER_LANDMARK_INDICES : pullup ? PULLUP_BUFFER_LANDMARK_INDICES : BUFFER_LANDMARK_INDICES;
     for (const i of indices) {
       const p = person[i];
       if (p) lm[i] = { x: p.x, y: p.y, visibility: p.visibility };
@@ -1445,6 +1640,12 @@ export function useWorkout(
       persistWorkoutUsage(false);
       return;
     }
+    if (exerciseRef.current === "pullup") {
+      const session = pullupSessionRef.current;
+      if (session) pullupSetsRef.current = [...pullupSetsRef.current, session.toSetRecord(lockAngleRef.current)];
+      persistWorkoutUsage(false);
+      return;
+    }
     // Record the set even with zero attempts — the report shows it as a "no reps
     // recorded" advisory, while synthesis excludes empties from the totals.
     const reps = liveRepsRef.current;
@@ -1480,6 +1681,20 @@ export function useWorkout(
       });
       return;
     }
+    if (exerciseRef.current === "pullup") {
+      const pullupSets = pullupSetsRef.current.filter((s) => s.reps.length > 0);
+      if (!pullupSets.length) return;
+      recordWorkout({
+        sets: pullupSets.length,
+        repsCounted: pullupSets.reduce((n, s) => n + s.reps.filter((r) => r.counted).length, 0),
+        repsAttempted: pullupSets.reduce((n, s) => n + s.reps.length, 0),
+        completed,
+        mode: pullupGripRef.current,
+        depthPreset: PULLUP_TOP_PRESETS[pullupPresetRef.current].specName,
+        exercise: "pullup",
+      });
+      return;
+    }
     const sets = completedSetsRef.current.filter((s) => s.reps.length > 0);
     if (!sets.length) return;
     recordWorkout({
@@ -1498,6 +1713,8 @@ export function useWorkout(
     if (last) fireCoaching(last);
     const lastPushup = pushupCoordinatorRef.current.forceFlush();
     if (lastPushup) firePushupCoaching(lastPushup);
+    const lastPullup = pullupCoordinatorRef.current.forceFlush();
+    if (lastPullup) firePullupCoaching(lastPullup);
     finalizeSet();
     reviewSetIndexRef.current = setIndexRef.current; // the set we just finished
     setReviewStageRef.current = "choice"; // end-of-set choice screen; NO analysis fired yet
@@ -1522,7 +1739,7 @@ export function useWorkout(
     if (phaseRef.current !== "set-review") return;
     setReviewStageRef.current = "choice";
     setIndexRef.current += 1;
-    targetRef.current = alternate(targetRef.current);
+    targetRef.current = nextOrientation(targetRef.current);
     reviewSetIndexRef.current = null;
     phaseRef.current = "positioning";
     alignStartRef.current = null;
@@ -1542,11 +1759,17 @@ export function useWorkout(
       if (last) fireCoaching(last);
       const lastPushup = pushupCoordinatorRef.current.forceFlush();
       if (lastPushup) firePushupCoaching(lastPushup);
+      const lastPullup = pullupCoordinatorRef.current.forceFlush();
+      if (lastPullup) firePullupCoaching(lastPullup);
       finalizeSet();
     }
     phaseRef.current = "finished";
     reportRef.current =
-      exerciseRef.current === "pushup" ? synthesizePushup(pushupSetsRef.current) : synthesize({ sets: completedSetsRef.current });
+      exerciseRef.current === "pushup"
+        ? synthesizePushup(pushupSetsRef.current)
+        : exerciseRef.current === "pullup"
+          ? synthesizePullup(pullupSetsRef.current)
+          : synthesize({ sets: completedSetsRef.current });
     // Mark this session's usage row COMPLETE (replaces the incomplete row written
     // when the first set ended).
     persistWorkoutUsage(true);
@@ -1573,10 +1796,15 @@ export function useWorkout(
   /** Eval-log session metadata for the current exercise. */
   function evalSessionMeta() {
     const pushup = exerciseRef.current === "pushup";
+    const pullup = exerciseRef.current === "pullup";
     return {
       exercise: exerciseRef.current,
-      mode: pushup ? pushupVariantRef.current : modeRef.current,
-      depthPreset: pushup ? PUSHUP_DEPTH_PRESETS[pushupPresetRef.current].specName : specPreset(depthPresetRef.current),
+      mode: pushup ? pushupVariantRef.current : pullup ? pullupGripRef.current : modeRef.current,
+      depthPreset: pushup
+        ? PUSHUP_DEPTH_PRESETS[pushupPresetRef.current].specName
+        : pullup
+          ? PULLUP_TOP_PRESETS[pullupPresetRef.current].specName
+          : specPreset(depthPresetRef.current),
       model: GEMINI_MODEL,
       geminiEnabled: geminiEnabled(),
     };
@@ -1594,7 +1822,7 @@ export function useWorkout(
     }
     phaseRef.current = "positioning";
     setIndexRef.current = 1;
-    targetRef.current = FIRST_ORIENTATION;
+    targetRef.current = firstOrientationFor(exerciseRef.current);
     alignStartRef.current = null;
     countdownStartRef.current = null;
     repositionRef.current = false;
@@ -1602,6 +1830,9 @@ export function useWorkout(
     pushupSetsRef.current = [];
     pushupFrameRef.current = null;
     pushupCoordinatorRef.current.resetSet();
+    pullupSetsRef.current = [];
+    pullupFrameRef.current = null;
+    pullupCoordinatorRef.current.resetSet();
     nearSideRef.current.reset();
     reportRef.current = null;
     angleEmaRef.current = null;
@@ -1617,7 +1848,7 @@ export function useWorkout(
     setReviewStageRef.current = "choice";
     lastImageCapAtRef.current = 0;
     prevDepthRatioRef.current = 0;
-    newSetTrackers(FIRST_ORIENTATION);
+    newSetTrackers(targetRef.current);
     setLive(initialLive());
   });
 
@@ -1628,6 +1859,15 @@ export function useWorkout(
     prevExerciseRef.current = exerciseSettings.exercise;
     reset.current();
   }, [exerciseSettings.exercise]);
+
+  // "Head-on only" chosen while a pull-up set is still being positioned side-on: re-aim the pending
+  // set now, rather than asking for a side view a doorway bar makes impossible to film.
+  useEffect(() => {
+    if (exerciseRef.current !== "pullup" || exerciseSettings.pullupCameraPlan !== "front-only") return;
+    if (phaseRef.current !== "positioning" || targetRef.current === "front") return;
+    targetRef.current = "front";
+    alignStartRef.current = null;
+  }, [exerciseSettings.pullupCameraPlan]);
 
   // Phase progression + snapshot push (~10×/sec).
   useEffect(() => {
@@ -1650,6 +1890,8 @@ export function useWorkout(
       if (due) fireCoaching(due);
       const duePushup = pushupCoordinatorRef.current.flushDue(now);
       if (duePushup) firePushupCoaching(duePushup);
+      const duePullup = pullupCoordinatorRef.current.flushDue(now);
+      if (duePullup) firePullupCoaching(duePullup);
 
       const est = orientRef.current;
       const target = targetRef.current;
@@ -1738,6 +1980,20 @@ export function useWorkout(
         }
         if (target === "front" && pFrame.flareRatio !== null) debugTags.push({ text: `flare ${pFrame.flareRatio.toFixed(2)}`, landmark: 13 });
       }
+      const pullupMode = exerciseRef.current === "pullup";
+      const uSession = pullupSessionRef.current;
+      const uFrame = pullupFrameRef.current;
+      if (pullupMode && uFrame) {
+        // Live calibration readouts, same formulas the checks use.
+        const chin = uSession?.liveChinClearance() ?? null;
+        if (chin !== null) debugTags.push({ text: `chin ${chin >= 0 ? "+" : ""}${chin.toFixed(2)}`, landmark: 0 });
+        const elbow = uFrame.nearSide === "right" ? 14 : 13;
+        if (uFrame.elbowAngleDeg !== null) debugTags.push({ text: `elbow ${uFrame.elbowAngleDeg.toFixed(0)}°`, landmark: elbow });
+        if (target === "side" && uFrame.swingDeg !== null) {
+          debugTags.push({ text: `swing ${uFrame.swingDeg >= 0 ? "+" : ""}${uFrame.swingDeg.toFixed(0)}°`, landmark: uFrame.nearSide === "right" ? 24 : 23 });
+        }
+        if (target === "front" && uFrame.shoulderTiltDiffDeg !== null) debugTags.push({ text: `tilt ${uFrame.shoulderTiltDiffDeg.toFixed(0)}°`, landmark: 11 });
+      }
 
       setLive({
         phase: phaseRef.current,
@@ -1753,14 +2009,20 @@ export function useWorkout(
         repositionNeeded: reposition,
         reps: countedRepsRef.current,
         kneeAngle: tracker?.kneeAngle ?? null,
-        depthRatio: pushupMode ? pSession?.tracker.depthRatio ?? 0 : tracker?.depthRatio ?? 0,
+        // Pull-ups report the pull ratio here (0 = dead hang → ~1 = chin at the bar): the header
+        // labels it "Height" for them.
+        depthRatio: pushupMode ? pSession?.tracker.depthRatio ?? 0 : pullupMode ? uSession?.tracker.pullRatio ?? 0 : tracker?.depthRatio ?? 0,
         liveDepthGap,
         liveValgusRatio,
         missedDepthFlash,
-        isDown: pushupMode ? pSession?.tracker.isDown ?? false : tracker?.isDown ?? false,
+        isDown: pushupMode ? pSession?.tracker.isDown ?? false : pullupMode ? uSession?.tracker.isDown ?? false : tracker?.isDown ?? false,
         liveMetrics,
         velocity: samplesRef.current,
-        bestVelocity: pushupMode ? pSession?.velocity.best() ?? null : velocityRef.current.best(),
+        bestVelocity: pushupMode
+          ? pSession?.velocity.best() ?? null
+          : pullupMode
+            ? uSession?.velocity.best() ?? null
+            : velocityRef.current.best(),
         camera: cameraRef.current,
         completedSets: completedSetsRef.current,
         report: reportRef.current,
@@ -1770,10 +2032,16 @@ export function useWorkout(
         reviewSetIndex: reviewSetIndexRef.current,
         reviewStage: setReviewStageRef.current,
         exercise: exerciseRef.current,
-        readable: pushupMode ? !!(pFrame?.shoulder && pFrame?.wrist) : (tracker?.kneeAngle ?? null) !== null,
+        readable: pushupMode
+          ? !!(pFrame?.shoulder && pFrame?.wrist)
+          : pullupMode
+            ? !!(uFrame?.shoulder && uFrame?.wrist && uSession?.tracker.hangHeight !== null)
+            : (tracker?.kneeAngle ?? null) !== null,
         pushupLiveMetrics: pushupMode && phaseRef.current === "active" ? pSession?.liveMetrics() ?? null : null,
         completedPushupSets: pushupSetsRef.current,
-        missedFlashText: pushupMode ? missedFlashTextRef.current : "Depth not met — no count",
+        pullupLiveMetrics: pullupMode && phaseRef.current === "active" ? uSession?.liveMetrics() ?? null : null,
+        completedPullupSets: pullupSetsRef.current,
+        missedFlashText: pushupMode || pullupMode ? missedFlashTextRef.current : "Depth not met — no count",
         debugTags,
       });
     }, 100);

@@ -17,6 +17,10 @@ export const BUFFER_LANDMARK_INDICES = [11, 12, 23, 24, 25, 26, 27, 28] as const
  *  adding arms there would silently change its reliability flag. */
 export const PUSHUP_BUFFER_LANDMARK_INDICES = [0, 7, 8, 11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28] as const;
 
+/** Pull-up buffer: the push-up list plus the mouth corners (chin estimate) and the grip knuckles
+ *  (the bar line). Separate for the same reason — each exercise's visibility check reads its own. */
+export const PULLUP_BUFFER_LANDMARK_INDICES = [0, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 23, 24, 25, 26, 27, 28] as const;
+
 export interface LandmarkPoint {
   x: number;
   y: number;

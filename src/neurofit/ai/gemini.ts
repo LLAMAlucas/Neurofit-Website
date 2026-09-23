@@ -33,8 +33,16 @@ import type { RepContextV2 } from "../session/context";
 import { GEMINI, SEVERITY, type ShortfallBand, type VelocityBand } from "../squat/config";
 import type { ImageFrame } from "./frameBuffer";
 import type { PushupPostSetData, PushupPostWorkoutData } from "../pushup/payload";
+import type { PullupPostSetData, PullupPostWorkoutData } from "../pullup/payload";
 import { quota, recordCall } from "../usage/usageStore";
-import { POSTSET_SYSTEM, POSTWORKOUT_SYSTEM, PUSHUP_POSTSET_SYSTEM, PUSHUP_POSTWORKOUT_SYSTEM } from "./prompts";
+import {
+  POSTSET_SYSTEM,
+  POSTWORKOUT_SYSTEM,
+  PULLUP_POSTSET_SYSTEM,
+  PULLUP_POSTWORKOUT_SYSTEM,
+  PUSHUP_POSTSET_SYSTEM,
+  PUSHUP_POSTWORKOUT_SYSTEM,
+} from "./prompts";
 
 const MODEL = import.meta.env.GEMINI_MODEL ?? import.meta.env.VITE_GEMINI_MODEL ?? "gemini-3.6-flash";
 const ENDPOINT = (model: string) =>
@@ -634,7 +642,11 @@ function selectPostSetFrames(archive: ImageFrame[]): ImageFrame[] {
  *  per-set frame archive (baseline + peak-per-type); the ring is not read here. Frames are
  *  extracted SYNCHRONOUSLY below (into `images`), before the async fetch, so a later per-set
  *  archive reset cannot affect an in-flight call. */
-export function callPostSet(data: PostSetData | PushupPostSetData, archive: ImageFrame[], callback: (text: string | null) => void): void {
+export function callPostSet(
+  data: PostSetData | PushupPostSetData | PullupPostSetData,
+  archive: ImageFrame[],
+  callback: (text: string | null) => void,
+): void {
   if (!geminiEnabled()) return callback(null);
   // Usage cap (disabled by default). Post-set is the image-bearing tier and the
   // dominant cost, so it is gated first.
@@ -646,9 +658,10 @@ export function callPostSet(data: PostSetData | PushupPostSetData, archive: Imag
   // Cap raised 2048→8192: "medium" thinking draws from this budget and the detailed
   // debrief needs room — a tight cap truncated the analysis mid-sentence (finishReason
   // MAX_TOKENS), now flagged rather than shown as if complete.
-  // The exercise is carried by the payload itself (push-up payloads set `exercise`; the squat
-  // payload is unchanged and has none), so the prompt can never be paired with the wrong data.
-  const system = "exercise" in data && data.exercise === "pushup" ? PUSHUP_POSTSET_SYSTEM : POSTSET_SYSTEM;
+  // The exercise is carried by the payload itself (push-up and pull-up payloads set `exercise`; the
+  // squat payload is unchanged and has none), so the prompt can never be paired with the wrong data.
+  const exercise = "exercise" in data ? data.exercise : "squat";
+  const system = exercise === "pushup" ? PUSHUP_POSTSET_SYSTEM : exercise === "pullup" ? PULLUP_POSTSET_SYSTEM : POSTSET_SYSTEM;
   void geminiGenerate(system, data, images, 8192, "postSet")
     .then(({ text, finishReason, usage }) => {
       const t = (text ?? "").trim();
@@ -669,7 +682,10 @@ export function callPostSet(data: PostSetData | PushupPostSetData, archive: Imag
 /** Function 2 — post-workout summary (blocking acceptable, still async). TEXT-ONLY: it
  *  synthesizes over the per-set debrief texts (already view-constrained) + numeric trends and
  *  receives NO images, so the model can never confabulate from evicted/late frames. */
-export function callPostWorkout(data: PostWorkoutData | PushupPostWorkoutData, callback: (text: string | null) => void): void {
+export function callPostWorkout(
+  data: PostWorkoutData | PushupPostWorkoutData | PullupPostWorkoutData,
+  callback: (text: string | null) => void,
+): void {
   if (!geminiEnabled()) return callback(null);
   if (quotaBlock("post_workout", data)) return callback(null);
   const firedAt = Date.now();
@@ -677,7 +693,8 @@ export function callPostWorkout(data: PostWorkoutData | PushupPostWorkoutData, c
   // Cap 4096: text-only synthesis (no image tokens) with "low" thinking needs less room than
   // the image-bearing tiers; still generous headroom over the summary length so thinking
   // tokens can't truncate it.
-  const system = "exercise" in data && data.exercise === "pushup" ? PUSHUP_POSTWORKOUT_SYSTEM : POSTWORKOUT_SYSTEM;
+  const exercise = "exercise" in data ? data.exercise : "squat";
+  const system = exercise === "pushup" ? PUSHUP_POSTWORKOUT_SYSTEM : exercise === "pullup" ? PULLUP_POSTWORKOUT_SYSTEM : POSTWORKOUT_SYSTEM;
   void geminiGenerate(system, data, [], 4096, "postWorkout")
     .then(({ text, finishReason, usage }) => {
       const t = (text ?? "").trim();

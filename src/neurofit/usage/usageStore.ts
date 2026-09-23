@@ -201,7 +201,7 @@ export interface WorkoutRecordInput {
   mode: string;
   depthPreset: string;
   /** Omitted for squats so their rows are unchanged; see UsageWorkout.exercise. */
-  exercise?: "squat" | "pushup";
+  exercise?: "squat" | "pushup" | "pullup";
 }
 
 /**

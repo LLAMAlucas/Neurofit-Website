@@ -25,8 +25,11 @@ import type { GeminiCallObservation } from "../ai/gemini";
 import { PUSHUP, PUSHUP_DEPTH_PRESETS, PUSHUP_TRIGGERS } from "../pushup/config";
 import { buildPushupTriggerTable, type PushupEvalContext } from "../pushup/evalTable";
 import type { PushupRepRecord } from "../pushup/session";
+import { PULLUP, PULLUP_TOP_PRESETS, PULLUP_TRIGGERS } from "../pullup/config";
+import { buildPullupTriggerTable, type PullupEvalContext } from "../pullup/evalTable";
+import type { PullupRepRecord } from "../pullup/session";
 
-type ExerciseId = "squat" | "pushup";
+type ExerciseId = "squat" | "pushup" | "pullup";
 
 /** MASTER TOGGLE — on in `vite dev`; force on elsewhere with VITE_EVAL_LOG=1.
  *  Guarded so importing this module under plain Node (the esbuild unit tests, where
@@ -143,7 +146,7 @@ export interface GeminiCallLog {
 interface SessionMeta {
   startedAtMs: number;
   exercise: ExerciseId;
-  /** Squat: bodyweight | loaded. Push-up: the variant (toes | knees). */
+  /** Squat: bodyweight | loaded. Push-up: the variant (toes | knees). Pull-up: the grip. */
   mode: string | null;
   depthPreset: string | null;
   model: string | null;
@@ -215,6 +218,31 @@ export const PUSHUP_SCRIPT_PROTOCOL_V1: Record<string, string> = {
   "5:1": "normal", "5:2": "normal", "5:3": "normal", "5:4": "normal", "5:5": "normal", "5:6": "normal",
 };
 
+/**
+ * Pull-up ground truth — PULLUP_TEST_PROTOCOL.md is the human-readable version the lifter follows.
+ * CHANGE BOTH TOGETHER. Overhand grip, "Chin over bar" target, camera plan "alternate" (set 1 is
+ * HEAD-ON for pull-ups). Every attempt counts toward the index. An extension_miss belongs to the
+ * rep that STARTS from the bent arms, so S4 scripts the half-lowering on rep 4 and expects the miss
+ * on rep 5.
+ */
+export const PULLUP_SCRIPT_PROTOCOL_V1: Record<string, string> = {
+  // S1 front — the top gate, U4 evenness and U2 lowering at constant grip width.
+  "1:1": "baseline clean (dead hang → chin over)", "1:2": "baseline clean (dead hang → chin over)", "1:3": "normal",
+  "1:4": "STOP SHORT — chin clearly below the bar (top_miss)", "1:5": "ONE ARM LEADS — lopsided pull THROUGHOUT (U4)",
+  "1:6": "FAST DROP into the hang (U2)",
+  // S2 side — U1 swing and U3 leg drive.
+  "2:1": "baseline strict (legs still)", "2:2": "baseline strict (legs still)", "2:3": "normal",
+  "2:4": "KIP — swing the hips back then drive through (U1)", "2:5": "KNEE DRIVE — tuck the knees up hard on the pull (U3)", "2:6": "normal",
+  // S3 front — baseline-starvation control: warm-up never straightens, so lowering control and
+  // evenness are disarmed ALL set. Rep 4's lopsided pull must NOT fire.
+  "3:1": "baseline from a BENT-ARM hang (never straighten — fails hygiene)", "3:2": "baseline from a BENT-ARM hang (never straighten)",
+  "3:3": "full dead hang first, then normal", "3:4": "one arm leads (EXPECT evenness silent — disarmed)", "3:5": "normal",
+  // S4 side — the extension gate + a clean control; ends the workout (no post-set by design).
+  "4:1": "baseline clean", "4:2": "baseline clean", "4:3": "normal",
+  "4:4": "normal pull, but lower only HALFWAY", "4:5": "pull again from the half hang (EXPECT extension_miss)",
+  "4:6": "full dead hang first, then normal",
+};
+
 /** Ground-truth `intended_fault` per rep, pre-filled from the test script. */
 const scriptMap: Record<string, string> = { ...SCRIPT_PROTOCOL_V2 };
 /** Which protocol `scriptMap` currently holds — swapped only when the exercise changes, so an
@@ -226,6 +254,27 @@ function stamp(): string {
 }
 
 function thresholdSnapshot(exercise: ExerciseId): Record<string, unknown> {
+  if (exercise === "pullup") {
+    return {
+      angle_space: "aspect (x·W/H, y)",
+      baselineReps: PULLUP_TRIGGERS.baselineReps,
+      repUpRatio: PULLUP.repUpRatio,
+      returnRatio: PULLUP.returnRatio,
+      partialDropRatio: PULLUP.partialDropRatio,
+      reriseRatio: PULLUP.reriseRatio,
+      dismountDropRatio: PULLUP.dismountDropRatio,
+      preArmWindowMs: PULLUP.preArmWindowMs,
+      extension: PULLUP.extension,
+      baselineMinPeakRatio: PULLUP.baselineMinPeakRatio,
+      swing: PULLUP_TRIGGERS.swing,
+      legDrive: PULLUP_TRIGGERS.legDrive,
+      eccentric_descentSpikeMult: PULLUP_TRIGGERS.eccentric.descentSpikeMult,
+      evenness: PULLUP_TRIGGERS.evenness,
+      velocityCollapse_ofBaseline: TRIGGERS.velocityCollapse.ofBaseline,
+      top_presets: Object.fromEntries(Object.values(PULLUP_TOP_PRESETS).map((p) => [p.id, { chinClearance: p.chinClearanceTarget, pullRatio: p.pullRatioTarget }])),
+      gemini_thinking: GEMINI.thinking,
+    };
+  }
   if (exercise === "pushup") {
     return {
       baselineReps: PUSHUP_TRIGGERS.baselineReps,
@@ -274,7 +323,10 @@ export function startSession(meta: { mode: string; depthPreset: string; model: s
   const exercise = meta.exercise ?? "squat";
   if (exercise !== scriptExercise) {
     for (const k of Object.keys(scriptMap)) delete scriptMap[k];
-    Object.assign(scriptMap, exercise === "pushup" ? PUSHUP_SCRIPT_PROTOCOL_V1 : SCRIPT_PROTOCOL_V2);
+    Object.assign(
+      scriptMap,
+      exercise === "pushup" ? PUSHUP_SCRIPT_PROTOCOL_V1 : exercise === "pullup" ? PULLUP_SCRIPT_PROTOCOL_V1 : SCRIPT_PROTOCOL_V2,
+    );
     scriptExercise = exercise;
   }
   session = { startedAtMs: Date.now(), ...meta, exercise, thresholds: thresholdSnapshot(exercise) };
@@ -709,6 +761,79 @@ export function logPushupRep(i: PushupRepEvalInputs): void {
   });
 }
 
+export interface PullupRepEvalInputs {
+  set: number;
+  record: PullupRepRecord;
+  ctx: PullupEvalContext;
+  trackingDegraded: boolean;
+  landmarks: LandmarkSample[];
+  frames: { timestampMs: number; repPhase: string; triggerTags: TriggerTag[]; jpegBase64: string }[];
+}
+
+/** Assemble and store one pull-up rep's evaluation record (same JSON shape as squat reps). A pull-up
+ *  rep starts at the hang, so `descent_start_ms` holds the moment it LEFT the hang, `bottom_ms` the
+ *  TOP of the pull, and eccentric/concentric keep their true meanings (lowering / pulling). */
+export function logPullupRep(i: PullupRepEvalInputs): void {
+  if (!DEV_EVAL_LOG) return;
+  const r = i.record;
+  const scored = r.index > PULLUP_TRIGGERS.baselineReps;
+  const triggers = buildPullupTriggerTable(r, i.ctx);
+  const flagged = triggers.some((t) => t.eligible && (t.fired || t.near_miss));
+  const measured: Record<string, number | null> = {
+    start_ratio: r.startRatio,
+    peak_ratio: r.peakRatio,
+    end_ratio: r.endRatio,
+    peak_chin_clearance: r.peakChinClearance,
+    start_elbow_angle_deg: r.startElbowDeg,
+    swing_range_deg: r.swingRangeDeg,
+    hip_range_deg: r.hipRangeDeg,
+    knee_range_deg: r.kneeRangeDeg,
+    tilt_peak_deg: r.tiltPeakDeg,
+    grip_width_ratio: r.gripWidthRatio,
+    descent_velocity: r.descentSpeed,
+    descent_multiple: r.descentMultiple,
+    ascent_velocity: r.velocity?.velocity ?? null,
+    velocity_ratio_vs_baseline: r.velocity?.ratio ?? null,
+  };
+  reps.push({
+    set: i.set,
+    rep: r.index,
+    view: i.ctx.view,
+    baseline_rep: !scored,
+    scored_rep: scored,
+    intended_fault: scriptMap[`${i.set}:${r.index}`] ?? "UNSET",
+    counted: r.counted,
+    phase_timestamps: {
+      descent_start_ms: Math.round(r.timing.startMs),
+      bottom_ms: Math.round(r.timing.topMs),
+      ascent_end_ms: Math.round(r.timing.endMs),
+      eccentric_ms: Math.round(r.timing.eccentricMs),
+      concentric_ms: Math.round(r.timing.concentricMs),
+    },
+    measured,
+    baselines: {
+      swing_range_deg: r.baselines.swingRangeDeg,
+      descent_velocity: r.baselines.descentVelocity,
+      shoulder_tilt_diff_deg: r.baselines.shoulderTiltDiffDeg,
+      visibility: r.baselines.visibility,
+    },
+    fed_baseline: r.fedBaseline,
+    triggers,
+    tracking_quality: { degraded: i.trackingDegraded, min_visibility: r.minVisibility, unreliable: r.landmarkUnreliable },
+    flagged,
+    landmarks: flagged
+      ? i.landmarks.length
+        ? i.landmarks
+        : { MISSING: true, reason: "flagged rep but landmark buffer window was empty (evicted / occluded)" }
+      : { omitted: true, reason: "clean rep — landmarks omitted to keep file size down" },
+    frames: flagged
+      ? i.frames.length
+        ? i.frames
+        : { MISSING: true, reason: "flagged rep but no buffered frames for this rep (ring evicted)" }
+      : { omitted: true, reason: "clean rep — frames omitted to keep file size down" },
+  });
+}
+
 /** Map + store one Gemini call observation from ai/gemini's `setGeminiCallObserver`.
  *  set/rep are recovered from the payload (mid-set: rep_context; post-set: set_summary). */
 export function logGeminiObservation(obs: GeminiCallObservation): void {
@@ -763,6 +888,10 @@ function validate(): { rep_issues: number; gemini_issues: number } {
           ? r.view === "side"
             ? ["body_line_peak_deg", "upper_arm_angle_deg", "descent_velocity"]
             : ["flare_peak", "tilt_peak_deg", "depth_ratio"]
+          : session?.exercise === "pullup"
+            ? r.view === "side"
+              ? ["swing_range_deg", "peak_ratio", "descent_velocity"]
+              : ["tilt_peak_deg", "peak_chin_clearance", "peak_ratio"]
           : r.view === "side"
             ? ["peak_trunk_angle_deg", "depth_gap", "descent_velocity"]
             : ["valgus_ratio", "knee_symmetry", "hip_lateral_drift"];
@@ -831,6 +960,11 @@ function repMetricsRow(r: RepEvalRecord): string {
       ? r.view === "side"
         ? `line ${f(r.measured.body_line_peak_deg, 1)}° / arm ${f(r.measured.upper_arm_angle_deg, 1)}° / top ${f(r.measured.top_ratio, 3)}`
         : `flare ${f(r.measured.flare_peak, 2)} / tilt ${f(r.measured.tilt_peak_deg, 1)}° / depth ${f(r.measured.depth_ratio, 2)}`
+      : session?.exercise === "pullup"
+        ? `chin ${f(r.measured.peak_chin_clearance, 3)} / start elbow ${f(r.measured.start_elbow_angle_deg, 0)}° / ` +
+          (r.view === "side"
+            ? `swing ${f(r.measured.swing_range_deg, 1)}° / legs ${f(Math.max(r.measured.hip_range_deg ?? 0, r.measured.knee_range_deg ?? 0), 1)}°`
+            : `tilt ${f(r.measured.tilt_peak_deg, 1)}° / peak ${f(r.measured.peak_ratio, 2)}`)
       : r.view === "side"
         ? `trunk ${f(r.measured.peak_trunk_angle_deg, 1)}° / gap ${f(r.measured.depth_gap, 3)}`
         : `valgus ${f(r.measured.valgus_ratio, 2)} / sym ${f(r.measured.knee_symmetry, 3)}`;
@@ -877,7 +1011,7 @@ function toMarkdown(validation: ReturnType<typeof validate>): string {
   lines.push("");
   if (session) {
     lines.push(
-      `Started ${new Date(session.startedAtMs).toISOString()} · exercise **${session.exercise}** · ${session.exercise === "pushup" ? "variant" : "mode"} **${session.mode}** · depth **${session.depthPreset}** · model **${session.model}** · gemini ${session.geminiEnabled ? "enabled" : "disabled"}`,
+      `Started ${new Date(session.startedAtMs).toISOString()} · exercise **${session.exercise}** · ${session.exercise === "pushup" ? "variant" : session.exercise === "pullup" ? "grip" : "mode"} **${session.mode}** · ${session.exercise === "pullup" ? "top" : "depth"} **${session.depthPreset}** · model **${session.model}** · gemini ${session.geminiEnabled ? "enabled" : "disabled"}`,
     );
     lines.push("");
   }
@@ -899,6 +1033,8 @@ function toMarkdown(validation: ReturnType<typeof validate>): string {
     const bl = setReps[setReps.length - 1]?.baselines;
     if (bl && session?.exercise === "pushup") {
       lines.push(`_Baselines (resolved): body line ${f(bl.body_line_deg, 1)}° · descent ${f(bl.descent_velocity, 3)} · tilt ${f(bl.shoulder_tilt_diff_deg, 1)}° · vis ${f(bl.visibility, 2)}_`);
+    } else if (bl && session?.exercise === "pullup") {
+      lines.push(`_Baselines (resolved): swing ${f(bl.swing_range_deg, 1)}° · lowering ${f(bl.descent_velocity, 3)} · tilt ${f(bl.shoulder_tilt_diff_deg, 1)}° · vis ${f(bl.visibility, 2)}_`);
     } else if (bl) lines.push(`_Baselines (resolved): lean ${f(bl.trunk_angle_deg, 1)}° · descent ${f(bl.descent_velocity, 3)} · shift ${f(bl.lateral_shift, 3)} · vis ${f(bl.visibility, 2)}_`);
     lines.push("");
     lines.push("### Triggers checked (eligible; incl. did-NOT-fire)");
