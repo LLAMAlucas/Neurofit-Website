@@ -14,7 +14,6 @@ import { CoachCamera, type CaptureFn } from "./components/CoachCamera";
 import { SetBar } from "./components/SetBar";
 import { MetricsPanel, type MetricRow } from "./components/MetricsPanel";
 import { VelocityPanel } from "./components/VelocityPanel";
-import { EnvPanel } from "./components/EnvPanel";
 import { SynthesisReport } from "./components/SynthesisReport";
 import { PostSetReview } from "./components/PostSetReview";
 import { SettingsView } from "./components/SettingsView";
@@ -58,8 +57,9 @@ export default function App() {
 
   const [tab, setTab] = useState<Tab>("coach");
   useEffect(() => installGlassPointer(), []);
-  const [corrected, setCorrected] = useState(true);
-  const [exposure, setExposure] = useState<ExposureDecision | null>(null);
+  // Exposure correction stays on; the EnvPanel that used to toggle/display it is hidden.
+  const [corrected] = useState(true);
+  const [, setExposure] = useState<ExposureDecision | null>(null);
 
   const kneeWarn = !pushup && workout.liveMetrics?.kneeValgus.status === "warn";
   const phaseLabel = !workout.readable ? "—" : workout.isDown ? "DOWN" : "UP";
@@ -86,7 +86,6 @@ export default function App() {
             </svg>
             Neuro-Fit
           </a>
-          <p className="nf-brand__sub">{pushup ? "Push-up" : "Squat"} coach · orientation-aware · early build</p>
         </div>
 
         <div className="nf-stats" aria-live="off">
@@ -212,18 +211,6 @@ export default function App() {
                 />
               )}
             </CoachCamera>
-            <p className="nf-stage__hint">
-              {pushup
-                ? workout.targetOrientation === "side"
-                  ? "Side sets check depth, lockout, body line (hip sag / pike) and tempo."
-                  : "Head-on sets check depth, lockout, elbow flare, left/right evenness and tempo."
-                : workout.targetOrientation === "side"
-                  ? "Side sets check depth, forward lean and tempo."
-                  : "Front sets check knee valgus and shoulder/hip levelness."}{" "}
-              {pushup
-                ? "Phone on the floor about 2 m away. Start kneeling, facing the camera so it finds you, then move into the top of a push-up."
-                : "Tempo is tracked from both views. Whole body in frame."}
-            </p>
           </div>
 
           <aside className="nf-rail">
@@ -231,25 +218,12 @@ export default function App() {
               rows={metricRows}
               emptyText={pushup ? "Lock a set and start your push-ups to see gated form checks." : "Lock a set and start squatting to see gated form checks."}
             />
-            <EnvPanel
-              exposure={exposure}
-              camera={workout.camera}
-              corrected={corrected}
-              onToggleCorrected={setCorrected}
-              exercise={exercise}
-            />
             <VelocityPanel samples={workout.velocity} best={workout.bestVelocity} />
           </aside>
         </main>
           )}
         </>
       )}
-
-      <footer className="nf-foot">
-        <span>Sets alternate side / front so each plane's faults are checked from the angle that can see them.</span>
-        <span>The AI coach runs only when you ask — after a set, or at the end of the workout.</span>
-        <span>Early build · every threshold is a starting point, tuned on very few bodies.</span>
-      </footer>
     </div>
   );
 }
