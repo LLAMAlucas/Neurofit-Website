@@ -1,26 +1,21 @@
 /**
  * The viewfinder's frame, on every stop: the brand and the way out to the app
- * at the top, where-am-I and the sound at the bottom. Mono, igloo's
+ * at the top, the lens boot readout at the bottom. Mono, igloo's
  * HUD language — and every control in it is a real link or button.
  *
- * `live` is false for the still page (reduced motion, no WebGL): no stop index
- * to follow, no scene to load, no sound — just the brand and the way out.
+ * `live` is false for the still page (reduced motion, no WebGL): no scene to
+ * load — just the brand and the way out.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 
-import { STOPS } from "@/lib/story";
 import { store } from "@/stage/store";
 import { onTick } from "@/hooks/ticker";
-import { Scrambler } from "@/hooks/scramble";
-import type { Sfx } from "@/audio/sfx";
 import { installGlassPointer, refract } from "@/lib/liquidGlass";
 
 const TRY_URL = "https://try.neurofit-training.com";
 
-export function Hud({ live, sfx }: { live: boolean; sfx?: Sfx }) {
-  const index = useRef<HTMLSpanElement>(null);
+export function Hud({ live }: { live: boolean }) {
   const boot = useRef<HTMLDivElement>(null);
-  const [sound, setSound] = useState(false);
   const tryIt = useRef<HTMLAnchorElement>(null);
 
   // Liquid glass: the highlight follows the pointer everywhere on the page, and the
@@ -30,22 +25,11 @@ export function Hud({ live, sfx }: { live: boolean; sfx?: Sfx }) {
 
   useEffect(() => {
     if (!live) return;
-    const label = index.current ? new Scrambler(index.current) : null;
-    const off = onTick((now) => {
-      const i = STOPS.findIndex((s) => s.id === document.body.dataset.stop);
-      const at = Math.max(0, i);
-      label?.set(`${String(at + 1).padStart(2, "0")} / ${String(STOPS.length).padStart(2, "0")}  ${STOPS[at].label}`, now);
+    const off = onTick(() => {
       if (boot.current && store.ready) boot.current.classList.add("is-done");
     });
     return off;
   }, [live]);
-
-  const toggle = () => {
-    if (!sfx) return;
-    if (sfx.on) sfx.disable();
-    else sfx.enable();
-    setSound(sfx.on);
-  };
 
   return (
     <div className="hud">
@@ -67,17 +51,9 @@ export function Hud({ live, sfx }: { live: boolean; sfx?: Sfx }) {
       </a>
 
       {live && (
-        <>
-          <div className="hud__index" aria-hidden="true">
-            <span ref={index}>01 / 06  FORM</span>
-          </div>
-          <button type="button" className="hud__sound" aria-pressed={sound} onClick={toggle}>
-            Sound: {sound ? "On" : "Off"}
-          </button>
-          <div className="hud__boot" ref={boot} aria-hidden="true">
-            <span>Lens init</span>
-          </div>
-        </>
+        <div className="hud__boot" ref={boot} aria-hidden="true">
+          <span>Lens init</span>
+        </div>
       )}
     </div>
   );

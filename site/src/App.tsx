@@ -96,7 +96,7 @@ export default function App() {
       )}
       {live && <TouchZone onSwipe={onSwipe} />}
 
-      <Hud live={live} sfx={live ? sfx : undefined} />
+      <Hud live={live} />
 
       <main id="main" className="journey">
         <Journey live={live} />

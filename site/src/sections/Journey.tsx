@@ -227,7 +227,6 @@ export function Journey({ live }: { live: boolean }) {
 
       <Stop id="frame" labelledBy="h-frame">
         <div className="copy copy--left">
-          <span className="eyebrow">01 — Before</span>
           <h2 className="h2" id="h-frame">
             Get yourself in frame.
           </h2>
@@ -242,7 +241,6 @@ export function Journey({ live }: { live: boolean }) {
 
       <Stop id="squat" labelledBy="h-squat">
         <div className="copy copy--right">
-          <span className="eyebrow">02 — During</span>
           <h2 className="h2" id="h-squat">
             Squat. Watch the count.
           </h2>
@@ -304,7 +302,6 @@ export function Journey({ live }: { live: boolean }) {
 
       <Stop id="afterSet" labelledBy="h-afterSet">
         <div className="copy copy--left copy--narrow">
-          <span className="eyebrow">03 — After the set</span>
           <h2 className="h2" id="h-afterSet">
             Find out how that one went.
           </h2>
@@ -336,7 +333,6 @@ export function Journey({ live }: { live: boolean }) {
 
       <Stop id="afterWorkout" labelledBy="h-afterWorkout">
         <div className="copy copy--left copy--top">
-          <span className="eyebrow">04 — After the workout</span>
           <h2 className="h2" id="h-afterWorkout">
             See the pattern across sets.
           </h2>
