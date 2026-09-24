@@ -115,16 +115,16 @@ const HAND_FLAT: [Quaternion, Quaternion] = [
 ];
 
 /**
- * Hands wrapped over the pull-up bar: from the wrist the hand runs up and back
- * over it, palm down and toward the body, knuckles to the front — an ordinary
- * overhand grip, the same at the dead hang and at the top. Built as a world
- * rotation from the bind hands (straight out along ±X, palm down): the basis
- * (fingers, palm, fingers × palm) carried onto the grip's.
+ * Hands gripping the pull-up bar: the hand stands nearly upright on the near
+ * side of the bar, palm against it facing away from the body (+Z), leaning
+ * back a touch — and the fingers do the wrapping (gripCurl below). Built as a
+ * world rotation from the bind hands (straight out along ±X, palm down): the
+ * basis (fingers, palm, fingers × palm) carried onto the grip's.
  */
-const GRIP_TILT = (72 * Math.PI) / 180;
+const GRIP_TILT = (12 * Math.PI) / 180;
 const HAND_GRIP: [Quaternion, Quaternion] = (() => {
   const d = new Vector3(0, Math.cos(GRIP_TILT), -Math.sin(GRIP_TILT));
-  const n = new Vector3(0, -Math.sin(GRIP_TILT), -Math.cos(GRIP_TILT));
+  const n = new Vector3(0, Math.sin(GRIP_TILT), Math.cos(GRIP_TILT));
   const target = new Quaternion().setFromRotationMatrix(
     new Matrix4().makeBasis(d, n, new Vector3().crossVectors(d, n)),
   );
@@ -137,6 +137,21 @@ const HAND_GRIP: [Quaternion, Quaternion] = (() => {
     return target.clone().multiply(bind.invert());
   }) as [Quaternion, Quaternion];
 })();
+
+/**
+ * The finger curl, degrees per segment, about the bar's axis (world X): the
+ * four fingers come over the top of the bar and down behind it toward the
+ * body, the thumb closes part-way on the near side. Parent before child, so
+ * the curl accumulates down the chain.
+ */
+const FINGER_CURL: [finger: string, segments: [number, number, number]][] = [
+  ["index", [55, 65, 45]],
+  ["middle", [58, 68, 48]],
+  ["ring", [55, 65, 45]],
+  ["pinky", [50, 60, 40]],
+  ["thumb", [20, 30, 20]],
+];
+const X_AXIS = new Vector3(1, 0, 0);
 
 /**
  * How much of the trunk's bend the pelvis takes. The rest is spread evenly up
@@ -240,6 +255,20 @@ export class Retargeter {
     bone.updateMatrixWorld(true);
   }
 
+  /** Curl `hand`'s fingers around the bar: each segment turns about the bar's
+   *  axis (world X), parent first so the curl accumulates down the chain.
+   *  Fingers go over the top and down the far side; the tips end pointing at
+   *  the body. Rigs without finger bones just keep the flat hand. */
+  private gripCurl(hand: string): void {
+    const side = hand.endsWith("_r") ? "_r" : "_l";
+    for (const [finger, segments] of FINGER_CURL) {
+      segments.forEach((deg, i) => {
+        const bone = this.bones.get(`${finger}_0${i + 1}${side}`);
+        if (bone) rotateWorld(bone, _q.setFromAxisAngle(X_AXIS, (deg * Math.PI) / 180));
+      });
+    }
+  }
+
   /** Slide the whole body by a world-space offset. */
   private shift(by: Vector3): void {
     const root = this.get(this.map.root);
@@ -307,7 +336,10 @@ export class Retargeter {
     if (anchor.handsFlat) {
       m.hands.forEach((n, i) => this.setWorld(n, _q.copy(HAND_FLAT[i]).multiply(this.bindWorldQ.get(n)!)));
     } else if (anchor.handsGrip) {
-      m.hands.forEach((n, i) => this.setWorld(n, _q.copy(HAND_GRIP[i]).multiply(this.bindWorldQ.get(n)!)));
+      m.hands.forEach((n, i) => {
+        this.setWorld(n, _q.copy(HAND_GRIP[i]).multiply(this.bindWorldQ.get(n)!));
+        this.gripCurl(n);
+      });
     }
     // Slide the body so the anchor bones land, on average, on our joints.
     _a.set(0, 0, 0);

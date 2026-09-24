@@ -39,12 +39,12 @@ export type PullupBeat = "kip" | "legDrive" | "uneven";
 export const BAR_Y = 2.2;
 /** Its half-length over one body. */
 export const BAR_HALF = 0.72;
-/** Where the wrists hang: below the bar and a little in front of it, so the
- *  hand — angled up and back over it (retarget's `handsGrip`) — closes around
- *  it, knuckles forward. A little wider than the shoulders: an ordinary
- *  overhand grip, not a wide one. */
+/** Where the wrists hang: below the bar and a touch to the body's side of it,
+ *  so the upright hand presses its palm against the bar and the fingers wrap
+ *  over the top (retarget's `handsGrip`). A little wider than the shoulders:
+ *  an ordinary overhand grip, not a wide one. */
 export const WRIST_Y = BAR_Y - 0.08;
-export const WRIST_Z = 0.07;
+export const WRIST_Z = -0.03;
 const GRIP_X = 0.3;
 
 const ARM_REACH = 0.995 * (boneLen("shoulderL", "elbowL") + boneLen("elbowL", "wristL"));
