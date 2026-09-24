@@ -39,9 +39,12 @@ export type PullupBeat = "kip" | "legDrive" | "uneven";
 export const BAR_Y = 2.2;
 /** Its half-length over one body. */
 export const BAR_HALF = 0.72;
-/** Wrists just under the bar (the hand wraps over it), a little wider than the
- *  shoulders — an ordinary overhand grip, not a wide one. */
-export const WRIST_Y = BAR_Y - 0.04;
+/** Where the wrists hang: below the bar and a little in front of it, so the
+ *  hand — angled up and back over it (retarget's `handsGrip`) — closes around
+ *  it, knuckles forward. A little wider than the shoulders: an ordinary
+ *  overhand grip, not a wide one. */
+export const WRIST_Y = BAR_Y - 0.08;
+export const WRIST_Z = 0.07;
 const GRIP_X = 0.3;
 
 const ARM_REACH = 0.995 * (boneLen("shoulderL", "elbowL") + boneLen("elbowL", "wristL"));
@@ -145,13 +148,13 @@ export function pullupPose(height: number, beat: PullupBeat | null, amount: numb
   }
 
   // Hands on the bar; elbows out to the sides and a little forward.
-  setJoint(out, "wristL", -GRIP_X, WRIST_Y, 0);
-  setJoint(out, "wristR", GRIP_X, WRIST_Y, 0);
+  setJoint(out, "wristL", -GRIP_X, WRIST_Y, WRIST_Z);
+  setJoint(out, "wristR", GRIP_X, WRIST_Y, WRIST_Z);
   solveMiddle(out, "shoulderL", "elbowL", "wristL", -0.85, -0.35, 0.4);
   solveMiddle(out, "shoulderR", "elbowR", "wristR", 0.85, -0.35, 0.4);
 
   // Kip: the whole hanging body swings about the grip.
-  if (swing !== 0 && a > 0) rotateJoints(out, HANGING, "yz", WRIST_Y, 0, KIP_RAD * a * swing);
+  if (swing !== 0 && a > 0) rotateJoints(out, HANGING, "yz", WRIST_Y, WRIST_Z, KIP_RAD * a * swing);
 }
 
 /* ── readouts, degrees, off the live pose ─────────────────────────────── */

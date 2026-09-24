@@ -55,11 +55,12 @@ export type RigMap = {
  * hands and the balls of the feet on the floor for a push-up, the hands on the
  * bar for a pull-up. The feet are then aimed at our toes, and `handsFlat` lays
  * the hands palm-down on the floor, fingers forward, instead of letting them
- * run on down the forearm's line into it.
+ * run on down the forearm's line into it; `handsGrip` wraps them over a bar in
+ * one fixed overhand grip, so the hands never twist through the rep.
  */
 export type Anchor =
   | { kind: "feet" }
-  | { kind: "joints"; bones: readonly string[]; joints: readonly JointName[]; handsFlat?: boolean };
+  | { kind: "joints"; bones: readonly string[]; joints: readonly JointName[]; handsFlat?: boolean; handsGrip?: boolean };
 
 export const FEET_ANCHOR: Anchor = { kind: "feet" };
 /** Push-up: hands and the balls of the feet on the floor (UE names; our L is
@@ -70,8 +71,8 @@ export const PUSHUP_ANCHOR: Anchor = {
   joints: ["wristL", "wristR", "toeL", "toeR"],
   handsFlat: true,
 };
-/** Pull-up: hands on the bar. */
-export const PULLUP_ANCHOR: Anchor = { kind: "joints", bones: ["hand_r", "hand_l"], joints: ["wristL", "wristR"] };
+/** Pull-up: hands on the bar, wrapped over it (`handsGrip`). */
+export const PULLUP_ANCHOR: Anchor = { kind: "joints", bones: ["hand_r", "hand_l"], joints: ["wristL", "wristR"], handsGrip: true };
 
 /**
  * Unreal-mannequin names, as used by the Quaternius Universal Base Characters.
@@ -112,6 +113,30 @@ const HAND_FLAT: [Quaternion, Quaternion] = [
   new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), Math.PI / 2),
   new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), -Math.PI / 2),
 ];
+
+/**
+ * Hands wrapped over the pull-up bar: from the wrist the hand runs up and back
+ * over it, palm down and toward the body, knuckles to the front — an ordinary
+ * overhand grip, the same at the dead hang and at the top. Built as a world
+ * rotation from the bind hands (straight out along ±X, palm down): the basis
+ * (fingers, palm, fingers × palm) carried onto the grip's.
+ */
+const GRIP_TILT = (72 * Math.PI) / 180;
+const HAND_GRIP: [Quaternion, Quaternion] = (() => {
+  const d = new Vector3(0, Math.cos(GRIP_TILT), -Math.sin(GRIP_TILT));
+  const n = new Vector3(0, -Math.sin(GRIP_TILT), -Math.cos(GRIP_TILT));
+  const target = new Quaternion().setFromRotationMatrix(
+    new Matrix4().makeBasis(d, n, new Vector3().crossVectors(d, n)),
+  );
+  return [-1, 1].map((sx) => {
+    const f = new Vector3(sx, 0, 0);
+    const p = new Vector3(0, -1, 0);
+    const bind = new Quaternion().setFromRotationMatrix(
+      new Matrix4().makeBasis(f, p, new Vector3().crossVectors(f, p)),
+    );
+    return target.clone().multiply(bind.invert());
+  }) as [Quaternion, Quaternion];
+})();
 
 /**
  * How much of the trunk's bend the pelvis takes. The rest is spread evenly up
@@ -281,6 +306,8 @@ export class Retargeter {
     for (const a of m.footAims) this.aim(a, pose);
     if (anchor.handsFlat) {
       m.hands.forEach((n, i) => this.setWorld(n, _q.copy(HAND_FLAT[i]).multiply(this.bindWorldQ.get(n)!)));
+    } else if (anchor.handsGrip) {
+      m.hands.forEach((n, i) => this.setWorld(n, _q.copy(HAND_GRIP[i]).multiply(this.bindWorldQ.get(n)!)));
     }
     // Slide the body so the anchor bones land, on average, on our joints.
     _a.set(0, 0, 0);
