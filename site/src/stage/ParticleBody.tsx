@@ -20,6 +20,7 @@ import {
   BufferGeometry,
   Color,
   Group,
+  MathUtils,
   Matrix4,
   MeshBasicMaterial,
   ShaderMaterial,
@@ -157,6 +158,14 @@ function boneAxes(mesh: SkinnedMesh): Float32Array {
  *  tall). The pointer entering the canvas can report a jump of the whole
  *  screen in one frame; that is not a swipe. */
 const MAX_CURSOR_SPEED = 16;
+
+/** Seconds of the cursor's recent motion weighed to judge whether it is going
+ *  anywhere. A fast jiggle over the body had the full speed of a swipe and
+ *  none of its reach: the grains under it were heated white and sprayed each
+ *  its own way, and the brush filled with a glowing ball. Its velocity now
+ *  counts only as far as it keeps a heading — a straight swipe, or a circle
+ *  slower than ~2 a second, loses nothing. */
+const SWEEP_MEMORY = 0.08;
 
 /** The skeleton's shape: a tight column along each bone, a ball at each joint,
  *  and a head-sized ball for the head. Metres. */
@@ -401,6 +410,9 @@ export function ParticleBody({
     () => ({ from: new Vector2(), to: new Vector2(), vel: new Vector2(), active: false }),
     [],
   );
+  // The cursor's recent velocity and recent speed, both averaged over
+  // SWEEP_MEMORY. Their ratio is 1 on a straight line and near 0 on a jiggle.
+  const sweep = useMemo(() => ({ heading: new Vector2(), speed: 0 }), []);
   const hadPointer = useRef(false);
   const formed = useRef(0);
   const burst = useRef(0);
@@ -455,8 +467,18 @@ export function ParticleBody({
     cursor.to.set(s.pointer.x * aspect, s.pointer.y);
     if (!stirring || !hadPointer.current) cursor.from.copy(cursor.to);
     cursor.active = stirring && hadPointer.current && dt > 0;
-    if (cursor.active) cursor.vel.subVectors(cursor.to, cursor.from).divideScalar(dt).clampLength(0, MAX_CURSOR_SPEED);
-    else cursor.vel.set(0, 0);
+    if (cursor.active) {
+      cursor.vel.subVectors(cursor.to, cursor.from).divideScalar(dt).clampLength(0, MAX_CURSOR_SPEED);
+      const a = 1 - Math.exp(-dt / SWEEP_MEMORY);
+      sweep.heading.lerp(cursor.vel, a);
+      sweep.speed += (cursor.vel.length() - sweep.speed) * a;
+      const straight = sweep.speed > 1e-6 ? sweep.heading.length() / sweep.speed : 1;
+      cursor.vel.multiplyScalar(MathUtils.smoothstep(straight, 0.3, 0.8));
+    } else {
+      cursor.vel.set(0, 0);
+      sweep.heading.set(0, 0);
+      sweep.speed = 0;
+    }
     hadPointer.current = stirring;
 
     if (s.formNonce !== formed.current) {

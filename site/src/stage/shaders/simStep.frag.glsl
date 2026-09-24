@@ -9,6 +9,11 @@
 //    spraying stream and keeps flying after the cursor has gone.
 //  - A hit particle is HOT for a while: free of its home, falling, swirling,
 //    slowing, and glowing (the colour is read in the draw).
+//  - The cursor throws a particle; it doesn't carry it. Once a particle is
+//    thrown, the stroke keeps hold of it only for a moment, then lets it fly.
+//    It can be caught again once the stroke has moved off it or it has cooled.
+//    When a stroke gripped for as long as it touched, anything that kept pace
+//    with the cursor rode along with it, hot, for as long as the mouse moved.
 //  - It is contained: glass walls and the floor stop it, and it piles up and
 //    runs along them like water in a tank.
 //  - As it cools, home takes hold — a critically damped pull, so it flows back
@@ -23,6 +28,7 @@ uniform sampler2D tVelocity;  // xyz velocity (m/s), w seconds still to wait (fo
 uniform sampler2D tHome;      // xyz home this frame, w seed
 uniform sampler2D tHomePrev;  // xyz home last frame
 uniform sampler2D tNormal;    // xyz skinned normal this frame, w depth (0 skin → 1 bone axis)
+uniform sampler2D tGrip;      // x how much of a stroke's hold it has used up (0 fresh → 1 spent)
 
 uniform float uDt;
 uniform float uTime;
@@ -65,6 +71,16 @@ uniform float uBurstHeat;    // how hot every grain comes loose
 
 layout(location = 0) out vec4 outOffset;
 layout(location = 1) out vec4 outVelocity;
+layout(location = 2) out vec4 outGrip;
+
+// Seconds a stroke can hold a particle it has thrown, at full strength. Long
+// enough for a swipe's centre to land its throw — the leading edge of the brush
+// has already heated a particle before the centre reaches it — and short enough
+// that nothing rides the cursor.
+const float GRIP_S = 0.15;
+// Seconds out from under the stroke before a thrown particle can be caught
+// again: a second swipe through a flying stream still throws it.
+const float REGRIP_S = 0.35;
 
 float hash11(float n) { return fract(sin(n * 12.9898 + 4.1414) * 43758.5453); }
 vec3 hash31(float n) {
@@ -160,8 +176,11 @@ void main() {
 
   // The stroke: every particle it passes over is dragged toward the cursor's
   // velocity at the particle's own depth. The stroke is the whole segment the
-  // cursor covered this frame, so a fast swipe leaves no gaps.
-  if (uHit * uFirst > 0.5) {
+  // cursor covered this frame, so a fast swipe leaves no gaps. The throw lands
+  // on a frame's first sub-step; every sub-step keeps count of the hold.
+  float spent = texelFetch(tGrip, t, 0).x;
+  float under = 0.0;
+  if (uHit > 0.5) {
     vec4 c = uViewProj * vec4(p, 1.0);
     if (c.w > 0.0) {
       vec2 q = c.xy / c.w;
@@ -174,20 +193,34 @@ void main() {
       float facing = dot(nd.xyz, normalize(uCamPos - p));
       f *= mix(0.3, 1.0, smoothstep(-0.3, 0.4, facing));
       f = clamp(f * (0.55 + 0.9 * hash11(seed * 3.71)), 0.0, 1.0);
+      under = f;
       if (f > 0.0) {
         vec3 swipe = (uCamRight * uCursorVel.x + uCamUp * uCursorVel.y) * c.w * uTanHalfFov;
         float speed = length(swipe);
-        // Most fly a little, a few fly far: the chunk stretches into a stream.
-        float kick = 0.5 + 1.0 * hash11(seed * 7.13);
-        vec3 spray = (hash31(seed) * 2.0 - 1.0) * speed * uSpray;
-        v = mix(v, (swipe * kick + spray) * uForce, f);
-        // Only the heart of the stroke comes free; its fringe is nudged and
-        // stays tethered, so a swipe tears a soft-edged hole, not a cut-out.
-        heat = max(heat, f * smoothstep(0.05, 0.8, speed));
-        free = smoothstep(0.0, 0.4, heat);
+        // A cursor at rest holds nothing: it neither stops a particle flying
+        // through it nor becalms the body under it.
+        float contact = f * smoothstep(0.02, 0.1, speed);
+        if (uFirst > 0.5) {
+          float grip = contact * (1.0 - smoothstep(0.6, 1.0, spent));
+          // Most fly a little, a few fly far: the chunk stretches into a stream.
+          float kick = 0.5 + 1.0 * hash11(seed * 7.13);
+          vec3 spray = (hash31(seed) * 2.0 - 1.0) * speed * uSpray;
+          v = mix(v, (swipe * kick + spray) * uForce, grip);
+          // Only the heart of the stroke comes free; its fringe is nudged and
+          // stays tethered, so a swipe tears a soft-edged hole, not a cut-out.
+          heat = max(heat, grip * smoothstep(0.05, 0.8, speed));
+          free = smoothstep(0.0, 0.4, heat);
+        }
+        // Holding a particle it has thrown uses the hold up. One still
+        // tethered is only being pushed, and is pushed for as long as the
+        // stroke lasts.
+        spent = min(1.0, spent + contact * smoothstep(0.1, 0.3, heat) * dt / GRIP_S);
       }
     }
   }
+  // Caught again once the stroke is off it, or once it has cooled.
+  float cool = 1.0 - smoothstep(0.1, 0.3, heat);
+  spent = max(0.0, spent - max(1.0 - step(1e-4, under), cool) * dt / REGRIP_S);
 
   // In flight: it falls, swirls and slows.
   v.y -= uGravity * free * dt;
@@ -242,4 +275,5 @@ void main() {
   heat = max(0.0, heat - dt / uHeatLife);
   outOffset = vec4(p - home, heat);
   outVelocity = vec4(v, max(0.0, wait - dt));
+  outGrip = vec4(spent, 0.0, 0.0, 0.0);
 }
