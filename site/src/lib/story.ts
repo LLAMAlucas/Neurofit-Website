@@ -17,7 +17,9 @@
  * they stop scrolling between two.
  */
 
-export type StopId = "form" | "frame" | "squat" | "afterSet" | "afterWorkout" | "finale";
+import type { ExerciseId } from "./exercises";
+
+export type StopId = "form" | "frame" | "squat" | "pushup" | "pullup" | "afterSet" | "afterWorkout" | "finale";
 
 /** Where the camera is for one stop. */
 export type Shot = {
@@ -49,8 +51,6 @@ export type Stop = {
   /** Where in its span it holds still, as shares of the span. */
   hold: [number, number];
   shot: Shot;
-  /** The reader orbits the camera themselves here. */
-  orbit?: boolean;
   /** Reached through the iris: the camera cuts while it is closed, so the
    *  move in is a fly-through rather than a pan across the room. */
   throughIris?: boolean;
@@ -84,44 +84,81 @@ export const STOPS: readonly Stop[] = [
     // and the body it's looking at all fit.
     shot: shot({ azimuth: 1.05, elevation: 0.22, distance: 6.4, target: [0, 0.75, 1.1], shift: [0.16, 0] }),
   },
+  // The three exercises. Each one's words and list sit on one side and the body
+  // on the other, alternating, at a three-quarter view that shows the front
+  // and the side at once — the camera no longer turns to a fault; the list
+  // says what it caught. On a phone the words sit at the top and the counter at
+  // the bottom, so the body goes a little LOWER than on the other stops.
   {
     id: "squat",
     label: "SQUAT",
-    span: 2,
+    span: 1.8,
     hold: [0.25, 0.8],
-    // On a phone the words sit at the top here and the picker at the bottom,
-    // so the body goes a little LOWER than on the other stops, not higher.
     shot: shot({
-      azimuth: 0.35,
+      azimuth: 0.55,
       elevation: 0.08,
       distance: 3.9,
       target: [0, 0.85, 0],
       shift: [-0.17, 0],
       narrowShift: [0, -0.03],
     }),
-    orbit: true,
+  },
+  {
+    id: "pushup",
+    label: "PUSH-UP",
+    span: 1.8,
+    hold: [0.25, 0.8],
+    // Low, from the side and a little ahead of the hands: the body line (sag,
+    // pike) reads side-on, the elbows and the press read from in front. Any
+    // more side-on and a plank this long runs under the words at 4:3.
+    shot: shot({
+      azimuth: 0.8,
+      elevation: 0.2,
+      distance: 4.1,
+      target: [0, 0.3, 0],
+      shift: [0.2, 0],
+      // On a phone held upright the plank is the width of the screen and an
+      // eighth of its height: closer in, and up out of the words' way.
+      narrowShift: [0, 0.08],
+      narrowFov: 36,
+    }),
+  },
+  {
+    id: "pullup",
+    label: "PULL-UP",
+    span: 1.8,
+    hold: [0.25, 0.8],
+    // Pulled back far enough for the whole hang and the bar over it.
+    shot: shot({
+      azimuth: 0.6,
+      elevation: 0.04,
+      distance: 5.1,
+      target: [0, 1.25, 0],
+      shift: [-0.17, 0],
+      narrowShift: [0, -0.02],
+    }),
   },
   {
     id: "afterSet",
     label: "AFTER THE SET",
     span: 1.8,
     hold: [0.25, 0.8],
-    // The body in the gap between the words on the left and the debrief
-    // writing itself out on the right.
-    shot: shot({ azimuth: 0.7, distance: 4.3, shift: [-0.04, 0] }),
+    // The body, hanging, in the gap between the words on the left and the
+    // debrief writing itself out on the right.
+    shot: shot({ azimuth: 0.7, distance: 5.2, target: [0, 1.25, 0], shift: [-0.04, 0] }),
   },
   {
     id: "afterWorkout",
     label: "AFTER THE WORKOUT",
     span: 1.6,
     hold: [0.3, 0.75],
-    // Wide, nearly square-on — the knee cave is a front-view fault, and the
-    // three sets have to show it — across the row of sets.
+    // Wide, nearly square-on — the uneven pull is a front-view fault, and the
+    // three sets have to show it — across the row of sets on the one bar.
     shot: shot({
       azimuth: 0.08,
-      elevation: 0.16,
-      distance: 7.4,
-      target: [-1.25, 0.85, 0],
+      elevation: 0.1,
+      distance: 7.6,
+      target: [-1.25, 1.2, 0],
       shift: [0.19, 0.02],
       narrowShift: [0, 0.16],
       // Three bodies side by side don't fit a phone held upright at 30°;
@@ -140,6 +177,22 @@ export const STOPS: readonly Stop[] = [
     throughIris: true,
   },
 ];
+
+/**
+ * What the body is doing at each stop. Up to the squat it stands; the pull-up's
+ * hang carries on through the two debriefs (they are about a set of pull-ups);
+ * the finale stands again, on the pedestal, reached through the iris.
+ */
+export const EXERCISE_AT: Record<StopId, ExerciseId> = {
+  form: "squat",
+  frame: "squat",
+  squat: "squat",
+  pushup: "pushup",
+  pullup: "pullup",
+  afterSet: "pullup",
+  afterWorkout: "pullup",
+  finale: "squat",
+};
 
 export const STOP_COUNT = STOPS.length;
 export const stopIndex = (id: StopId) => STOPS.findIndex((s) => s.id === id);

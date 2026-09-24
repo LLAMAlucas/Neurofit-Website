@@ -31,12 +31,13 @@ import {
 } from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 
-import { Retargeter } from "@/lib/retarget";
+import { FEET_ANCHOR, PULLUP_ANCHOR, PUSHUP_ANCHOR, Retargeter, type Anchor } from "@/lib/retarget";
 import { sampleSkinned } from "@/lib/sampleSkinned";
 import { sampleSkeleton } from "@/lib/sampleSkeleton";
 import { nearestK } from "@/lib/nearest";
 import { grainScale } from "@/lib/quality";
-import type { FaultId } from "@/lib/faultDemo";
+import { J } from "@/lib/pose";
+import type { ExerciseId } from "@/lib/exercises";
 import { ParticleSim, type Cursor } from "./particleSim";
 import { store } from "./store";
 import vertexShader from "./shaders/particleBody.vert.glsl?raw";
@@ -49,27 +50,60 @@ type BonePoint = [from: string, to: string, t: number];
 type Capsule = { a: BonePoint; b: BonePoint; /** × the radius setting */ r: number };
 
 /**
- * Where each fault glows, in this rig's bones. Knee cave runs from mid-thigh to
- * upper shin on both legs — the cave is the knee travelling in, and the thigh
- * and shin are the segments that visibly angle with it. Forward lean runs up the
- * trunk from the pelvis to the upper back: the fault is the trunk's angle, so it
- * is the trunk that lights.
+ * Where each fault glows, in this rig's bones, per exercise. The part that
+ * lights is the part whose ANGLE is the fault: knee cave runs from mid-thigh to
+ * upper shin on both legs, forward lean up the trunk, a sag or a pike through
+ * the hips, a flare down the upper arms. A rep that just doesn't count (too
+ * shallow, chin short) lights nothing — it isn't a fault, the count is the
+ * feedback. Our L side is the model's right (`_r`).
  */
-const CAPSULES: Record<FaultId, Capsule[]> = {
-  clean: [],
-  valgus: [
-    { a: ["thigh_l", "calf_l", 0.45], b: ["calf_l", "foot_l", 0.3], r: 1 },
-    { a: ["thigh_r", "calf_r", 0.45], b: ["calf_r", "foot_r", 0.3], r: 1 },
-  ],
-  lean: [{ a: ["pelvis", "spine_03", 0.2], b: ["spine_03", "neck_01", 0.6], r: 1.35 }],
+const CAPSULES: Record<ExerciseId, Record<string, Capsule[]>> = {
+  squat: {
+    valgus: [
+      { a: ["thigh_l", "calf_l", 0.45], b: ["calf_l", "foot_l", 0.3], r: 1 },
+      { a: ["thigh_r", "calf_r", 0.45], b: ["calf_r", "foot_r", 0.3], r: 1 },
+    ],
+    lean: [{ a: ["pelvis", "spine_03", 0.2], b: ["spine_03", "neck_01", 0.6], r: 1.35 }],
+    shift: [{ a: ["thigh_r", "thigh_l", 0], b: ["thigh_r", "thigh_l", 1], r: 1.45 }],
+  },
+  pushup: {
+    sag: [
+      { a: ["pelvis", "spine_02", 0], b: ["spine_02", "spine_03", 0.3], r: 1.3 },
+      { a: ["thigh_r", "calf_r", 0], b: ["thigh_r", "calf_r", 0.35], r: 1 },
+      { a: ["thigh_l", "calf_l", 0], b: ["thigh_l", "calf_l", 0.35], r: 1 },
+    ],
+    pike: [
+      { a: ["pelvis", "spine_02", 0], b: ["spine_02", "spine_03", 0.3], r: 1.3 },
+      { a: ["thigh_r", "calf_r", 0], b: ["thigh_r", "calf_r", 0.35], r: 1 },
+      { a: ["thigh_l", "calf_l", 0], b: ["thigh_l", "calf_l", 0.35], r: 1 },
+    ],
+    flare: [
+      { a: ["upperarm_r", "lowerarm_r", 0.1], b: ["upperarm_r", "lowerarm_r", 1], r: 0.9 },
+      { a: ["upperarm_l", "lowerarm_l", 0.1], b: ["upperarm_l", "lowerarm_l", 1], r: 0.9 },
+    ],
+    // The side that falls behind: our L.
+    uneven: [{ a: ["spine_03", "upperarm_r", 0.4], b: ["upperarm_r", "lowerarm_r", 0.7], r: 1.1 }],
+  },
+  pullup: {
+    kip: [
+      { a: ["pelvis", "spine_03", 0], b: ["spine_03", "neck_01", 0.4], r: 1.4 },
+      { a: ["thigh_r", "calf_r", 0], b: ["thigh_r", "calf_r", 0.5], r: 1 },
+      { a: ["thigh_l", "calf_l", 0], b: ["thigh_l", "calf_l", 0.5], r: 1 },
+    ],
+    legDrive: [
+      { a: ["thigh_r", "calf_r", 0.2], b: ["calf_r", "foot_r", 0.5], r: 1 },
+      { a: ["thigh_l", "calf_l", 0.2], b: ["calf_l", "foot_l", 0.5], r: 1 },
+    ],
+    // The side that trails: our L, the low shoulder.
+    uneven: [{ a: ["spine_03", "upperarm_r", 0.3], b: ["upperarm_r", "lowerarm_r", 0.7], r: 1.1 }],
+  },
 };
 
-/** What the HUD's leader line points at: the midpoint of two bones. */
-const ANCHOR: Record<FaultId, [string, string]> = {
-  clean: ["pelvis", "pelvis"],
-  valgus: ["calf_l", "calf_r"],
-  lean: ["spine_02", "spine_02"],
-};
+/** How the model is placed in each exercise (lib/retarget). */
+const ANCHORS: Record<ExerciseId, Anchor> = { squat: FEET_ANCHOR, pushup: PUSHUP_ANCHOR, pullup: PULLUP_ANCHOR };
+
+/** The burst between exercises: how hard the body is blown apart. */
+const BURST = { speed: 1.7, lift: 0.8, heat: 0.62 };
 
 /**
  * How far past its own origin a LEAF bone's axis runs, in metres. A leaf has no
@@ -131,13 +165,10 @@ const SKELETON_SHAPE = { boneRadius: 0.014, jointRadius: 0.03, headRadius: 0.07,
 /** How many body particles each skeleton grain watches to know it's exposed. */
 const WATCH = 4;
 
-/** The ghosts: earlier sets standing in a row to the body's left, x metres.
- *  Each draws this many of the body's particles — a lighter copy. */
-const GHOST_X = [-2.5, -1.25];
+/** The ghosts: earlier sets in a row to the body's left, x metres. Each draws
+ *  this many of the body's particles — a lighter copy. */
+export const GHOST_X = [-2.5, -1.25];
 const GHOST_PARTICLES = 22000;
-/** Where the HUD labels each figure (ghosts, then the body): over its head,
- *  which is held at the bottom of a squat when they are shown. */
-const LABEL_Y = 1.62;
 
 export function ParticleBody({
   url,
@@ -372,6 +403,10 @@ export function ParticleBody({
   );
   const hadPointer = useRef(false);
   const formed = useRef(0);
+  const burst = useRef(0);
+  /** The middle of the body as it stood last frame — where a burst throws
+   *  from, since by the time it fires the pose is already the next one. */
+  const centre = useRef<[number, number, number]>([0, 1, 0]);
 
   useFrame((state, rawDt) => {
     const g = group.current;
@@ -383,7 +418,7 @@ export function ParticleBody({
     const st = s.settings;
     const u = material.uniforms;
 
-    rig.retarget.apply(s.pose);
+    rig.retarget.apply(s.pose, ANCHORS[s.exercise]);
     rig.skeleton.update();
     rig.mesh.visible = st.showMesh;
 
@@ -395,11 +430,10 @@ export function ParticleBody({
       return out.lerpVectors(scratch.a, scratch.b, t);
     };
 
-    // Faults. A worse fault is brighter AND wider; one the camera can't judge
-    // from here isn't drawn at all (visibility is 0 past the check's tolerance).
-    const caps = CAPSULES[s.fault];
+    // Faults. A worse fault is brighter AND wider.
+    const caps = CAPSULES[s.exercise][s.check] ?? [];
     const sev = st.severity;
-    const amount = s.envelope * s.visibility * (0.55 + 0.45 * sev);
+    const amount = s.envelope * (0.55 + 0.45 * sev);
     for (let i = 0; i < MAX_CAPSULES; i++) {
       const c = caps[i];
       if (!c) {
@@ -411,12 +445,6 @@ export function ParticleBody({
       u.uFaultR.value[i] = st.radius * c.r * (0.7 + 0.3 * sev);
       u.uFaultAmt.value[i] = amount;
     }
-
-    // The HUD's leader line target, in CSS pixels.
-    const [p, q] = ANCHOR[s.fault];
-    at([p, q, 0.5], scratch.c).project(state.camera);
-    s.anchor.x = (scratch.c.x * 0.5 + 0.5) * state.size.width;
-    s.anchor.y = (-scratch.c.y * 0.5 + 0.5) * state.size.height;
 
     // The cursor's stroke this frame, in NDC with x scaled to match y. Only
     // while it is hovering — a drag is orbiting the camera, not touching the
@@ -443,6 +471,14 @@ export function ParticleBody({
         rise: st.formRise,
       });
     }
+    if (s.burstNonce !== burst.current) {
+      burst.current = s.burstNonce;
+      body.sim.burst({ centre: centre.current, ...BURST });
+    }
+    // Where the body is now, for the next burst: the middle of hips and shoulders.
+    const mid = (k: number) =>
+      (s.pose[J.hipL * 3 + k] + s.pose[J.hipR * 3 + k] + s.pose[J.shoulderL * 3 + k] + s.pose[J.shoulderR * 3 + k]) / 4;
+    centre.current = [mid(0), mid(1), mid(2)];
     body.sim.update(state.gl, dt, state.clock.elapsedTime, state.camera as PerspectiveCamera, g.matrixWorld, aspect, cursor, {
       force: st.force,
       spray: st.spray,
@@ -494,7 +530,7 @@ export function ParticleBody({
       if (gh) gh.visible = s.ghosts > 0.004;
     });
     [...GHOST_X, 0].forEach((x, i) => {
-      scratch.c.set(x, LABEL_Y, 0).applyMatrix4(g.matrixWorld).project(state.camera);
+      scratch.c.set(x, s.labelY, 0).applyMatrix4(g.matrixWorld).project(state.camera);
       s.labels[i].x = (scratch.c.x * 0.5 + 0.5) * state.size.width;
       s.labels[i].y = (-scratch.c.y * 0.5 + 0.5) * state.size.height;
     });

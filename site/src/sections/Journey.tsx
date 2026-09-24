@@ -1,34 +1,32 @@
 /**
- * The page's six stops, as real sections of real text in reading order — what
- * a search engine and a screen reader get, and what the still page (reduced
+ * The page's stops, as real sections of real text in reading order — what a
+ * search engine and a screen reader get, and what the still page (reduced
  * motion, no WebGL) shows as-is.
  *
  * On the live page each stop is a stretch of scroll (`--span` screens) whose
  * text is fixed over the scene and racked in and out of focus by useJourney.
- * Everything here that follows the scene — readouts, the fault tag, the labels
- * pinned over figures, the debrief writing itself out — is written from one
- * ticker, straight to the DOM.
+ * Everything here that follows the scene — the counter and the angles, the line
+ * of each list that lights, the labels pinned over figures, the debrief writing
+ * itself out — is written from one ticker, straight to the DOM.
  *
  * Copy rules carried over from the app: the only numbers on screen are degrees
  * and rep/set numbers, computed from the pose, never typed; no cause-and-effect
- * claims; shoulder tilt is never shown as a fault.
+ * claims; a rep that doesn't count is not called a fault.
  */
 import { useEffect, useRef, type CSSProperties, type ReactNode } from "react";
 
-import { FAULTS, FAULT_ORDER, planeVisibility, viewLabel, type FaultId } from "@/lib/faultDemo";
+import { EXERCISES, type ExerciseId } from "@/lib/exercises";
 import { CARD_BLOCKS, POST_SET, cardBlockAmount } from "@/lib/postSet";
 import { STOPS, stopIndex, type StopId } from "@/lib/story";
 import { store } from "@/stage/store";
 import { onTick } from "@/hooks/ticker";
 import { Scrambler } from "@/hooks/scramble";
 import { Foot } from "./Foot";
-import { GlassSegment, refract } from "@/lib/liquidGlass";
+import { refract } from "@/lib/liquidGlass";
 
 const TRY_URL = "https://try.neurofit-training.com";
 /** The hint to touch the body shows once it has formed. */
 const HINT_AFTER_S = 2.6;
-/** Where the fault tag sits relative to the point it labels, CSS px. */
-const TAG_OFFSET = { x: 110, y: -84 };
 
 function Stop({ id, children, labelledBy }: { id: StopId; children: ReactNode; labelledBy: string }) {
   const stop = STOPS[stopIndex(id)];
@@ -42,6 +40,54 @@ function Stop({ id, children, labelledBy }: { id: StopId; children: ReactNode; l
     >
       <div className="stop__frame">{children}</div>
     </section>
+  );
+}
+
+/**
+ * One exercise: what counts as a rep, and the list of what it watches for.
+ * While the body runs the exercise's set, the line for the rep in progress
+ * lights — red for a fault, dark for a clean rep or one that didn't count — and
+ * the counter and two angles read off the live pose.
+ */
+function ExerciseStop({
+  id,
+  heading,
+  counts,
+  side,
+}: {
+  id: ExerciseId;
+  heading: string;
+  counts: string;
+  side: "left" | "right";
+}) {
+  const spec = EXERCISES[id];
+  return (
+    <Stop id={id} labelledBy={`h-${id}`}>
+      <div className={`copy copy--${side} copy--exercise`}>
+        <h2 className="h2" id={`h-${id}`}>
+          {heading}
+        </h2>
+        <p>{counts} On every rep, it watches for:</p>
+        <ul className="checks" data-checks={id}>
+          {spec.checks.map((c) => (
+            <li key={c.id} className="checks__item" data-check={c.id} data-kind={c.kind}>
+              {c.label}
+              {c.kind === "miss" && <span className="checks__note"> — didn’t count</span>}
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <div className={`readout readout--${side === "left" ? "right" : "left"}`} aria-hidden="true" data-live-only data-readout={id}>
+        <div className="readout__label">Reps</div>
+        <div className="readout__reps" data-read="reps">
+          00
+        </div>
+        <div>
+          {spec.readouts[0].label} <span data-read="a">—</span> · {spec.readouts[1].label} <span data-read="b">—</span>
+        </div>
+      </div>
+    </Stop>
   );
 }
 
@@ -60,102 +106,47 @@ export function Journey({ live }: { live: boolean }) {
     if (!live || !el) return;
     const q = <T extends HTMLElement = HTMLElement>(sel: string) => el.querySelector<T>(sel);
     const hint = q(".hint");
-    const view = q("[data-read=view]");
-    const judge = q("[data-read=judge]");
-    const reps = q("[data-read=reps]");
-    const knee = q("[data-read=knee]");
-    const trunk = q("[data-read=trunk]");
-    const tag = q(".tag");
-    const leader = el.querySelector<SVGSVGElement>(".leader");
-    const line = leader?.querySelector("line") ?? null;
-    const dot = leader?.querySelector("circle") ?? null;
     const phoneTag = q(".phone-tag");
     const labels = Array.from(el.querySelectorAll<HTMLElement>(".set-label"));
     const typed = Array.from(el.querySelectorAll<HTMLElement>("[data-typed]"));
-    const buttons = Array.from(el.querySelectorAll<HTMLButtonElement>("[data-fault]"));
-    // One glass droplet for the picker: it forms on the rep being played and melts
-    // away when the demo is free again. Picking is by tap only (no drag): the row is
-    // locked while a rep plays, which is exactly when the droplet exists.
-    const row = q(".picker__row");
-    const glass = row ? new GlassSegment(row) : null;
-    let pressed: HTMLElement | null = null;
     const debriefStop = el.querySelector<HTMLElement>("[data-stop=afterSet]");
-    const tagText = tag ? new Scrambler(tag) : null;
-    const viewText = view ? new Scrambler(view) : null;
     const phoneText = phoneTag ? new Scrambler(phoneTag) : null;
     let readyAt = 0;
     const typedLen = typed.map(() => -1);
+
+    // Each exercise stop's list and readout, and what each last showed — the
+    // DOM is only touched when something changes.
+    const stops = (Object.keys(EXERCISES) as ExerciseId[]).map((id) => ({
+      id,
+      items: Array.from(el.querySelectorAll<HTMLElement>(`[data-checks=${id}] [data-check]`)),
+      reps: q(`[data-readout=${id}] [data-read=reps]`),
+      a: q(`[data-readout=${id}] [data-read=a]`),
+      b: q(`[data-readout=${id}] [data-read=b]`),
+      lit: "",
+      text: ["", "", ""],
+    }));
+    const put = (node: HTMLElement | null, text: string, last: string[], i: number) => {
+      if (node && last[i] !== text) node.textContent = last[i] = text;
+    };
 
     const off = onTick((now) => {
       const s = store;
       if (s.ready && !readyAt) readyAt = now;
       hint?.classList.toggle("is-on", readyAt > 0 && now - readyAt > HINT_AFTER_S * 1000);
 
-      // Squat: what the lens can judge from here, and the rep in hand.
-      viewText?.set(viewLabel(s.viewAzimuth), now);
-      if (judge) {
-        const can: string[] = [];
-        if (planeVisibility("frontal", s.viewAzimuth) > 0.5) can.push("knee cave");
-        if (planeVisibility("sagittal", s.viewAzimuth) > 0.5) can.push("forward lean");
-        const text = can.length ? `Can judge: ${can.join(", ")}` : "Can judge: neither fault";
-        if (judge.textContent !== text) judge.textContent = text;
-      }
-      if (reps) reps.textContent = String(s.reps).padStart(2, "0");
-      if (knee) knee.textContent = `${Math.round(s.knee)}°`;
-      if (trunk) trunk.textContent = `${Math.round(s.trunk)}°`;
-
-      // The tag: what the lens concluded about the rep in progress (or the one
-      // that just ended). A fault it can't see from here is UNKNOWN, never
-      // clean — silence from a check that couldn't run is not a pass.
-      const squatLive = document.body.dataset.stop === "squat";
-      const f = FAULTS[s.fault];
-      const repNo = s.phase === "rep" ? s.reps + 1 : s.reps;
-      let desired = "";
-      let kind = "";
-      if (squatLive && f.plane) {
-        if ((s.phase === "rep" && s.envelope > 0.05) || s.tagHold > 0) {
-          const seen = s.visibility > 0.5;
-          desired = seen ? `${f.tag} · rep ${repNo}` : "Not visible from this angle · unknown";
-          kind = seen ? "is-fault" : "is-unknown";
+      // The exercise stops: only the one whose set is playing is live.
+      for (const st of stops) {
+        const mine = s.exercise === st.id;
+        const lit = mine ? (s.lit ?? "") : "";
+        if (lit !== st.lit) {
+          st.lit = lit;
+          for (const li of st.items) li.classList.toggle("is-on", li.dataset.check === lit);
         }
-      } else if (squatLive && s.tagHold > 0) {
-        desired = `Rep ${repNo} · nothing flagged`;
-        kind = "is-clean";
-      }
-      if (tag && line && dot && leader) {
-        if (desired) {
-          tagText?.set(desired, now);
-          tag.className = `tag is-on ${kind}`;
-          // Off to the right of the fault — or its left, where the right edge
-          // of a narrow screen would cut the tag off.
-          const w = tag.offsetWidth;
-          const right = s.anchor.x + TAG_OFFSET.x + w <= window.innerWidth - 8;
-          const tx = right ? s.anchor.x + TAG_OFFSET.x : Math.max(8, s.anchor.x - TAG_OFFSET.x - w);
-          const ty = s.anchor.y + TAG_OFFSET.y;
-          tag.style.transform = `translate(${tx}px, ${ty}px)`;
-          line.setAttribute("x1", String(s.anchor.x));
-          line.setAttribute("y1", String(s.anchor.y));
-          line.setAttribute("x2", String(right ? tx - 6 : tx + w + 6));
-          line.setAttribute("y2", String(ty + 8));
-          dot.setAttribute("cx", String(s.anchor.x));
-          dot.setAttribute("cy", String(s.anchor.y));
-          leader.classList.add("is-on");
-        } else {
-          tag.className = "tag";
-          leader.classList.remove("is-on");
+        if (mine) {
+          put(st.reps, String(s.reps).padStart(2, "0"), st.text, 0);
+          put(st.a, `${Math.round(s.readA)}°`, st.text, 1);
+          put(st.b, `${Math.round(s.readB)}°`, st.text, 2);
         }
-      }
-      const busy = s.phase !== "idle" || s.request !== null;
-      let on: HTMLElement | null = null;
-      for (const b of buttons) {
-        const isOn = busy && s.fault === b.dataset.fault;
-        b.setAttribute("aria-disabled", String(busy));
-        b.setAttribute("aria-pressed", String(isOn));
-        if (isOn) on = b;
-      }
-      if (on !== pressed) {
-        pressed = on;
-        glass?.setActive(on);
       }
 
       // In frame: the phone's own readout, over the phone. It faces the body
@@ -185,29 +176,20 @@ export function Journey({ live }: { live: boolean }) {
         }
       });
     });
-    return () => {
-      off();
-      glass?.destroy();
-    };
+    return off;
   }, [live]);
-
-  const pick = (id: FaultId) => {
-    if (store.phase !== "idle" || store.request) return;
-    store.request = id;
-  };
 
   return (
     <div className="journey__stops" ref={root}>
       <Stop id="form" labelledBy="h-form">
         <div className="copy copy--left copy--hero">
-          {/* HEADLINE: a placeholder — the final line is being written. */}
           <h1 className="h1" id="h-form">
-            You can’t see your own squat.
+            Every rep, seen from outside.
           </h1>
           <p className="lede">
-            Neuro-Fit watches you through your phone camera and tells you what your form actually did.
-            Prop the phone against something, do your set, and get a plain read on it — after the set,
-            and again at the end of the workout.
+            Neuro-Fit watches your squats, push-ups and pull-ups through your phone camera and tells you what your
+            form actually did. Prop the phone up, do your set, and get a plain read on it — after the set, and again
+            at the end of the workout.
           </p>
           <p className="hint" aria-hidden="true" data-live-only>
             <span className="hint__mouse">Drag across the body</span>
@@ -231,74 +213,33 @@ export function Journey({ live }: { live: boolean }) {
             Get yourself in frame.
           </h2>
           <p>
-            No wearable, nothing to strap on: a phone, a wall to lean it against, and room to squat.
-            Stand back until all of you fits on screen. It works out whether it’s looking at you from the
-            side or head-on, settles on that while you’re standing still, and tells you when it’s ready.
+            No wearable, nothing to strap on: a phone, something to lean it against, and room to move. Stand back
+            until all of you fits on screen. It works out whether it’s looking at you from the side or head-on,
+            settles on that while you hold still, and only judges what that view can actually see — anything it
+            can’t see is marked unknown, never passed.
           </p>
         </div>
         <div className="phone-tag" aria-hidden="true" data-live-only />
       </Stop>
 
-      <Stop id="squat" labelledBy="h-squat">
-        <div className="copy copy--right">
-          <h2 className="h2" id="h-squat">
-            Squat. Watch the count.
-          </h2>
-          <p>A rep only counts when you reach the depth you asked for.</p>
-          <p>
-            From the side, it can see how deep you got and how far you tipped forward. Head-on, it can see
-            a knee falling inward. It can’t see both at once — so whatever it can’t see, it marks as
-            unknown rather than passed.
-          </p>
-        </div>
-
-        <div className="readout" aria-hidden="true" data-live-only>
-          <div className="readout__label">////// View</div>
-          <div className="readout__big" data-read="view">
-            —
-          </div>
-          <div data-read="judge" />
-          <div className="readout__label readout__gap">Reps</div>
-          <div className="readout__reps" data-read="reps">
-            00
-          </div>
-          <div>
-            Knee <span data-read="knee">—</span> · Trunk <span data-read="trunk">—</span>
-          </div>
-        </div>
-
-        <svg className="leader" aria-hidden="true" data-live-only>
-          <line />
-          <circle r="3" />
-        </svg>
-        <div className="tag" role="status" aria-live="polite" data-live-only />
-
-        <div className="picker" data-live-only>
-          <p className="picker__prompt" id="picker-prompt">
-            Pick a rep for it to catch
-          </p>
-          <div className="lg-seg picker__row" role="group" aria-labelledby="picker-prompt">
-            <span className="lg-seg__thumb" aria-hidden="true" />
-            {FAULT_ORDER.map((id) => (
-              <button
-                key={id}
-                type="button"
-                className="lg-seg__item"
-                data-lg-item=""
-                data-fault={id}
-                onClick={() => pick(id)}
-              >
-                {FAULTS[id].label}
-              </button>
-            ))}
-            <span className="lg-seg__lens" aria-hidden="true" />
-          </div>
-          <p className="picker__hint" aria-hidden="true">
-            <span className="hint__mouse">Drag the body to look around · ← →</span>
-            <span className="hint__touch">Pick a rep and the view turns to see it</span>
-          </p>
-        </div>
-      </Stop>
+      <ExerciseStop
+        id="squat"
+        side="right"
+        heading="Squats, rep by rep."
+        counts="A rep counts only when you reach the depth you picked."
+      />
+      <ExerciseStop
+        id="pushup"
+        side="left"
+        heading="Push-ups, rep by rep."
+        counts="A rep counts only when you get down to depth and lock your arms out at the top."
+      />
+      <ExerciseStop
+        id="pullup"
+        side="right"
+        heading="Pull-ups, rep by rep."
+        counts="A rep counts from a dead hang until your chin clears the bar."
+      />
 
       <Stop id="afterSet" labelledBy="h-afterSet">
         <div className="copy copy--left copy--narrow">
@@ -306,16 +247,16 @@ export function Journey({ live }: { live: boolean }) {
             Find out how that one went.
           </h2>
           <p>
-            End the set and ask for a read: a few sentences on what it actually did, measured against your
-            own first couple of reps. Only when you ask for it.
+            End the set and ask for a read: a few sentences on what it actually did, measured against your own first
+            couple of reps. Only when you ask for it.
           </p>
           <p className="fine">
-            Your video stays on your phone. Asking for a read sends a handful of still frames from the set;
-            the end-of-workout summary sends none.
+            Your video stays on your phone. Asking for a read sends a handful of still frames from the set; the
+            end-of-workout summary sends none.
           </p>
         </div>
 
-        <article className="debrief" aria-label="An example of a post-set summary">
+        <article className="debrief" aria-label="An example of a post-set summary, for a set of pull-ups">
           <span className="debrief__kind">Example</span>
           {DEBRIEF_BLOCKS.map((text, i) => {
             const cls = i === 0 ? "debrief__label" : i === CARD_BLOCKS - 1 ? "debrief__cues" : "debrief__p";
@@ -337,9 +278,8 @@ export function Journey({ live }: { live: boolean }) {
             See the pattern across sets.
           </h2>
           <p>
-            One read across the whole session: what kept happening, what was a one-off, and what genuinely
-            changed as you got tired — judged on how your reps slowed, not assumed because it was the last
-            set.
+            One read across the whole session: what kept happening, what was a one-off, and what genuinely changed as
+            you got tired — judged on how your reps slowed, not assumed because it was the last set.
           </p>
         </div>
         {[1, 2, 3].map((n) => (
@@ -358,9 +298,8 @@ export function Journey({ live }: { live: boolean }) {
             Try it out
           </a>
           <p className="price">
-            Everything the camera does is free, for good — it runs on your phone. Your first{" "}
-            <span className="tbd">[N]</span> coached sessions are free; after that, your own Gemini key or a
-            small flat fee. No subscription, no card to start.
+            Everything the camera does is free and runs on your device. The written reads after a set and after a
+            workout use your own Gemini API key, pasted into Settings. No account, no card.
           </p>
           <Foot />
         </div>

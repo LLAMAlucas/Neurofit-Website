@@ -29,14 +29,13 @@ export default function Lab() {
   // Hidden until asked for: `?tune`, or P.
   useEffect(() => createTuningPanel(setRebuild), []);
 
-  // Arrow keys step the orbit 15° — the tracker's view tolerance, so one press
-  // is exactly the difference between "can judge" and "unknown".
+  // Arrow keys step the orbit 15° — the tracker's view tolerance.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
       if ((e.target as HTMLElement | null)?.closest?.(".lil-gui")) return;
       e.preventDefault();
-      store.targetAzimuth = (store.targetAzimuth ?? store.azimuth) + (e.key === "ArrowLeft" ? -15 : 15) * DEG;
+      store.azimuth += (e.key === "ArrowLeft" ? -15 : 15) * DEG;
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -65,7 +64,6 @@ export default function Lab() {
     if ((e.target as HTMLElement).closest("button, .lil-gui")) return;
     last.current = { x: e.clientX, y: e.clientY };
     store.dragging = true;
-    store.targetAzimuth = null;
     stage.current?.setPointerCapture(e.pointerId);
     stage.current?.classList.add("is-dragging");
   };

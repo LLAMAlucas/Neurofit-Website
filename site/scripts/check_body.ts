@@ -1,7 +1,7 @@
 /**
  * Offscreen checks for the particle body: the surface sampler, the retargeter
- * and the pick-a-fault demo. Same contract as check_rig.ts — pure modules only,
- * run in Node, no renderer.
+ * (standing, in a plank, and hanging) and the HUD's readouts. Same contract as
+ * check_site.ts — pure modules only, run in Node, no renderer.
  *
  * The retargeter is exercised on a SYNTHETIC rig with the Unreal-mannequin bone
  * names and the Quaternius male's bind positions, with every bone given a random
@@ -10,19 +10,21 @@
  */
 import { Object3D, Quaternion, Vector3 } from "three";
 import { mulberry32, sampleSkinned } from "../src/lib/sampleSkinned";
-import { PELVIS_SHARE, Retargeter, UE_RIG, poseDir, worldDir } from "../src/lib/retarget";
+import {
+  PELVIS_SHARE,
+  PULLUP_ANCHOR,
+  PUSHUP_ANCHOR,
+  Retargeter,
+  UE_RIG,
+  poseDir,
+  poseOut,
+  worldDir,
+  type Anchor,
+} from "../src/lib/retarget";
 import { BOTTOM, STAND, newPose } from "../src/lib/poseFrames";
 import { JOINT_BONE, SKELETON_LINES, TRUNK_CHAIN, sampleSkeleton } from "../src/lib/sampleSkeleton";
 import { nearestK } from "../src/lib/nearest";
-import {
-  FAULTS,
-  REP_S,
-  kneeAngleDeg,
-  planeVisibility,
-  repAt,
-  trunkLeanDeg,
-  viewLabel,
-} from "../src/lib/faultDemo";
+import { EXERCISES, kneeAngleDeg, trunkLeanDeg, type ExerciseId } from "../src/lib/exercises";
 
 let failures = 0;
 const ok = (name: string, cond: boolean, detail = "") => {
@@ -237,21 +239,23 @@ console.log("\n2. retarget");
   const bindMid = midFeet(new Vector3());
   const bindFootQ = FEET.map((n) => bones[n].getWorldQuaternion(new Quaternion()));
 
-  const peak = (fault: "valgus" | "lean") => {
-    let best = 0, bestT = 0;
+  /** The pose at the worst of a check's fault (or the bottom, for a clean rep). */
+  const peak = (ex: ExerciseId, check: string) => {
+    let best = -1, bestPh = 0.55;
     const p = newPose();
-    for (let t = 0; t <= REP_S; t += 0.01) {
-      const s = repAt(fault, t, 1, p);
-      if (s.envelope > best) (best = s.envelope), (bestT = t);
+    for (let ph = 0; ph <= 1; ph += 0.005) {
+      const s = EXERCISES[ex].rep(check, ph, 1, p);
+      if (s.envelope > best && s.envelope > 0) (best = s.envelope), (bestPh = ph);
     }
-    repAt(fault, bestT, 1, p);
+    EXERCISES[ex].rep(check, bestPh, 1, p);
     return p;
   };
   const poses: [string, Float32Array][] = [
     ["standing", STAND],
     ["parallel", BOTTOM],
-    ["knee cave peak", peak("valgus")],
-    ["forward lean peak", peak("lean")],
+    ["knee cave peak", peak("squat", "valgus")],
+    ["forward lean peak", peak("squat", "lean")],
+    ["hip shift peak", peak("squat", "shift")],
   ];
 
   const u = new Vector3(), v = new Vector3();
@@ -282,29 +286,29 @@ console.log("\n2. retarget");
      a stance, not a fault. What must not happen is a foot SLIDING while the rep
      runs: that reads as skating, and the whole premise of the squat is that the
      feet don't move. So each foot is measured against itself across every rep. */
-  for (const fault of ["clean", "valgus", "lean"] as const) {
+  for (const c of EXERCISES.squat.checks) {
     const p = newPose();
     const start = FEET.map(() => new Vector3());
     let slide = 0;
-    for (let t = 0; t <= REP_S; t += 0.02) {
-      repAt(fault, t, 1, p);
+    for (let ph = 0; ph <= 1.0001; ph += 0.01) {
+      EXERCISES.squat.rep(c.id, ph, 1, p);
       rt.apply(p);
       FEET.forEach((n, i) => {
         const w = bones[n].getWorldPosition(u);
-        if (t === 0) start[i].copy(w);
+        if (ph === 0) start[i].copy(w);
         else slide = Math.max(slide, w.distanceTo(start[i]));
       });
     }
-    ok(`${FAULTS[fault].label}: no foot slides more than 1.5 cm through the rep`, slide < 0.015, `${(slide * 1000).toFixed(1)} mm`);
+    ok(`squat, ${c.label}: no foot slides more than 1.5 cm through the rep`, slide < 0.015, `${(slide * 1000).toFixed(1)} mm`);
   }
 
   // The pelvis takes a real share of the bend, not all of it and not none.
-  rt.apply(peak("lean"));
+  rt.apply(peak("squat", "lean"));
   const pelvisTilt = bones.pelvis.getWorldQuaternion(new Quaternion());
   rt.reset();
   const pelvisRest = bones.pelvis.getWorldQuaternion(new Quaternion());
   const tilt = pelvisTilt.angleTo(pelvisRest) / DEG;
-  const lean = trunkLeanDeg(peak("lean"));
+  const lean = trunkLeanDeg(peak("squat", "lean"));
   ok(
     "the hips hinge with the lean rather than the spine bending alone",
     tilt > lean * PELVIS_SHARE * 0.5 && tilt < lean * 1.2,
@@ -314,56 +318,87 @@ console.log("\n2. retarget");
   rt.reset();
   const back = Math.max(...order.map((n) => bones[n].getWorldPosition(u).distanceTo(new Vector3(...W[n]))));
   ok("reset returns every bone to bind", back < 1e-6, `${back.toExponential(1)} m`);
+
+  /* The plank and the hang. Nothing is planted flat now: the feet are aimed at
+     our toes, the model is slid so its hands (and the balls of its feet) land
+     on ours, and for a push-up the hands lie flat on the floor, fingers toward
+     the head, rather than running on down the forearm into it. */
+  const handBindQ = ["hand_r", "hand_l"].map((n) => bones[n].getWorldQuaternion(new Quaternion()));
+  const cases: [string, ExerciseId, string, Anchor][] = [
+    ["push-up, top", "pushup", "clean", PUSHUP_ANCHOR],
+    ["push-up, sag peak", "pushup", "sag", PUSHUP_ANCHOR],
+    ["push-up, flare peak", "pushup", "flare", PUSHUP_ANCHOR],
+    ["pull-up, top", "pullup", "clean", PULLUP_ANCHOR],
+    ["pull-up, kip peak", "pullup", "kip", PULLUP_ANCHOR],
+    ["pull-up, leg drive peak", "pullup", "legDrive", PULLUP_ANCHOR],
+  ];
+  for (const [label, ex, check, anchor] of cases) {
+    const pose = check === "clean" ? (() => {
+      const p = newPose();
+      EXERCISES[ex].rep("clean", 0.55, 1, p);
+      return p;
+    })() : peak(ex, check);
+    rt.apply(pose, anchor);
+    let worst = 0, worstBone = "";
+    for (const a of [...UE_RIG.aims, ...UE_RIG.footAims]) {
+      const err = worldDir(bones[a.bone], bones[a.tip], u).angleTo(poseDir(pose, a.from, a.to, v)) / DEG;
+      if (err > worst) (worst = err), (worstBone = a.bone);
+    }
+    ok(`${label}: every limb, feet too, points where ours does`, worst < 1, `worst ${worst.toFixed(2)}° (${worstBone})`);
+    const trunkErr = worldDir(bones.pelvis, bones.neck_01, u).angleTo(poseDir(pose, "hipMid", "shoulderMid", v)) / DEG;
+    ok(`${label}: the trunk line matches ours`, trunkErr < 1, `${trunkErr.toFixed(2)}°`);
+    if (anchor.kind === "joints") {
+      const a = new Vector3();
+      const b = new Vector3();
+      for (const n of anchor.bones) a.add(bones[n].getWorldPosition(u));
+      for (const j of anchor.joints) b.add(poseOut(pose, j, v));
+      const off = a.divideScalar(anchor.bones.length).distanceTo(b.divideScalar(anchor.joints.length));
+      ok(`${label}: its contacts land on ours`, off < 1e-3, `${(off * 1000).toFixed(2)} mm`);
+      if (anchor.handsFlat) {
+        // The bind hands run out along ±X (ours-L is the model's right, −X):
+        // flat, fingers forward, that axis now points along +Z.
+        const flat = ["hand_r", "hand_l"].every((n, i) => {
+          const q = bones[n].getWorldQuaternion(new Quaternion()).multiply(handBindQ[i].clone().invert());
+          return new Vector3(i === 0 ? -1 : 1, 0, 0).applyQuaternion(q).angleTo(new Vector3(0, 0, 1)) / DEG < 0.5;
+        });
+        ok(`${label}: the hands lie flat, fingers toward the head`, flat);
+      }
+    }
+  }
 }
 
-/* ── 3. the fault demo ───────────────────────────────────────────────────── */
-console.log("\n3. pick-a-fault demo");
+/* ── 3. the readouts ─────────────────────────────────────────────────────── */
+console.log("\n3. the HUD's readouts");
 {
-  const p = newPose();
-  let cleanMax = 0;
-  for (let t = 0; t <= REP_S; t += 0.01) cleanMax = Math.max(cleanMax, repAt("clean", t, 1, p).envelope);
-  ok("a clean rep never deforms", cleanMax === 0);
-
-  let vPeak = 0, vPhase = 0;
-  for (let t = 0; t <= REP_S; t += 0.01) {
-    const s = repAt("valgus", t, 1, p);
-    if (s.envelope > vPeak) (vPeak = s.envelope), (vPhase = s.phase);
-  }
-  ok("the knee cave peaks on the way UP", vPeak > 0.99 && vPhase > 0.58, `peak at phase ${vPhase.toFixed(2)}`);
-
-  const bottomT = 0.55 * REP_S;
-  repAt("clean", bottomT, 1, p);
-  const cleanLean = trunkLeanDeg(p);
-  repAt("lean", bottomT, 1, p);
-  const faultLean = trunkLeanDeg(p);
-  repAt("lean", bottomT, 0.5, p);
-  const mildLean = trunkLeanDeg(p);
-  ok("the lean rep leans well past the clean one", faultLean - cleanLean > 15, `${cleanLean.toFixed(1)}° → ${faultLean.toFixed(1)}°`);
-  ok("severity scales the fault", mildLean > cleanLean + 3 && mildLean < faultLean - 3, `mild ${mildLean.toFixed(1)}°`);
-
   // Not 180: the standing keyframe's knees sit a little wider than its hips and
   // ankles, which is 170° of interior angle by construction.
   ok("standing knees read near straight", kneeAngleDeg(STAND) > 165, `${kneeAngleDeg(STAND).toFixed(0)}°`);
   ok("parallel knees read deeply bent", kneeAngleDeg(BOTTOM) < 75, `${kneeAngleDeg(BOTTOM).toFixed(0)}°`);
-  ok("a finished rep says so", repAt("clean", REP_S, 1, p).done && !repAt("clean", REP_S * 0.9, 1, p).done);
-  ok("a rep ends standing", Math.abs(repAt("lean", REP_S, 1, p).depth) < 1e-9);
 
-  const vis = (plane: "frontal" | "sagittal", deg: number) => planeVisibility(plane, deg * DEG);
-  ok("front view reads the frontal plane", vis("frontal", 0) === 1 && vis("frontal", 180) > 0.999);
-  ok("side views read the sagittal plane", vis("sagittal", 90) > 0.999 && vis("sagittal", -90) > 0.999);
-  ok("the red is fully gone AT the tracker's 15° tolerance", vis("frontal", 15) === 0 && vis("sagittal", 75) === 0);
-  ok("the red holds square-on and a little either side", vis("frontal", 5) === 1 && vis("sagittal", 95) === 1);
-  ok("side-on says nothing about the frontal plane", vis("frontal", 90) === 0 && vis("sagittal", 0) === 0);
-
+  const p = newPose();
+  const read = (ex: ExerciseId, check: string, phase: number, k: 0 | 1) => {
+    EXERCISES[ex].rep(check, phase, 1, p);
+    return EXERCISES[ex].readouts[k].read(p);
+  };
+  ok("a clean squat's trunk leans a little, a leaning one much more", read("squat", "lean", 0.55, 1) - read("squat", "clean", 0.55, 1) > 15);
+  // The tracker's own gates: push-up lockout 150°, pull-up dead hang 150°.
+  ok("a push-up starts locked out", read("pushup", "clean", 0, 0) > 150, `${read("pushup", "clean", 0, 0).toFixed(0)}°`);
+  ok("a push-up's elbows bend deep at the bottom", read("pushup", "clean", 0.55, 0) < 90, `${read("pushup", "clean", 0.55, 0).toFixed(0)}°`);
+  ok("a pull-up starts from a dead hang", read("pullup", "clean", 0, 0) > 150, `${read("pullup", "clean", 0, 0).toFixed(0)}°`);
   ok(
-    "the view labels",
-    viewLabel(0) === "FRONT VIEW" && viewLabel(Math.PI / 2) === "SIDE VIEW" &&
-      viewLabel(Math.PI) === "BACK VIEW" && viewLabel(Math.PI / 4) === "OBLIQUE 45°",
-    [0, 90, 180, 45].map((d) => viewLabel(d * DEG)).join(" / "),
+    "the kip reads on the swing readout, a strict rep barely",
+    read("pullup", "kip", 0.3, 1) > 8 && read("pullup", "clean", 0.3, 1) < 4,
+    `${read("pullup", "clean", 0.3, 1).toFixed(1)}° vs ${read("pullup", "kip", 0.3, 1).toFixed(1)}°`,
   );
+
+  const severity = (s: number) => {
+    EXERCISES.squat.rep("lean", 0.55, s, p);
+    return trunkLeanDeg(p);
+  };
+  ok("severity scales the fault", severity(0.5) > severity(0) + 3 && severity(0.5) < severity(1) - 3);
   ok(
     "no demoted check is offered as a fault",
-    Object.values(FAULTS).every((f) => f.beat !== "unlevel"),
+    Object.values(EXERCISES).every((e) => e.checks.every((c) => !/level|symmetry/i.test(c.label))),
   );
 }
 

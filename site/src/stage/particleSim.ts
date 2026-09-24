@@ -93,6 +93,22 @@ export type Scatter = {
   rise: number;
 };
 
+/** How `burst()` blows the body apart. */
+export type Burst = {
+  /** Where the grains are thrown out from, in the body's space (metres). */
+  centre: [number, number, number];
+  /** Outward speed, m/s, before each grain's own share of it. */
+  speed: number;
+  /** Upward speed, m/s, at most. */
+  lift: number;
+  /** How hot every grain comes loose, 0…1: how long before home takes it. */
+  heat: number;
+};
+
+/** Seconds after a burst that the glass walls stay down: the thrown cloud
+ *  goes past them, and a wall that came back up would pin it to the glass. */
+const BURST_WALLS_S = 2.8;
+
 /** Longest sub-step, seconds. A long frame is split, never taken in one jump. */
 const MAX_STEP = 1 / 60;
 const MAX_STEPS = 4;
@@ -120,6 +136,7 @@ export class ParticleSim {
   private readonly step: ShaderMaterial;
   private readonly scatter: ShaderMaterial;
   private pendingSeed: Scatter | null = null;
+  private pendingBurst: Burst | null = null;
   /** Seconds simulated so far — not wall time: a slow frame is clamped, and
    *  the walls must wait for the body to have formed, not for a clock. */
   private simTime = 0;
@@ -233,6 +250,11 @@ export class ParticleSim {
         uWalls: { value: 1 },
         uBoxMin: { value: new Vector3() },
         uBoxMax: { value: new Vector3() },
+        uBurst: { value: 0 },
+        uBurstCentre: { value: new Vector3() },
+        uBurstSpeed: { value: 0 },
+        uBurstLift: { value: 0 },
+        uBurstHeat: { value: 0 },
       },
       depthTest: false,
       depthWrite: false,
@@ -281,6 +303,15 @@ export class ParticleSim {
    */
   seed(scatter: Scatter): void {
     this.pendingSeed = scatter;
+  }
+
+  /**
+   * Blow the body apart on the next `update()`: every grain comes loose where
+   * it is and is thrown outward. Posed differently in the same frame, the body
+   * then re-forms in its new pose out of the cloud — by the same pull home.
+   */
+  burst(b: Burst): void {
+    this.pendingBurst = b;
   }
 
   /**
@@ -355,6 +386,16 @@ export class ParticleSim {
     u.uChurn.value = p.churn;
     u.uFizz.value = p.fizz;
     this.simTime += dt;
+    const b = this.pendingBurst;
+    u.uBurst.value = b ? 1 : 0;
+    if (b) {
+      (u.uBurstCentre.value as Vector3).set(...b.centre);
+      u.uBurstSpeed.value = b.speed;
+      u.uBurstLift.value = b.lift;
+      u.uBurstHeat.value = b.heat;
+      this.wallsFrom = Math.max(this.wallsFrom, this.simTime + BURST_WALLS_S);
+      this.pendingBurst = null;
+    }
     u.uWalls.value = p.walls && this.simTime >= this.wallsFrom ? 1 : 0;
     (u.uBoxMin.value as Vector3).set(-p.room, 0, -p.room);
     (u.uBoxMax.value as Vector3).set(p.room, ROOM_HEIGHT, p.room);
@@ -370,6 +411,7 @@ export class ParticleSim {
     for (let i = 0; i < steps; i++) {
       u.uTime.value = time - dt + ((i + 1) * dt) / steps;
       u.uFirst.value = i === 0 ? 1 : 0;
+      if (i === 1) u.uBurst.value = 0;
       u.tOffset.value = this.read.textures[0];
       u.tVelocity.value = this.read.textures[1];
       gl.setRenderTarget(this.write);

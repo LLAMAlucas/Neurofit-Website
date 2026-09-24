@@ -1,23 +1,19 @@
 /**
- * Offscreen checks for the site: the squat poses and their fault timing, the
- * sample debrief's wording against the app's own rules, and the page's camera
- * path. Pure modules only, run in Node — no renderer, no DOM.
+ * Offscreen checks for the site: the three exercises' poses and their fault
+ * timing, the scripted set each exercise stop plays, the sample debrief's
+ * wording against the app's own rules, and the page's camera path. Pure modules
+ * only, run in Node — no renderer, no DOM.
  */
-import { BONES, J } from "../src/lib/pose";
-import {
-  BOTTOM,
-  STAND,
-  newPose,
-  poseAt,
-  valgusEnvelope,
-  leanEnvelope,
-  unlevelEnvelope,
-  grindEnvelope,
-  depthAt,
-} from "../src/lib/poseFrames";
-import { LEAN_DELTA_DEG, POST_SET, SHOULDER_PEAK_DEG } from "../src/lib/postSet";
+import { BONES, J, type JointName } from "../src/lib/pose";
+import { BOTTOM, REST, STAND, depthAt, leanEnvelope, newPose, shiftEnvelope, valgusEnvelope } from "../src/lib/poseFrames";
+import { EXERCISES, EXERCISE_ORDER, checkOf, type ExerciseId } from "../src/lib/exercises";
+import { cycleS, loopAt, newLoopSample } from "../src/lib/loop";
+import { WRIST_Y as PUSHUP_WRIST_Y, flareRatio, pressTiltDeg, pushupBodyLineDeg } from "../src/lib/pushup";
+import { BAR_Y, chinY, kneeLiftDeg, shoulderTiltDeg, swingDeg } from "../src/lib/pullup";
+import { KIP_SWING_DEG, LEG_DRIVE_DEG, POST_SET } from "../src/lib/postSet";
 import {
   END,
+  EXERCISE_AT,
   HOLDS,
   STARTS,
   STOPS,
@@ -39,175 +35,237 @@ const ok = (name: string, cond: boolean, detail = "") => {
 const len = (p: Float32Array, a: number, b: number) =>
   Math.hypot(p[a * 3] - p[b * 3], p[a * 3 + 1] - p[b * 3 + 1], p[a * 3 + 2] - p[b * 3 + 2]);
 
-/* ── 1. bone lengths survive the lerp ─────────────────────────────────────
-   The in-between poses are a straight interpolation with no IK, so if the two
-   keyframes disagree on a bone length the limb telescopes through the rep. */
-console.log("\n1. bone lengths through the rep");
-{
+/** Walk one rep of `check` and hand each frame's pose to `f`. */
+function walk(ex: ExerciseId, check: string, f: (p: Float32Array, phase: number) => void, step = 0.005) {
   const p = newPose();
+  for (let ph = 0; ph <= 1.0001; ph += step) {
+    EXERCISES[ex].rep(check, ph, 1, p);
+    f(p, ph);
+  }
+}
+/** The largest and smallest of a reading over one rep. */
+function range(ex: ExerciseId, check: string, read: (p: Float32Array) => number) {
+  let lo = Infinity;
+  let hi = -Infinity;
+  walk(ex, check, (p) => {
+    const v = read(p);
+    lo = Math.min(lo, v);
+    hi = Math.max(hi, v);
+  });
+  return { lo, hi, span: hi - lo };
+}
+
+/* ── 1. bone lengths hold through every rep ───────────────────────────────
+   The squat interpolates two keyframes and relaxes; the push-up and pull-up
+   are built joint by joint. Either way a bone that stretches reads as the body
+   melting — and every exercise is the same body, with the same bones. */
+console.log("\n1. bone lengths through every rep");
+for (const ex of EXERCISE_ORDER) {
   let worst = 0;
-  let worstBone = "";
-  for (const [kind, amt, grind] of [
-    [null, 0, 0],
-    ["valgus", 1, 0],
-    ["lean", 1, 0],
-    ["unlevel", 1, 0],
-    // The tremor is the case that could break this: it displaces joints
-    // independently, and only the relaxation pass puts the skeleton back
-    // together. If the pass were ever dropped this is what would catch it.
-    ["unlevel", 1, 1],
-    [null, 0, 1],
-  ] as const) {
-    for (let d = 0; d <= 1.0001; d += 0.05) {
-      poseAt(d, kind, amt, p, grind, d * 0.9 + 0.05);
-      for (const [a, b] of BONES) {
-        const at0 = len(STAND, J[a], J[b]);
-        const now = len(p, J[a], J[b]);
-        const drift = Math.abs(now - at0) / at0;
+  let worstAt = "";
+  for (const c of EXERCISES[ex].checks) {
+    walk(ex, c.id, (p, ph) => {
+      BONES.forEach(([a, b], i) => {
+        const drift = Math.abs(len(p, J[a], J[b]) - REST[i]) / REST[i];
         if (drift > worst) {
           worst = drift;
-          worstBone = `${a}->${b} @depth ${d.toFixed(2)} ${kind ?? "clean"}${grind ? " +grind" : ""}`;
+          worstAt = `${a}->${b} on ${c.id} @${ph.toFixed(2)}`;
         }
-      }
-    }
+      });
+    }, 0.01);
   }
-  ok("no bone drifts more than 8%", worst < 0.08, `worst ${(worst * 100).toFixed(1)}% (${worstBone})`);
+  ok(`${ex}: no bone drifts more than 8%`, worst < 0.08, `worst ${(worst * 100).toFixed(1)}% (${worstAt})`);
 }
 
-/* ── 2. feet stay planted ────────────────────────────────────────────────── */
+/* ── 2. contacts stay put ─────────────────────────────────────────────────
+   Feet on the floor for a squat; hands and the balls of the feet for a
+   push-up; hands on the bar for a pull-up. A contact that slides reads as
+   skating. */
 console.log("\n2. contact points");
-{
-  const p = newPose();
+const CONTACTS: Record<ExerciseId, JointName[]> = {
+  squat: ["ankleL", "ankleR", "toeL", "toeR"],
+  pushup: ["wristL", "wristR", "toeL", "toeR"],
+  pullup: ["wristL", "wristR"],
+};
+for (const ex of EXERCISE_ORDER) {
+  const rest = newPose();
+  EXERCISES[ex].rep("clean", 0, 1, rest);
   let moved = 0;
-  for (let d = 0; d <= 1.0001; d += 0.05) {
-    poseAt(d, null, 0, p);
-    for (const n of ["ankleL", "ankleR", "toeL", "toeR"] as const) {
-      const i = J[n] * 3;
-      moved = Math.max(
-        moved,
-        Math.hypot(p[i] - STAND[i], p[i + 1] - STAND[i + 1], p[i + 2] - STAND[i + 2]),
-      );
-    }
+  for (const c of EXERCISES[ex].checks) {
+    walk(ex, c.id, (p) => {
+      for (const n of CONTACTS[ex]) {
+        const i = J[n] * 3;
+        moved = Math.max(moved, Math.hypot(p[i] - rest[i], p[i + 1] - rest[i + 1], p[i + 2] - rest[i + 2]));
+      }
+    }, 0.01);
   }
-  ok("ankles and toes never move", moved < 1e-6, `max ${moved.toExponential(1)}`);
+  ok(`${ex}: its contacts never move`, moved < 1e-6, `max ${moved.toExponential(1)} m`);
+}
+{
   ok(
-    "hip drops further than the knee",
-    STAND[J.hipL * 3 + 1] - BOTTOM[J.hipL * 3 + 1] >
-      4 * (STAND[J.kneeL * 3 + 1] - BOTTOM[J.kneeL * 3 + 1]),
-    `hip ${(STAND[J.hipL * 3 + 1] - BOTTOM[J.hipL * 3 + 1]).toFixed(3)} vs knee ${(
-      STAND[J.kneeL * 3 + 1] - BOTTOM[J.kneeL * 3 + 1]
-    ).toFixed(3)}`,
+    "squat: the hip drops further than the knee",
+    STAND[J.hipL * 3 + 1] - BOTTOM[J.hipL * 3 + 1] > 4 * (STAND[J.kneeL * 3 + 1] - BOTTOM[J.kneeL * 3 + 1]),
   );
-  ok(
-    "hip reaches knee level at the bottom (parallel)",
-    Math.abs(BOTTOM[J.hipL * 3 + 1] - BOTTOM[J.kneeL * 3 + 1]) < 0.02,
-  );
+  ok("squat: the hip reaches knee level at the bottom (parallel)", Math.abs(BOTTOM[J.hipL * 3 + 1] - BOTTOM[J.kneeL * 3 + 1]) < 0.02);
+
+  let under = 0;
+  for (const c of EXERCISES.pushup.checks) walk("pushup", c.id, (p) => {
+    for (let k = 0; k < 16; k++) under = Math.min(under, p[k * 3 + 1]);
+  }, 0.01);
+  ok("push-up: nothing goes through the floor", under >= 0, `lowest joint ${under.toFixed(3)} m`);
+  ok("push-up: the hands are on the floor", PUSHUP_WRIST_Y < 0.05);
+
+  let feet = Infinity;
+  for (const c of EXERCISES.pullup.checks) walk("pullup", c.id, (p) => {
+    feet = Math.min(feet, p[J.toeL * 3 + 1], p[J.toeR * 3 + 1]);
+  }, 0.01);
+  ok("pull-up: the feet hang clear of the floor, every rep", feet > 0.05, `lowest toe ${feet.toFixed(3)} m`);
 }
 
-/* ── 3. the cave is on the ASCENT, the lean is at the BOTTOM ─────────────── */
-console.log("\n3. fault timing within a rep");
+/* ── 3. each fault is the fault, when it should be ────────────────────────
+   Every fault the page lights has to be one the pose actually makes — past
+   the line the app itself would flag — and a clean rep has to stay inside it.
+   Timing matters where the app's evidence says so: the knee caves on the way
+   UP, the lean is worst at the bottom. */
+console.log("\n3. the faults");
 {
-  let descentValgus = 0;
-  let ascentValgus = 0;
+  // Squat timing (the 2026-07-31 eval run: the cave was worst on the ascent).
+  let descent = 0;
+  let ascent = 0;
   for (let ph = 0; ph <= 1.0001; ph += 0.01) {
     const v = valgusEnvelope(ph);
-    // depth rising = descending
-    if (depthAt(ph + 0.005) > depthAt(ph)) descentValgus = Math.max(descentValgus, v);
-    else if (depthAt(ph + 0.005) < depthAt(ph)) ascentValgus = Math.max(ascentValgus, v);
+    if (depthAt(ph + 0.005) > depthAt(ph)) descent = Math.max(descent, v);
+    else if (depthAt(ph + 0.005) < depthAt(ph)) ascent = Math.max(ascent, v);
   }
-  ok("valgus never fires on the descent", descentValgus < 0.02, `peak ${descentValgus.toFixed(3)}`);
-  ok("valgus reaches full on the ascent", ascentValgus > 0.98, `peak ${ascentValgus.toFixed(3)}`);
-
+  ok("squat: the knee cave never shows on the descent", descent < 0.02, `peak ${descent.toFixed(3)}`);
+  ok("squat: the knee cave reaches full on the ascent", ascent > 0.98);
   let best = 0;
   let bestPh = 0;
-  for (let ph = 0; ph <= 1.0001; ph += 0.005) {
-    if (leanEnvelope(ph) > best) {
-      best = leanEnvelope(ph);
-      bestPh = ph;
-    }
-  }
-  ok("lean peaks while at depth", depthAt(bestPh) > 0.95, `peak at phase ${bestPh.toFixed(2)}, depth ${depthAt(bestPh).toFixed(2)}`);
+  for (let ph = 0; ph <= 1.0001; ph += 0.005) if (leanEnvelope(ph) > best) (best = leanEnvelope(ph)), (bestPh = ph);
+  ok("squat: the lean peaks at depth", depthAt(bestPh) > 0.95, `phase ${bestPh.toFixed(2)}`);
+  let shiftAt = 0;
+  for (let ph = 0; ph <= 1.0001; ph += 0.005) if (shiftEnvelope(ph) > 0.99) shiftAt = ph;
+  ok("squat: the hip shift is gone by lockout", depthAt(shiftAt) > 0.2 && shiftEnvelope(0.97) < 0.01);
 
-  // knees actually move inward, trunk actually pitches forward
-  const clean = newPose();
-  const caved = newPose();
-  poseAt(0.5, null, 0, clean);
-  poseAt(0.5, "valgus", 1, caved);
-  const cleanW = Math.abs(clean[J.kneeL * 3] - clean[J.kneeR * 3]);
-  const cavedW = Math.abs(caved[J.kneeL * 3] - caved[J.kneeR * 3]);
-  const ankleW = Math.abs(clean[J.ankleL * 3] - clean[J.ankleR * 3]);
-  ok(
-    "clean knees track outside the ankles, caved knees well inside",
-    cleanW / ankleW > 1.05 && cavedW / ankleW < 0.6,
-    `knee/ankle ${(cleanW / ankleW).toFixed(2)} clean, ${(cavedW / ankleW).toFixed(2)} caved`,
-  );
+  const kneeW = (p: Float32Array) => Math.abs(p[J.kneeL * 3] - p[J.kneeR * 3]);
+  const ankleW = Math.abs(STAND[J.ankleL * 3] - STAND[J.ankleR * 3]);
+  const caved = range("squat", "valgus", kneeW).lo / ankleW;
+  const cleanKnees = range("squat", "clean", kneeW).lo / ankleW;
+  ok("squat: clean knees track outside the ankles, caved ones well inside", cleanKnees > 1 && caved < 0.6, `${cleanKnees.toFixed(2)} → ${caved.toFixed(2)}`);
 
-  const upright = newPose();
-  const tipped = newPose();
-  poseAt(1, null, 0, upright);
-  poseAt(1, "lean", 1, tipped);
-  const trunkDeg = (p: Float32Array) => {
+  const trunk = (p: Float32Array) => {
     const hy = (p[J.hipL * 3 + 1] + p[J.hipR * 3 + 1]) / 2;
     const hz = (p[J.hipL * 3 + 2] + p[J.hipR * 3 + 2]) / 2;
     return (Math.atan2(p[J.neck * 3 + 2] - hz, p[J.neck * 3 + 1] - hy) * 180) / Math.PI;
   };
+  const extra = range("squat", "lean", trunk).hi - range("squat", "clean", trunk).hi;
+  ok("squat: the lean adds roughly 20 degrees of trunk pitch", extra > 18 && extra < 23, `${extra.toFixed(1)}°`);
+
+  // Hip shift, in hip widths, the unit the app's reading uses (warn 0.3).
+  const hipW = Math.abs(STAND[J.hipL * 3] - STAND[J.hipR * 3]);
+  const shift = (p: Float32Array) =>
+    Math.abs((p[J.hipL * 3] + p[J.hipR * 3]) / 2 - (p[J.ankleL * 3] + p[J.ankleR * 3]) / 2) / hipW;
   ok(
-    "lean adds roughly 20 degrees of trunk pitch",
-    trunkDeg(tipped) - trunkDeg(upright) > 18 && trunkDeg(tipped) - trunkDeg(upright) < 23,
-    `${trunkDeg(upright).toFixed(1)}deg -> ${trunkDeg(tipped).toFixed(1)}deg`,
+    "squat: the shift goes past 0.3 hip-widths, a clean rep stays at 0",
+    range("squat", "shift", shift).hi > 0.3 && range("squat", "clean", shift).hi < 0.01,
+    `${range("squat", "shift", shift).hi.toFixed(2)}`,
   );
 
-  /* The grind has to be established BEFORE the shoulders drift, or the rep reads
-     as two unrelated things happening at once instead of one turning into the
-     other. It also has to cover the descent, which is where the user sees the
-     rep stop being smooth. */
-  let grindOnDescent = 0;
-  for (let ph = 0; ph <= 0.52; ph += 0.01) grindOnDescent = Math.max(grindOnDescent, grindEnvelope(ph));
-  ok("the grind sets in on the way down", grindOnDescent > 0.95, `peak ${grindOnDescent.toFixed(2)}`);
+  // The rep that stops short: nowhere near parallel.
+  const hipOverKnee = (p: Float32Array) => p[J.hipL * 3 + 1] - p[J.kneeL * 3 + 1];
+  ok(
+    "squat: the shallow rep stays well above parallel",
+    range("squat", "shallow", hipOverKnee).lo > 0.12,
+    `hip ${range("squat", "shallow", hipOverKnee).lo.toFixed(2)} m over the knee`,
+  );
 
-  const firstOver = (f: (p: number) => number) => {
-    for (let ph = 0; ph <= 1.0001; ph += 0.005) if (f(ph) > 0.5) return ph;
-    return 2;
+  // Push-up: body line (P1 — sag 25° / pike 35° absolute, ±15° relative), flare
+  // (P7 — ratio ≥ 1.0), uneven press (P11 — +8° of tilt).
+  const lineClean = range("pushup", "clean", pushupBodyLineDeg);
+  ok("push-up: a clean rep holds a straight body line", lineClean.lo > 178, `${lineClean.lo.toFixed(1)}°`);
+  ok("push-up: the sag bends it past 15°", 180 - range("pushup", "sag", pushupBodyLineDeg).lo > 15);
+  ok("push-up: the pike bends it past 25°", 180 - range("pushup", "pike", pushupBodyLineDeg).lo > 25);
+  const hipsOverLine = (p: Float32Array) => {
+    // Height of the hips over the straight line from the ankles to the shoulders.
+    const m = (a: JointName, b: JointName, k: number) => (p[J[a] * 3 + k] + p[J[b] * 3 + k]) / 2;
+    const ay = m("ankleL", "ankleR", 1), az = m("ankleL", "ankleR", 2);
+    const sy = m("shoulderL", "shoulderR", 1), sz = m("shoulderL", "shoulderR", 2);
+    const hy = m("hipL", "hipR", 1), hz = m("hipL", "hipR", 2);
+    return hy - (ay + ((sy - ay) * (hz - az)) / (sz - az));
   };
   ok(
-    "the shoulders drift only after the grind is under way",
-    firstOver(unlevelEnvelope) > firstOver(grindEnvelope) + 0.3,
-    `grind at ${firstOver(grindEnvelope).toFixed(2)}, shoulders at ${firstOver(unlevelEnvelope).toFixed(2)}`,
+    "push-up: a sag drops the hips below the line, a pike lifts them",
+    range("pushup", "sag", hipsOverLine).lo < -0.05 && range("pushup", "pike", hipsOverLine).hi > 0.05,
   );
   ok(
-    "the shoulders drift on the ASCENT",
-    depthAt(firstOver(unlevelEnvelope)) < depthAt(firstOver(unlevelEnvelope) - 0.05),
-    `phase ${firstOver(unlevelEnvelope).toFixed(2)}`,
+    "push-up: flared elbows cross the app's line, tucked ones don't",
+    range("pushup", "flare", flareRatio).hi >= 1 && range("pushup", "clean", flareRatio).hi < 0.8,
+    `${range("pushup", "clean", flareRatio).hi.toFixed(2)} → ${range("pushup", "flare", flareRatio).hi.toFixed(2)}`,
+  );
+  const tilt = (p: Float32Array) => Math.abs(pressTiltDeg(p));
+  ok(
+    "push-up: the uneven press tilts past 8°, a clean one stays level",
+    range("pushup", "uneven", tilt).hi > 8 && range("pushup", "clean", tilt).hi < 0.5,
+    `${range("pushup", "uneven", tilt).hi.toFixed(1)}°`,
   );
 
-  /* The drawn number is measured off the pose, so the pose has to actually
-     produce a tilt in a range worth annotating — a degree reads as noise, thirty
-     reads as falling over. This is the assertion that pins UNLEVEL_RAD, since
-     the relaxation pass takes some of the rotation back. */
-  const levelP = newPose();
-  const tiltP = newPose();
-  poseAt(0.4, null, 0, levelP);
-  poseAt(0.4, "unlevel", 1, tiltP);
-  const shoulderDeg = (p: Float32Array) =>
-    Math.abs(
-      (Math.atan2(
-        p[J.shoulderR * 3 + 1] - p[J.shoulderL * 3 + 1],
-        p[J.shoulderR * 3] - p[J.shoulderL * 3],
-      ) *
-        180) /
-        Math.PI,
-    );
-  ok("clean shoulders are level", shoulderDeg(levelP) < 0.5, `${shoulderDeg(levelP).toFixed(2)}deg`);
+  // Pull-up: swing (U1 — range over the rep, abs 20°), leg drive (U3 — ≥ 30°),
+  // uneven (U4 — +8°), and a chin that clears the bar only when it should.
+  ok("pull-up: a strict rep swings only a few degrees", range("pullup", "clean", swingDeg).span < 5, `${range("pullup", "clean", swingDeg).span.toFixed(1)}°`);
+  ok("pull-up: the kip swings past 20°", range("pullup", "kip", swingDeg).span > 20, `${range("pullup", "kip", swingDeg).span.toFixed(1)}°`);
   ok(
-    "shoulder drift lands between 6 and 16 degrees",
-    shoulderDeg(tiltP) > 6 && shoulderDeg(tiltP) < 16,
-    `${shoulderDeg(tiltP).toFixed(1)}deg`,
+    "pull-up: the leg drive lifts the knees past 30°, a strict rep barely",
+    range("pullup", "legDrive", kneeLiftDeg).hi > 30 && range("pullup", "clean", kneeLiftDeg).hi < 10,
   );
-  ok(
-    "the shoulder tilt is FRONTAL — it barely shows from the side",
-    Math.abs(tiltP[J.shoulderL * 3 + 2] - tiltP[J.shoulderR * 3 + 2]) < 0.02,
-    `fore-aft split ${Math.abs(tiltP[J.shoulderL * 3 + 2] - tiltP[J.shoulderR * 3 + 2]).toFixed(3)}`,
-  );
+  const ptilt = (p: Float32Array) => Math.abs(shoulderTiltDeg(p));
+  ok("pull-up: the uneven pull tilts past 8°", range("pullup", "uneven", ptilt).hi > 8 && range("pullup", "clean", ptilt).hi < 0.5);
+  for (const c of EXERCISES.pullup.checks) {
+    const top = range("pullup", c.id, chinY).hi;
+    if (c.id === "chinShort") ok("pull-up: the short rep's chin never reaches the bar", top < BAR_Y - 0.04, `${(top - BAR_Y).toFixed(3)} m`);
+    else ok(`pull-up: the ${c.id} rep's chin clears the bar`, top > BAR_Y + 0.02, `${(top - BAR_Y).toFixed(3)} m`);
+  }
+  // The head passes the bar behind it, never through it.
+  let closest = Infinity;
+  for (const c of EXERCISES.pullup.checks) walk("pullup", c.id, (p) => {
+    closest = Math.min(closest, Math.hypot(p[J.head * 3 + 1] - BAR_Y, p[J.head * 3 + 2]));
+  }, 0.01);
+  ok("pull-up: the head never passes through the bar", closest > 0.11, `closest ${closest.toFixed(3)} m`);
+}
+
+/* ── 4. the scripted set ──────────────────────────────────────────────────
+   What each exercise stop plays. It is a set a person could do: it opens clean,
+   the faults are unprompted, clean reps are mixed in, every check on the list
+   comes up, and the counter only moves for reps that count. */
+console.log("\n4. the scripted sets");
+for (const ex of EXERCISE_ORDER) {
+  const spec = EXERCISES[ex];
+  const script = spec.script;
+  ok(`${ex}: the set opens on a clean rep`, script[0] === "clean");
+  ok(`${ex}: clean reps are mixed in`, script.filter((c) => c === "clean").length >= 2);
+  ok(`${ex}: every check on its list comes up`, spec.checks.every((c) => script.includes(c.id)));
+  const p = newPose();
+  const s = newLoopSample();
+  const cycle = cycleS(spec);
+  const litOrder: string[] = [];
+  let last = 0;
+  let redOnClean = 0;
+  let back = 0;
+  let prev = 0;
+  for (let t = 0; t < cycle; t += 0.02) {
+    loopAt(spec, t, 1, p, s);
+    if (s.counted < prev) back++;
+    prev = last = s.counted;
+    if (s.lit && litOrder[litOrder.length - 1] !== `${s.index}:${s.lit}`) litOrder.push(`${s.index}:${s.lit}`);
+    if (s.kind !== "fault" && s.envelope > 0) redOnClean++;
+  }
+  const expected = script.filter((c) => checkOf(spec, c).kind !== "miss").length;
+  ok(`${ex}: the counter ends the set on ${expected}, never counting back`, last === expected && back === 0, `ends on ${last}`);
+  ok(`${ex}: each rep lights its own line, in order`, litOrder.join(" ") === script.map((c, i) => `${i}:${c}`).join(" "), litOrder.join(" "));
+  ok(`${ex}: only a fault turns anything red`, redOnClean === 0);
+  loopAt(spec, 1.234, 1, p, s);
+  const a = Array.from(p);
+  loopAt(spec, 1.234 + cycle, 1, p, s);
+  ok(`${ex}: the set runs again from the top`, a.every((v, i) => Math.abs(v - p[i]) < 1e-6) && s.counted === 0);
 }
 
 /* ── 4c. what the debrief is allowed to say ───────────────────────────────
@@ -221,81 +279,33 @@ console.log("\n4c. the post-set summary");
   const all = [POST_SET.label, ...POST_SET.paras, ...POST_SET.cues].join(" ");
 
   /* 1. No markdown. Debriefs are rendered verbatim into a paragraph with no
-     parser, so an asterisk reaches a real user as an asterisk — a page that
-     showed a bolded sample would be showing output the app cannot produce. */
+     parser, so an asterisk reaches a real user as an asterisk. */
   ok("no markdown in the debrief", !/[*_`#]|<[a-z]/i.test(all));
 
-  /* 2. No normalised numbers. Gap, depth ratio, velocity and valgus are image
-     coordinates the app keeps to itself; degrees and rep numbers are real units
-     and are the only quantities it will speak. So every number here is either a
-     rep number, a count, or degrees — and the check is on the DECIMALS, since
-     that is the form the leak took ("a hip-to-knee gap of -0.0023"). */
+  /* 2. No normalised numbers: every number is a rep number, a count, or
+     degrees — the check is on the decimals, the form the leak took. And of the
+     degrees, only the ones the pull-up prompt lets the model quote. */
   const decimals = prose.match(/-?\d+\.\d+/g) ?? [];
-  ok(
-    "no normalised coordinate is quoted at the reader",
-    decimals.every((d) => prose.includes(`${d} degrees`)),
-    decimals.join(", ") || "no decimals",
-  );
+  ok("no normalised coordinate is quoted at the reader", decimals.every((d) => prose.includes(`${d} degrees`)), decimals.join(", ") || "no decimals");
   ok("no negative number reaches the reader", !/-\d/.test(prose));
-
-  /* 3. The two numbers are MEASURED. Both are re-derived here from the same
-     poses the scene draws, so editing a keyframe fails this check rather than
-     leaving the page quoting a figure the animation stopped producing. The
-     shoulder angle is the one that would show: the reader watches that exact
-     number count up on the overlay moments before reading it here. */
-  const upright = newPose();
-  const tipped = newPose();
-  poseAt(1, null, 0, upright);
-  poseAt(1, "lean", 1, tipped);
-  const trunkDeg = (p: Float32Array) => {
-    const hy = (p[J.hipL * 3 + 1] + p[J.hipR * 3 + 1]) / 2;
-    const hz = (p[J.hipL * 3 + 2] + p[J.hipR * 3 + 2]) / 2;
-    return (Math.atan2(p[J.neck * 3 + 2] - hz, p[J.neck * 3 + 1] - hy) * 180) / Math.PI;
-  };
-  const measuredLean = trunkDeg(tipped) - trunkDeg(upright);
+  const degrees = [...prose.matchAll(/(\d+) degrees/g)].map((m) => Number(m[1]));
   ok(
-    "the quoted lean matches the trunk pitch the figure actually shows",
-    Math.abs(measuredLean - LEAN_DELTA_DEG) < 1,
-    `copy says ${LEAN_DELTA_DEG}deg, figure shows ${measuredLean.toFixed(1)}deg`,
-  );
-  ok(`the copy quotes the lean`, prose.includes(`${LEAN_DELTA_DEG} degrees`));
-
-  /* The shoulder angle is an EXAMPLE figure now — the page no longer plays the
-     set it came from — but it still has to be a tilt the figure can actually
-     make, or the example quotes a number the body on the page never produces. */
-  const levelP = newPose();
-  const tiltP = newPose();
-  let tiltPeak = 0;
-  for (let d = 0; d <= 1.0001; d += 0.02) {
-    poseAt(d, "unlevel", 1, tiltP);
-    const deg = Math.abs(
-      (Math.atan2(tiltP[J.shoulderR * 3 + 1] - tiltP[J.shoulderL * 3 + 1], tiltP[J.shoulderR * 3] - tiltP[J.shoulderL * 3]) * 180) /
-        Math.PI,
-    );
-    tiltPeak = Math.max(tiltPeak, deg);
-  }
-  poseAt(0.4, null, 0, levelP);
-  ok(
-    "the quoted shoulder angle is one the figure can make",
-    SHOULDER_PEAK_DEG > 6 && SHOULDER_PEAK_DEG <= tiltPeak + 1,
-    `copy says ${SHOULDER_PEAK_DEG}deg, the pose reaches ${tiltPeak.toFixed(1)}deg`,
+    "the only degrees quoted are the swing and the knees",
+    degrees.length === 2 && degrees.includes(KIP_SWING_DEG) && degrees.includes(LEG_DRIVE_DEG),
+    degrees.join(", "),
   );
 
-  /* 4. The shoulder reading is CONTEXT, not a verdict. It is demoted in the app
-     — computed and reported, asserting nothing — so the copy reports it as a
-     measurement, in the same words the reduced-motion caption uses. */
-  ok("the shoulder reading is reported as measured, not flagged", /measured, not flagged/.test(prose));
+  /* 3. The two numbers are MEASURED: re-derived here from the same poses the
+     scene draws, so editing a pose fails this check rather than leaving the
+     page quoting a figure the body stopped producing. */
+  const swing = range("pullup", "kip", swingDeg).span;
+  ok("the quoted swing is the one the kipping rep makes", Math.abs(swing - KIP_SWING_DEG) < 1, `copy ${KIP_SWING_DEG}°, pose ${swing.toFixed(1)}°`);
+  const lift = range("pullup", "legDrive", kneeLiftDeg).hi;
+  ok("the quoted knee lift is the one the leg-drive rep makes", Math.abs(lift - LEG_DRIVE_DEG) < 1, `copy ${LEG_DRIVE_DEG}°, pose ${lift.toFixed(1)}°`);
 
-  /* 5. No causation, between faults or from context to fault. Rep 5 slows AND
-     the shoulders come off level; the app claims neither caused the other, which
-     is why they have separate labels on opposite sides of the frame. A sentence
-     joining them would assert a finding the app has never made. */
-  /* Split by what the sentence is doing, because the rule is about CLAIMS and a
-     cue makes none. "Stay braced so the trunk doesn't fold forward" is an
-     instruction and its purpose — it says nothing about what happened in the set
-     just watched. "The trunk folded forward because you lost tension" is the
-     banned move, and it stays banned in a cue too: the give-away is the
-     retrospective connective, not the word "so". */
+  /* 4. No causation, between faults or from context to fault. A cue makes no
+     claim about the set; the give-away in one would be a retrospective
+     connective, not the word "so". */
   const RETROSPECTIVE =
     /\b(caused|causing|because|due to|led to|leading to|result(ed|ing) (in|from)|which is why|hence|therefore)\b/i;
   const DESCRIPTIVE = new RegExp(`${RETROSPECTIVE.source}|\\bso the\\b|\\bmeaning\\b`, "i");
@@ -304,42 +314,35 @@ console.log("\n4c. the post-set summary");
     POST_SET.paras.every((t) => !DESCRIPTIVE.test(t)),
     POST_SET.paras.find((t) => DESCRIPTIVE.test(t)) ?? "",
   );
+  ok("the cues make no retrospective claim either", POST_SET.cues.every((t) => !RETROSPECTIVE.test(t)));
   ok(
-    "the cues make no retrospective claim either",
-    POST_SET.cues.every((t) => !RETROSPECTIVE.test(t)),
-    POST_SET.cues.find((t) => RETROSPECTIVE.test(t)) ?? "",
-  );
-  const shoulderSentence = prose
-    .split(/(?<=\.)\s+/)
-    .find((s) => s.includes("off level"));
-  ok(
-    "the two findings on rep 5 are separate sentences",
-    !!shoulderSentence && !/slow|stall/i.test(shoulderSentence),
-    shoulderSentence ?? "not found",
+    "each finding is its own sentence",
+    POST_SET.paras[1].split(/(?<=\.)\s+/).every((sentence) => (sentence.match(/\bRep \d/g) ?? []).length === 1),
   );
 
-  /* 6. The clean reps are reported, and reported FIRST. Two of the five go
-     right and the sequence spends as long on them as on the others; a debrief
-     that opened on the faults would be describing a different set, and a page
-     whose sample output was all faults would be selling a nag. */
-  ok("the clean reps are named", /reps? 1 and 3 were clean/i.test(POST_SET.paras[0]));
+  /* 5. It describes the set the page just played. The clean reps come first
+     and by number; every rep that went wrong is accounted for; the count is
+     the count the loop ends on. */
+  const script = EXERCISES.pullup.script;
+  const cleanReps = script.map((c, i) => (c === "clean" ? i + 1 : 0)).filter(Boolean);
+  ok("the clean reps are named, first", new RegExp(`Reps ${cleanReps[0]} and ${cleanReps[1]} were clean`).test(POST_SET.paras[0]));
+  ok("every rep the set flags is accounted for", script.every((c, i) => c === "clean" || POST_SET.paras[1].includes(`Rep ${i + 1} `)));
+  const counted = script.filter((c) => checkOf(EXERCISES.pullup, c).kind !== "miss").length;
+  const words = ["zero", "one", "two", "three", "four", "five", "six", "seven"];
+  ok("the count matches the set", POST_SET.paras[0].toLowerCase().startsWith(`${words[script.length]} reps, ${words[counted]} counted`));
   ok(
-    "every rep the sequence flags is accounted for",
-    ["Rep 2", "Rep 4", "Rep 5"].every((r) => prose.includes(r)),
+    "the rep that didn't count says so, and isn't called a fault",
+    /Rep 6 stopped with the chin short of the bar and didn't count/.test(POST_SET.paras[1]),
   );
-  ok("all five reps are reported as counted", /all five counted/i.test(prose));
 
-  /* 7. It says what it is: the artefact the app hands back at the end of a set
-     (the page also marks it as an example — the reader didn't film this set). */
+  /* 6. It says what it is, and ends on exactly two cues. */
   ok("the panel names itself", /post-set summary/i.test(POST_SET.label));
   ok("there are exactly two cues", POST_SET.cues.length === 2, String(POST_SET.cues.length));
 
-  /* 8. It has to FIT. The panel is fixed and centred with no scroll of its own,
-     so anything taller than the viewport is lost off both ends rather than
-     scrolled to. Measured at the two sizes that bite: the 520px desktop panel,
-     and a 375px phone where the same words set to ten more lines. */
-  const lines = (text: string, px: number, fontPx: number) =>
-    Math.ceil(text.length / Math.max(1, (px / fontPx) * 1.92));
+  /* 7. It has to FIT. The panel is fixed and centred with no scroll of its own,
+     so anything taller than the viewport is lost off both ends. Measured at the
+     two sizes that bite: the 520px desktop panel, and a 375px phone. */
+  const lines = (text: string, px: number, fontPx: number) => Math.ceil(text.length / Math.max(1, (px / fontPx) * 1.92));
   const height = (textW: number, bodyPx: number, cuePx: number, pad: number) =>
     pad +
     38 +
@@ -362,6 +365,10 @@ console.log("\n5. the camera path");
   ok(
     "every hold sits inside its stop, in order, with a move between each",
     HOLDS.every(([a, b], i) => a < b && a >= STARTS[i] - 1e-9 && b <= STARTS[i] + STOPS[i].span + 1e-9 && (i === 0 || HOLDS[i - 1][1] < a)),
+  );
+  ok(
+    "there is a stop for each exercise, in order",
+    EXERCISE_ORDER.map((ex) => STOPS.findIndex((s) => s.id === ex)).every((k, i, arr) => k > 0 && (i === 0 || k > arr[i - 1])),
   );
 
   const s = newSample();
@@ -423,6 +430,20 @@ console.log("\n5. the camera path");
     if (t !== null && Math.abs(t - p) > 0.6) settleBad++;
   }
   ok("stopping between holds settles into the nearer one, sharply", settleBad === 0, `${settleBad} bad`);
+
+  /* The exercise changes at the middle of a move, where no stop's words are
+     sharp — so the body blowing apart and re-forming never happens under text
+     the reader is reading. (StageScene picks the exercise by `sample.stop`.) */
+  let prevEx = EXERCISE_AT[STOPS[storyAt(0, s).stop].id];
+  let underText = 0;
+  for (let p = STEP; p <= END + 1e-9; p += STEP) {
+    storyAt(p, s);
+    const ex = EXERCISE_AT[STOPS[s.stop].id];
+    if (ex !== prevEx && Math.max(...s.focus) > 0.05) underText++;
+    prevEx = ex;
+  }
+  ok("each exercise's own stop shows it", EXERCISE_ORDER.every((ex) => EXERCISE_AT[ex] === ex));
+  ok("the body only changes exercise between stops, with no words in focus", underText === 0, `${underText} change(s) under text`);
 }
 
 console.log(failures === 0 ? "\nALL PASSED\n" : `\n${failures} FAILED\n`);

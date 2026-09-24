@@ -8,116 +8,59 @@
  * the two kinds of number the site is allowed to quote.
  */
 import { useEffect, useRef } from "react";
-import { FAULTS, FAULT_ORDER, planeVisibility, viewLabel, type FaultId } from "@/lib/faultDemo";
+import { EXERCISES, EXERCISE_ORDER, type ExerciseId } from "@/lib/exercises";
 import { store } from "@/stage/store";
 import { GlassSegment, installGlassPointer } from "@/lib/liquidGlass";
 
-const GLYPHS = "▮▯/\\_-=+<>:01";
-const SCRAMBLE_MS = 420;
-
-/** Where the tag sits relative to the point it labels, CSS px. */
-const TAG_OFFSET = { x: 120, y: -90 };
-
 export function LabHud() {
-  const view = useRef<HTMLSpanElement>(null);
-  const reads = useRef<HTMLSpanElement>(null);
   const reps = useRef<HTMLSpanElement>(null);
-  const knee = useRef<HTMLSpanElement>(null);
-  const trunk = useRef<HTMLSpanElement>(null);
-  const tag = useRef<HTMLDivElement>(null);
-  const line = useRef<SVGLineElement>(null);
-  const dot = useRef<SVGCircleElement>(null);
+  const readA = useRef<HTMLSpanElement>(null);
+  const readB = useRef<HTMLSpanElement>(null);
+  const labelA = useRef<HTMLSpanElement>(null);
+  const labelB = useRef<HTMLSpanElement>(null);
+  const list = useRef<HTMLUListElement>(null);
   const boot = useRef<HTMLDivElement>(null);
-  const buttons = useRef<Partial<Record<FaultId, HTMLButtonElement>>>({});
+  const buttons = useRef<Partial<Record<ExerciseId, HTMLButtonElement>>>({});
   const row = useRef<HTMLElement>(null);
 
   useEffect(() => {
     let raf = 0;
-    // The picker's glass droplet forms on the rep being played (see Journey.tsx).
     const glass = row.current ? new GlassSegment(row.current) : null;
     const offPointer = installGlassPointer();
-    let pressed: HTMLElement | null = null;
-    let target = "";
-    let shown = "";
-    let since = 0;
+    let shownExercise: ExerciseId | null = null;
 
-    const tick = (now: number) => {
+    const tick = () => {
       const s = store;
       if (boot.current && s.ready) boot.current.classList.add("is-done");
+      const spec = EXERCISES[s.exercise];
 
-      if (view.current) view.current.textContent = viewLabel(s.viewAzimuth);
-      if (reads.current) {
-        const can: string[] = [];
-        if (planeVisibility("frontal", s.viewAzimuth) > 0.5) can.push("knee cave");
-        if (planeVisibility("sagittal", s.viewAzimuth) > 0.5) can.push("forward lean");
-        reads.current.textContent = can.length ? `Can judge: ${can.join(", ")}` : "Can judge: neither fault";
+      // The exercise changed: its list, its angles, the droplet on its button.
+      if (s.exercise !== shownExercise) {
+        shownExercise = s.exercise;
+        glass?.setActive(buttons.current[s.exercise] ?? null);
+        for (const id of EXERCISE_ORDER) buttons.current[id]?.setAttribute("aria-pressed", String(id === s.exercise));
+        if (labelA.current) labelA.current.textContent = spec.readouts[0].label;
+        if (labelB.current) labelB.current.textContent = spec.readouts[1].label;
+        if (list.current) {
+          list.current.replaceChildren(
+            ...spec.checks.map((c) => {
+              const li = document.createElement("li");
+              li.dataset.check = c.id;
+              li.dataset.kind = c.kind;
+              li.textContent = c.kind === "miss" ? `${c.label} — didn't count` : c.label;
+              return li;
+            }),
+          );
+        }
+      }
+      if (list.current) {
+        for (const li of list.current.children as HTMLCollectionOf<HTMLElement>) {
+          li.classList.toggle("is-on", li.dataset.check === s.lit);
+        }
       }
       if (reps.current) reps.current.textContent = String(s.reps).padStart(2, "0");
-      if (knee.current) knee.current.textContent = `${Math.round(s.knee)}°`;
-      if (trunk.current) trunk.current.textContent = `${Math.round(s.trunk)}°`;
-
-      // The tag: what the lens concluded about the rep in progress (or the one
-      // that just ended). A fault it can't see from here is "unknown", never
-      // "clean" — silence from a check that couldn't run is not a pass.
-      const f = FAULTS[s.fault];
-      const repNo = s.phase === "rep" ? s.reps + 1 : s.reps;
-      let desired = "";
-      let kind = "";
-      if (f.plane) {
-        const live = (s.phase === "rep" && s.envelope > 0.05) || s.tagHold > 0;
-        if (live) {
-          const seen = s.visibility > 0.5;
-          desired = seen ? `${f.tag} · rep ${repNo}` : "Not visible from this angle · unknown";
-          kind = seen ? "is-fault" : "is-unknown";
-        }
-      } else if (s.tagHold > 0) {
-        desired = `Rep ${repNo} · nothing flagged`;
-        kind = "is-clean";
-      }
-
-      if (desired !== target) {
-        target = desired;
-        since = now;
-      }
-      if (tag.current && line.current && dot.current) {
-        if (target) {
-          const t = now - since;
-          let out = "";
-          for (let i = 0; i < target.length; i++) {
-            const ch = target[i];
-            out += ch === " " || t > 60 + (i / target.length) * SCRAMBLE_MS ? ch : GLYPHS[(Math.random() * GLYPHS.length) | 0];
-          }
-          if (out !== shown) tag.current.textContent = shown = out;
-          tag.current.className = `tag is-on ${kind}`;
-          const tx = s.anchor.x + TAG_OFFSET.x;
-          const ty = s.anchor.y + TAG_OFFSET.y;
-          tag.current.style.transform = `translate(${tx}px, ${ty}px)`;
-          line.current.setAttribute("x1", String(s.anchor.x));
-          line.current.setAttribute("y1", String(s.anchor.y));
-          line.current.setAttribute("x2", String(tx - 6));
-          line.current.setAttribute("y2", String(ty + 8));
-          dot.current.setAttribute("cx", String(s.anchor.x));
-          dot.current.setAttribute("cy", String(s.anchor.y));
-          line.current.parentElement?.classList.add("is-on");
-        } else {
-          tag.current.className = "tag";
-          line.current.parentElement?.classList.remove("is-on");
-        }
-      }
-
-      const busy = s.phase !== "idle" || s.request !== null;
-      let on: HTMLElement | null = null;
-      for (const id of FAULT_ORDER) {
-        const b = buttons.current[id];
-        if (!b) continue;
-        b.setAttribute("aria-disabled", String(busy));
-        b.setAttribute("aria-pressed", String(busy && s.fault === id));
-        if (busy && s.fault === id) on = b;
-      }
-      if (on !== pressed) {
-        pressed = on;
-        glass?.setActive(on);
-      }
+      if (readA.current) readA.current.textContent = `${Math.round(s.readA)}°`;
+      if (readB.current) readB.current.textContent = `${Math.round(s.readB)}°`;
 
       raf = requestAnimationFrame(tick);
     };
@@ -129,22 +72,11 @@ export function LabHud() {
     };
   }, []);
 
-  const pick = (id: FaultId) => {
-    if (store.phase !== "idle" || store.request) return;
-    store.request = id;
-  };
-
   return (
     <div className="hud">
       <div className="boot" ref={boot} aria-hidden="true">
         <span>Lens init — sampling body</span>
       </div>
-
-      <svg className="leader" aria-hidden="true">
-        <line ref={line} />
-        <circle ref={dot} r="3" />
-      </svg>
-      <div className="tag" ref={tag} role="status" aria-live="polite" />
 
       <header className="hud__tl">
         <div className="hud__brand">Neuro-Fit</div>
@@ -152,13 +84,8 @@ export function LabHud() {
       </header>
 
       <div className="hud__tr">
-        <div className="hud__label">////// View</div>
-        <div className="hud__big">
-          <span ref={view}>—</span>
-        </div>
-        <div>
-          <span ref={reads} />
-        </div>
+        <div className="hud__label">////// Watching for</div>
+        <ul className="lab-checks" ref={list} />
       </div>
 
       <div className="hud__bl">
@@ -167,13 +94,13 @@ export function LabHud() {
           <span ref={reps}>00</span>
         </div>
         <div>
-          Knee <span ref={knee}>—</span> · Trunk <span ref={trunk}>—</span>
+          <span ref={labelA} /> <span ref={readA}>—</span> · <span ref={labelB} /> <span ref={readB}>—</span>
         </div>
       </div>
 
-      <nav className="lg-seg picker" aria-label="Pick a rep" ref={row}>
+      <nav className="lg-seg picker" aria-label="Pick an exercise" ref={row}>
         <span className="lg-seg__thumb" aria-hidden="true" />
-        {FAULT_ORDER.map((id) => (
+        {EXERCISE_ORDER.map((id) => (
           <button
             key={id}
             type="button"
@@ -182,9 +109,9 @@ export function LabHud() {
             ref={(el) => {
               if (el) buttons.current[id] = el;
             }}
-            onClick={() => pick(id)}
+            onClick={() => (store.exercise = id)}
           >
-            {FAULTS[id].label}
+            {EXERCISES[id].name}
           </button>
         ))}
         <span className="lg-seg__lens" aria-hidden="true" />

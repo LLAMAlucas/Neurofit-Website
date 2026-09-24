@@ -1,6 +1,7 @@
 /**
- * The things on stage besides the body: the phone and its view, the iris the
- * camera flies through, and the pedestal the body ends on. Each reads how
+ * The things on stage besides the body: the phone and its view, the pull-up
+ * bar, the iris the camera flies through, and the pedestal the body ends on.
+ * Each reads how
  * present it is from the store (set from lib/story by the scene's driver) and
  * skips drawing entirely at zero.
  *
@@ -261,6 +262,92 @@ export function Phone() {
         <points ref={lensPts} geometry={lens} material={lensMat} frustumCulled={false} />
       </group>
       <mesh ref={coneMesh} geometry={cone} material={coneMat} frustumCulled={false} renderOrder={2} visible={false} />
+    </>
+  );
+}
+
+/* ── the pull-up bar ───────────────────────────────────────────────────── */
+
+/** Grains along a line, with a little thickness: a rod. */
+function rodGrains(from: Vector3, to: Vector3, radius: number, perMetre: number, seedBase: number): BufferGeometry {
+  const rand = mulberry32(seedBase);
+  const length = from.distanceTo(to);
+  const N = Math.max(40, Math.round(length * perMetre));
+  const dir = to.clone().sub(from).normalize();
+  // Two directions across the rod.
+  const u = Math.abs(dir.y) > 0.9 ? new Vector3(1, 0, 0) : new Vector3(0, 1, 0);
+  const a = u.clone().cross(dir).normalize();
+  const b = dir.clone().cross(a).normalize();
+  const pos = new Float32Array(N * 3);
+  const seed = new Float32Array(N);
+  const p = new Vector3();
+  for (let i = 0; i < N; i++) {
+    const ang = rand() * Math.PI * 2;
+    const r = radius * Math.sqrt(0.6 + 0.4 * rand());
+    p.copy(from)
+      .addScaledVector(dir, rand() * length)
+      .addScaledVector(a, Math.cos(ang) * r)
+      .addScaledVector(b, Math.sin(ang) * r);
+    pos.set([p.x, p.y, p.z], i * 3);
+    seed[i] = rand();
+  }
+  const g = new BufferGeometry();
+  g.setAttribute("position", new BufferAttribute(pos, 3));
+  g.setAttribute("aSeed", new BufferAttribute(seed, 1));
+  return g;
+}
+
+/** How far the hangers run up from the bar into the fog, metres. */
+const HANGER = 0.9;
+const BAR_R = 0.018;
+
+/**
+ * The bar the pull-up hangs from: a rod of grains over the body's head, hung
+ * from two rods that run up into the fog. After the workout it runs on to the
+ * left under the ghosts of the earlier sets — one long bar, three sets.
+ */
+export function Bar({ y, half, reachX }: { y: number; half: number; reachX: number }) {
+  const main = useRef<Group>(null);
+  const ext = useRef<Group>(null);
+  // The single bar's left hanger, which gives way to the long bar's own at its
+  // far end — otherwise it would hang down the middle of it.
+  const inner = useRef<Points>(null);
+  const geometry = useMemo(() => {
+    const at = (x: number, yy: number) => new Vector3(x, yy, 0);
+    return {
+      bar: rodGrains(at(-half, y), at(half, y), BAR_R, 5200, 41),
+      hangL: rodGrains(at(-half + 0.04, y), at(-half + 0.04, y + HANGER), BAR_R * 0.6, 2200, 43),
+      hangR: rodGrains(at(half - 0.04, y), at(half - 0.04, y + HANGER), BAR_R * 0.6, 2200, 47),
+      ext: rodGrains(at(reachX, y), at(-half, y), BAR_R, 5200, 53),
+      hangExt: rodGrains(at(reachX + 0.04, y), at(reachX + 0.04, y + HANGER), BAR_R * 0.6, 2200, 59),
+    };
+  }, [y, half, reachX]);
+  const mainMat = useMemo(() => grainMaterial("#3b4c63", 1), []);
+  const extMat = useMemo(() => grainMaterial("#3b4c63", 1), []);
+  const innerMat = useMemo(() => grainMaterial("#3b4c63", 1), []);
+  useEffect(
+    () => () => {
+      for (const g of Object.values(geometry)) g.dispose();
+      mainMat.dispose();
+      extMat.dispose();
+      innerMat.dispose();
+    },
+    [geometry, mainMat, extMat, innerMat],
+  );
+  useGrainSync(mainMat, () => store.bar, main);
+  useGrainSync(extMat, () => store.bar * store.ghosts, ext);
+  useGrainSync(innerMat, () => store.bar * (1 - store.ghosts), inner);
+  return (
+    <>
+      <group ref={main} visible={false}>
+        <points geometry={geometry.bar} material={mainMat} frustumCulled={false} />
+        <points geometry={geometry.hangR} material={mainMat} frustumCulled={false} />
+      </group>
+      <points ref={inner} geometry={geometry.hangL} material={innerMat} frustumCulled={false} visible={false} />
+      <group ref={ext} visible={false}>
+        <points geometry={geometry.ext} material={extMat} frustumCulled={false} />
+        <points geometry={geometry.hangExt} material={extMat} frustumCulled={false} />
+      </group>
     </>
   );
 }

@@ -73,15 +73,13 @@ export type Settings = {
   glow: number;
   /** Fault falloff radius in metres, before severity. */
   radius: number;
-  /** 0…1: how bad the picked fault is. Scales the pose AND the red. */
+  /** 0…1: how bad a faulty rep is. Scales the pose AND the red. */
   severity: number;
   opacity: number;
   fogColor: string;
   fog: number;
   bloom: number;
   grain: number;
-  /** Repeat the last-picked rep. */
-  loop: boolean;
   /** Rep playback rate. 0 freezes a rep mid-way — for studying the peak. */
   speed: number;
   /** Draw the source mesh as a wireframe behind the particles. */
@@ -139,7 +137,6 @@ export const DEFAULTS: Settings = {
   fog: 0.07,
   bloom: 0.9,
   grain: 0.06,
-  loop: false,
   speed: 1,
   showMesh: false,
 };

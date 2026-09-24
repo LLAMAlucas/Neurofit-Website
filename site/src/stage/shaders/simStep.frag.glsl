@@ -55,6 +55,13 @@ uniform float uFizz;         // m, how far a loose surface grain lifts off
 uniform float uWalls;        // 1 = the container is there
 uniform vec3 uBoxMin;
 uniform vec3 uBoxMax;
+// The body blown apart where it stands (the change from one exercise to the
+// next): 1 on that frame only.
+uniform float uBurst;
+uniform vec3 uBurstCentre;   // body space
+uniform float uBurstSpeed;   // m/s outward
+uniform float uBurstLift;    // m/s upward, at most
+uniform float uBurstHeat;    // how hot every grain comes loose
 
 layout(location = 0) out vec4 outOffset;
 layout(location = 1) out vec4 outVelocity;
@@ -130,6 +137,18 @@ void main() {
   float seed = h.w;
   vec4 nd = texelFetch(tNormal, t, 0);
   float dt = uDt;
+
+  // The burst: every grain comes loose where it is and is thrown out from the
+  // body's centre. It is hot, so the line below keeps it in the room while the
+  // body's pose changes under it — and as it cools it flows home to the NEW
+  // pose: the body re-forms as the next exercise.
+  if (uBurst * uFirst > 0.5) {
+    vec3 was = texelFetch(tHomePrev, t, 0).xyz + d;
+    vec3 away = was - uBurstCentre + (hash31(seed * 1.93) - 0.5) * 0.6;
+    v += normalize(away + vec3(0.0, 1e-4, 0.0)) * uBurstSpeed * (0.35 + 0.9 * hash11(seed * 23.1));
+    v.y += uBurstLift * hash11(seed * 4.7);
+    heat = max(heat, uBurstHeat * (0.75 + 0.25 * hash11(seed * 6.1)));
+  }
 
   // How untethered it is. Stays fully free for most of the heat, then lets go.
   float free = smoothstep(0.0, 0.4, heat);

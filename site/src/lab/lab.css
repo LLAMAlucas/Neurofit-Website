@@ -111,50 +111,23 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-/* ── the fault tag and its leader line ──────────────────────────────────── */
+/* ── what it's watching for: the list that lights ──────────────────────── */
 
-.leader {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  opacity: 0;
-  transition: opacity 0.25s var(--ease-out);
+.lab-checks {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
 }
-.leader.is-on {
-  opacity: 1;
-}
-.leader line {
-  stroke: var(--ink);
-  stroke-width: 1;
-}
-.leader circle {
-  fill: none;
-  stroke: var(--ink);
-  stroke-width: 1;
-}
-
-.tag {
-  position: absolute;
-  left: 0;
-  top: 0;
-  padding: 6px 10px 5px;
-  white-space: nowrap;
-  background: var(--glass);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-  font-weight: 500;
-  opacity: 0;
-  transition: opacity 0.25s var(--ease-out);
-}
-.tag.is-on {
-  opacity: 1;
-}
-.tag.is-fault {
-  color: var(--fault-ink);
-}
-.tag.is-unknown {
+.lab-checks li {
   color: var(--ink-2);
+  transition: color 0.2s var(--ease-out);
+}
+.lab-checks li.is-on {
+  color: var(--ink);
+  font-weight: 500;
+}
+.lab-checks li.is-on[data-kind="fault"] {
+  color: var(--fault-ink);
 }
 
 /* ── liquid glass (Apple's control material) ───────────────────────────────

@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Marketing site for Neuro-Fit — a camera form coach for squats.",
+  "description": "Marketing site for Neuro-Fit — a camera form coach for squats, push-ups and pull-ups.",
   "scripts": {
     "dev": "vite",
     "build": "tsc -p tsconfig.json --noEmit && vite build",

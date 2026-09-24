@@ -1,6 +1,7 @@
 /**
  * The squat itself: two keyframes, a tempo curve, and the deformations that make
- * a rep go wrong.
+ * a rep go wrong. Also the pieces every exercise shares: the pose type, the rest
+ * lengths of the skeleton, and the pass that keeps it rigid.
  *
  * PURE — no React, no three, no DOM. Poses are flat `Float32Array`s of
  * `JOINT_COUNT * 3` so the per-frame path never allocates.
@@ -15,7 +16,7 @@
  * is both what makes a squat tip forward and what the tracker's own thresholds
  * were measured on.
  */
-import { BONES, J, JOINT_COUNT, boneIndex, type JointName } from "./pose";
+import { BONES, J, JOINT_COUNT, type JointName } from "./pose";
 
 export type Pose = Float32Array;
 
@@ -78,7 +79,7 @@ const smoothstep = (a: number, b: number, v: number) => {
 };
 
 /** A trapezoid: 0 → 1 across [a,b], 1 across [b,c], 1 → 0 across [c,d]. */
-const bump = (v: number, a: number, b: number, c: number, d: number) =>
+export const bump = (v: number, a: number, b: number, c: number, d: number) =>
   smoothstep(a, b, v) * (1 - smoothstep(c, d, v));
 
 /* Phase landmarks within one rep. The descent gets more of the rep than the
@@ -90,7 +91,8 @@ const DESCENT_END = 0.52;
 const BOTTOM_END = 0.58;
 const ASCENT_END = 0.94;
 
-/** Rep phase (0…1) → depth (0 standing, 1 at parallel). */
+/** Rep phase (0…1) → depth (0 standing, 1 at the bottom). Every exercise uses
+ *  this tempo: down slow, a beat at the bottom, up faster. */
 export function depthAt(phase: number): number {
   if (phase <= DESCENT_START) return 0;
   if (phase < DESCENT_END) {
@@ -105,19 +107,18 @@ export function depthAt(phase: number): number {
   return 0;
 }
 
+/** Where the bottom of a rep is, as rep phase: the middle of the pause. */
+export const BOTTOM_PHASE = (DESCENT_END + BOTTOM_END) / 2;
+
 /* ── what can go wrong ───────────────────────────────────────────────────── */
 
 /**
- * The three things a rep can do here.
- *
- * They are NOT all faults, and the distinction is load-bearing. `valgus` and
- * `lean` are real triggers the app fires on (T7 and T1). `unlevel` is shoulder
- * levelness, which the app measures and reports as context but has DEMOTED from
- * asserting a fault — the reading is aspect-distorted and jittery. So it is
- * drawn as a measurement (see `marked` in `BEAT_SPEC`) and never in fault red:
- * the page should not claim a verdict the product does not make.
+ * The squat's faults. All three are things the app checks: knee cave (T7),
+ * forward lean (T1) and hip shift (T11). A rep that stops short of depth is not
+ * a fault at all — the counter just doesn't tick — so it is a depth cap in the
+ * loop, not a deformation here.
  */
-export type BeatKind = "valgus" | "lean" | "unlevel";
+export type BeatKind = "valgus" | "lean" | "shift";
 
 /**
  * Knees caving, timed to the ASCENT — which is not a staging choice. The
@@ -130,31 +131,21 @@ export const valgusEnvelope = (phase: number) => bump(phase, 0.58, 0.72, 0.84, 0
 /** Trunk pitching forward, worst at the bottom where the moment arm is longest. */
 export const leanEnvelope = (phase: number) => bump(phase, 0.32, 0.5, 0.64, 0.82);
 
-/** The shoulders drifting out of level, later on the ascent than the knee cave —
- *  it builds as the rep grinds rather than appearing at a single instant. */
-export const unlevelEnvelope = (phase: number) => bump(phase, 0.62, 0.8, 0.92, 0.98);
+/** Hips drifting to one side out of the bottom — the lifter unloading one leg
+ *  as they drive up. Gone again by lockout, where the tracker's shift reading
+ *  stops meaning anything (it peaks near 1.4 hip-widths standing). */
+export const shiftEnvelope = (phase: number) => bump(phase, 0.46, 0.6, 0.78, 0.9);
 
 export const envelopeFor = (kind: BeatKind, phase: number) =>
-  kind === "valgus"
-    ? valgusEnvelope(phase)
-    : kind === "lean"
-      ? leanEnvelope(phase)
-      : unlevelEnvelope(phase);
-
-/**
- * The grind: a rep that stops being smooth. It sets in partway down and stays
- * for the rest of the rep, so the instability is established BEFORE anything is
- * measured — the shoulders drifting is what the grind turns into, not a second
- * unrelated event.
- */
-export const grindEnvelope = (phase: number) => bump(phase, 0.22, 0.42, 0.88, 0.96);
+  kind === "valgus" ? valgusEnvelope(phase) : kind === "lean" ? leanEnvelope(phase) : shiftEnvelope(phase);
 
 /** Fraction of its half-stance each knee travels toward the midline at full cave. */
 const VALGUS_COLLAPSE = 0.62;
 /** Extra forward pitch of the trunk at full lean, in radians (~20°). */
 const LEAN_EXTRA_RAD = 0.35;
-/** Lateral tilt of the trunk at full shoulder drift, in radians before relaxation. */
-const UNLEVEL_RAD = 0.26;
+/** How far the hips slide sideways at full shift, metres: ~0.35 hip-widths,
+ *  past the tracker's 0.3 warn line. */
+export const SHIFT_M = 0.09;
 
 const UPPER_BODY: JointName[] = [
   "head",
@@ -167,50 +158,11 @@ const UPPER_BODY: JointName[] = [
   "wristR",
 ];
 
-/* ── the grind ───────────────────────────────────────────────────────────── */
-
-/**
- * Shudder, as a function of REP PHASE and nothing else.
- *
- * Deliberately not a clock and deliberately not random. The whole sequence is
- * scrubbed — scroll position *is* rep phase — so a wobble driven by elapsed time
- * would keep moving while the page sat still, and a wobble driven by `Math.random`
- * would differ every time the same scroll position was revisited. Two incommensurate
- * sines of the phase give something that reads as unsteady, replays identically,
- * and runs backwards cleanly when the reader scrolls back up.
- */
-const wob = (phase: number, seed: number) =>
-  Math.sin(phase * 47.3 + seed * 2.11) * 0.62 + Math.sin(phase * 88.7 + seed * 5.37) * 0.38;
-
-/** Peak displacement of a joint at full grind, in world units, before relaxation. */
-const TREMOR = 0.019;
-
-/**
- * How much of the tremor each joint carries. Taken from standing height, so it
- * runs from nothing at the floor to full at the head: the feet are planted and
- * it is the mass above them that oscillates. Precomputed — this is read inside
- * the per-frame loop.
- */
-const TREMOR_WEIGHT = Array.from({ length: JOINT_COUNT }, (_, k) => {
-  const h = STAND[k * 3 + 1] / STAND[J.head * 3 + 1];
-  return h * h;
-});
-
-/**
- * Vertical stall, added to depth rather than to the pose so both renderers and
- * the check script see the same rep. This is the part that reads as "grindy"
- * rather than merely shaky: the hips stop rising evenly and inch upward.
- */
-export const grindStall = (phase: number) =>
-  Math.sin(phase * 39.1) * 0.62 + Math.sin(phase * 61.7 + 1.7) * 0.38;
-
-/** Depth swing of the stall at full grind. */
-export const GRIND_STALL_DEPTH = 0.042;
-
 /* ── keeping the skeleton rigid ──────────────────────────────────────────── */
 
-/** Rest length of every bone, taken from the standing keyframe. */
-const REST = BONES.map(([a, b]) =>
+/** Rest length of every bone, taken from the standing keyframe. Every exercise
+ *  is the same body, so every exercise holds these. */
+export const REST = BONES.map(([a, b]) =>
   Math.hypot(
     STAND[J[a] * 3] - STAND[J[b] * 3],
     STAND[J[a] * 3 + 1] - STAND[J[b] * 3 + 1],
@@ -218,14 +170,15 @@ const REST = BONES.map(([a, b]) =>
   ),
 );
 
-/** Feet are in contact with the floor and never move — everything else resolves
- *  around them, which is also why the figure never appears to slide. */
-const PINNED = new Set([J.ankleL, J.ankleR, J.toeL, J.toeR]);
+/** Squat contacts: the feet are on the floor and never move — everything else
+ *  resolves around them, which is also why the figure never appears to slide. */
+export const SQUAT_PINNED: ReadonlySet<number> = new Set([J.ankleL, J.ankleR, J.toeL, J.toeR]);
 
 /**
  * Iterative length constraint (Jakobsen relaxation): walk every bone, and push
  * its two ends apart or together until it is its rest length again, with the
- * feet held fixed. A handful of passes converges because the chains are short.
+ * contact points held fixed. A handful of passes converges because the chains
+ * are short.
  *
  * This is what makes interpolation between two keyframes viable at all. It also
  * handles the closed loops (the hip line, the shoulder line) that a parent-child
@@ -233,7 +186,7 @@ const PINNED = new Set([J.ankleL, J.ankleR, J.toeL, J.toeR]);
  * inward shortens its shin, and the constraint resolves that by letting the knee
  * ride up and over the ankle — which is what a real cave does.
  */
-function relax(p: Pose, iterations = 10): void {
+export function relax(p: Pose, pinned: ReadonlySet<number> = SQUAT_PINNED, iterations = 10): void {
   for (let it = 0; it < iterations; it++) {
     for (let i = 0; i < BONES.length; i++) {
       const [an, bn] = BONES[i];
@@ -244,8 +197,8 @@ function relax(p: Pose, iterations = 10): void {
       const dz = p[bi + 2] - p[ai + 2];
       const d = Math.hypot(dx, dy, dz) || 1e-6;
 
-      const aFixed = PINNED.has(J[an]);
-      const bFixed = PINNED.has(J[bn]);
+      const aFixed = pinned.has(J[an]);
+      const bFixed = pinned.has(J[bn]);
       if (aFixed && bFixed) continue;
 
       const diff = (d - REST[i]) / d;
@@ -263,26 +216,16 @@ function relax(p: Pose, iterations = 10): void {
 }
 
 /**
- * Write the pose for a given depth and beat into `out`.
+ * Write the squat pose for a given depth and beat into `out`.
  *
  * Deformations are applied on top of the interpolated pose rather than baked
  * into their own keyframes, so one can be dialled from nothing to full at any
  * depth and the clean reps share exactly one code path with the rest.
  *
- * Order matters: deform, then shake, then relax. Relaxing last is what turns a
- * per-joint tremor into a shudder that runs through a rigid skeleton instead of
- * sixteen dots vibrating independently.
- *
- * @param grind 0…1 instability, and `phase` the rep phase it is locked to.
+ * Order matters: deform, then relax. Relaxing last is what turns a moved joint
+ * into a skeleton that moved with it, instead of one joint pulled off its bones.
  */
-export function poseAt(
-  depth: number,
-  kind: BeatKind | null,
-  amount: number,
-  out: Pose,
-  grind = 0,
-  phase = 0,
-): void {
+export function poseAt(depth: number, kind: BeatKind | null, amount: number, out: Pose): void {
   for (let i = 0; i < out.length; i++) {
     out[i] = STAND[i] + (BOTTOM[i] - STAND[i]) * depth;
   }
@@ -298,100 +241,32 @@ export function poseAt(
       // Rotate the upper body about the hip line in the SAGITTAL plane. A
       // rotation, not a translation — a translated torso keeps its angle and
       // reads as a glitch.
-      rotateUpper(out, LEAN_EXTRA_RAD * amount, 2);
+      rotateUpper(out, LEAN_EXTRA_RAD * amount);
     } else {
-      // The same rotation in the FRONTAL plane: the trunk drifts sideways and
-      // takes the shoulder line off horizontal with it. Rotating the shoulders
-      // alone would shear them off the spine; rotating the trunk about the hips
-      // is what a lifter actually does when one side stops contributing.
-      rotateUpper(out, UNLEVEL_RAD * amount, 0);
-    }
-  }
-
-  if (grind > 0) {
-    const amp = TREMOR * grind;
-    for (let k = 0; k < JOINT_COUNT; k++) {
-      if (PINNED.has(k)) continue;
-      const w = amp * TREMOR_WEIGHT[k];
-      out[k * 3] += w * wob(phase, k);
-      out[k * 3 + 1] += w * 0.55 * wob(phase, k + 7.3);
-      out[k * 3 + 2] += w * wob(phase, k + 19.1);
+      // The hips slide toward the lifter's right (+X), the knees half as far,
+      // and the trunk goes with the hips: the whole body sits over one leg.
+      const dx = SHIFT_M * amount;
+      for (const name of ["hipL", "hipR", ...UPPER_BODY] as JointName[]) out[J[name] * 3] += dx;
+      out[J.kneeL * 3] += dx * 0.5;
+      out[J.kneeR * 3] += dx * 0.5;
     }
   }
 
   relax(out);
 }
 
-/**
- * Rotate the upper body about the hip line, in the plane spanned by Y and one
- * other axis: `axis` 2 pitches it forward (sagittal), `axis` 0 tips it sideways
- * (frontal). One function because the two faults differ only by which plane
- * they live in — which is the whole reason the camera has to move between them.
- */
-function rotateUpper(out: Pose, theta: number, axis: 0 | 2): void {
+/** Pitch the upper body forward about the hip line, in the sagittal plane. */
+function rotateUpper(out: Pose, theta: number): void {
   const cos = Math.cos(theta);
   const sin = Math.sin(theta);
   const pivotY = (out[J.hipL * 3 + 1] + out[J.hipR * 3 + 1]) / 2;
-  const pivotA = (out[J.hipL * 3 + axis] + out[J.hipR * 3 + axis]) / 2;
+  const pivotZ = (out[J.hipL * 3 + 2] + out[J.hipR * 3 + 2]) / 2;
 
   for (const name of UPPER_BODY) {
     const i = J[name] * 3;
     const dy = out[i + 1] - pivotY;
-    const da = out[i + axis] - pivotA;
-    out[i + 1] = pivotY + dy * cos - da * sin;
-    out[i + axis] = pivotA + dy * sin + da * cos;
+    const dz = out[i + 2] - pivotZ;
+    out[i + 1] = pivotY + dy * cos - dz * sin;
+    out[i + 2] = pivotZ + dy * sin + dz * cos;
   }
 }
-
-/* ── what turns red, and what only gets measured ─────────────────────────── */
-
-/**
- * Per beat: the bones drawn as a FAULT, the bones drawn as a MEASUREMENT, and
- * the joints the camera pushes toward and the annotation attaches to.
- *
- * `bones` and `marked` are two different claims and are coloured differently on
- * purpose. Red means the app would flag it: valgus is T7 and lean is T1, both
- * live triggers. Green — the same green as the joints — means the app is reading
- * a number off the body without passing judgement, which is exactly the status
- * of shoulder levelness: computed every frame, sent as context, demoted from
- * asserting a fault because the reading is aspect-distorted. Painting it red
- * would put a verdict on screen that the product does not make.
- *
- * The three also sit across both planes — valgus and unlevel are frontal, lean
- * is sagittal — so each is only legible from the angle the sequence turns to for
- * it. That is the page's "where you put the phone changes what it knows"
- * argument, made before the Planes section states it.
- */
-export const BEAT_SPEC: Record<
-  BeatKind,
-  { bones: number[]; marked: number[]; anchors: [JointName, JointName] }
-> = {
-  valgus: {
-    bones: [boneIndex("kneeL", "ankleL"), boneIndex("kneeR", "ankleR")],
-    marked: [],
-    anchors: ["kneeL", "kneeR"],
-  },
-  lean: {
-    bones: [
-      boneIndex("neck", "shoulderL"),
-      boneIndex("neck", "shoulderR"),
-      boneIndex("shoulderL", "shoulderR"),
-      boneIndex("shoulderL", "hipL"),
-      boneIndex("shoulderR", "hipR"),
-    ],
-    marked: [],
-    anchors: ["shoulderL", "shoulderR"],
-  },
-  unlevel: {
-    bones: [],
-    marked: [boneIndex("shoulderL", "shoulderR")],
-    anchors: ["shoulderL", "shoulderR"],
-  },
-};
-
-/** Every bone that can ever change colour — these get their own material
- *  instances, and every one of them is written on every frame so a beat that has
- *  just ended is cleared by the same line that set it. */
-export const HIGHLIGHTABLE = [
-  ...new Set(Object.values(BEAT_SPEC).flatMap((s) => [...s.bones, ...s.marked])),
-];

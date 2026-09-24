@@ -7,9 +7,10 @@
    the one thing about its look this does not copy.
 
    Contrast, measured on the fog (#abc0d8): --ink ≈ 9.5:1, --ink-2 ≈ 5.3:1.
-   Red TEXT is --fault-ink, only ever on glass: 5.1:1 on the tags' glass, 4.9:1
-   on the [N] chip. (#b8322d, the old page's, measured 4.1:1 on the glass.) The
-   bright --fault is for particles only.
+   Red TEXT is --fault-ink on glass (5.1:1), and --fault-ink-fog straight on
+   the fog — the lit line of an exercise's list — where --fault-ink measures
+   only 4.0:1 and this 5.2:1. (#b8322d, the old page's, measured 4.1:1 on the
+   glass.) The bright --fault is for particles only.
 
    Two looks, set on <html> by App:
      .is-live   the scene behind, each stop's text fixed over it and racked in
@@ -25,6 +26,7 @@
   --hot: #e6f2fb;
   --fault: #ff2b2b;
   --fault-ink: #a0261f;
+  --fault-ink-fog: #861b16;
   --rule: rgba(21, 25, 30, 0.2);
   --glass: rgba(244, 246, 248, 0.42);
   --glass-2: rgba(236, 241, 246, 0.74);
@@ -131,12 +133,6 @@ a {
   z-index: 1;
   touch-action: none;
 }
-.touchzone.is-orbit {
-  cursor: grab;
-}
-.touchzone.is-orbit:active {
-  cursor: grabbing;
-}
 
 .journey {
   position: relative;
@@ -176,13 +172,6 @@ a {
 }
 .fine {
   font-size: 0.92rem !important;
-}
-.tbd {
-  padding: 0 3px;
-  background: rgba(160, 38, 31, 0.12);
-  color: var(--fault-ink);
-  font-family: var(--mono);
-  font-size: 0.9em;
 }
 
 /* ── liquid glass (Apple's control material) ───────────────────────────────
@@ -561,7 +550,7 @@ a {
      from the glass buttons inside it. */
   filter: none;
 }
-.is-live .stop[data-live] .stop__frame :is(a, button, .copy, .debrief, .finale, .picker) {
+.is-live .stop[data-live] .stop__frame :is(a, button, .copy, .debrief, .finale, .faq__body) {
   pointer-events: auto;
 }
 
@@ -636,11 +625,62 @@ a {
   }
 }
 
-/* ── the squat: readouts, the fault tag, the picker ────────────────────── */
+/* ── the exercises: what it watches for, the count, the angles ─────────── */
+
+/* The list. Every line is there from the start; the one for the rep in
+   progress lights as the rep shows it — red for a fault, ink for a clean rep
+   or one that didn't count (that isn't a fault, the counter is the feedback). */
+.checks {
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.checks__item {
+  position: relative;
+  padding: 5px 0 5px 22px;
+  border-top: 1px solid var(--rule);
+  color: var(--ink-2);
+  transition: color 0.25s var(--ease-out);
+}
+.checks__item:last-child {
+  border-bottom: 1px solid var(--rule);
+}
+.checks__item::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  margin-top: -4px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  transition:
+    background-color 0.25s var(--ease-out),
+    transform 0.35s var(--ease-out);
+}
+.checks__note {
+  text-transform: none;
+  letter-spacing: 0.02em;
+}
+.checks__item.is-on {
+  color: var(--ink);
+  font-weight: 500;
+}
+.checks__item.is-on::before {
+  background: currentColor;
+  transform: scale(1.15);
+}
+.checks__item.is-on[data-kind="fault"] {
+  color: var(--fault-ink-fog);
+}
 
 .readout {
   position: absolute;
-  left: var(--gut);
   top: 50%;
   transform: translateY(-50%);
   font-family: var(--mono);
@@ -649,16 +689,19 @@ a {
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
+.readout--left {
+  left: var(--gut);
+}
+/* On the right it is the push-up's, whose body lies low across the frame: up
+   over the feet rather than on top of them. */
+.readout--right {
+  right: var(--gut);
+  top: 24%;
+  transform: none;
+  text-align: right;
+}
 .readout__label {
   color: var(--ink-2);
-}
-.readout__gap {
-  margin-top: 18px;
-}
-.readout__big {
-  font-size: 15px;
-  font-weight: 500;
-  letter-spacing: 0.06em;
 }
 .readout__reps {
   margin: 2px 0 6px;
@@ -669,26 +712,6 @@ a {
   font-variant-numeric: tabular-nums;
 }
 
-.leader {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  overflow: visible;
-  opacity: 0;
-  transition: opacity 0.25s var(--ease-out);
-}
-.leader.is-on {
-  opacity: 1;
-}
-.leader line,
-.leader circle {
-  fill: none;
-  stroke: var(--ink);
-  stroke-width: 1;
-}
-
-.tag,
 .phone-tag,
 .set-label {
   position: absolute;
@@ -705,46 +728,12 @@ a {
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
-.tag {
-  opacity: 0;
-  transition: opacity 0.25s var(--ease-out);
-}
-.tag.is-on {
-  opacity: 1;
-}
-.tag.is-fault {
-  color: var(--fault-ink);
-}
-.tag.is-unknown {
-  color: var(--ink-2);
-}
 /* Pinned over a point in the scene: centred on it, a little above. */
 .phone-tag {
   margin: -2.6em 0 0 -5.5em;
 }
 .set-label {
   margin: -2.4em 0 0 -2.3em;
-}
-
-.picker {
-  position: absolute;
-  right: var(--gut);
-  bottom: 13%;
-  width: min(33rem, 40vw);
-}
-.picker__prompt,
-.picker__hint {
-  font-family: var(--mono);
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--ink-2);
-}
-.picker__row {
-  margin: 12px 0;
-}
-.picker__row > .lg-seg__item {
-  padding: 9px 16px 8px;
 }
 
 /* ── after the set: the debrief, writing itself out ────────────────────── */
@@ -836,6 +825,68 @@ a {
   color: var(--ink);
 }
 
+/* The questions, folded into the footer. On the live page they open as a
+   panel of their own over the scene, like the debrief — opening them inside
+   the finale grew it until its heading ran up under the brand. */
+.faq__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 0;
+  background: none;
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+.faq__toggle::after {
+  content: "+";
+  font-size: 14px;
+  line-height: 1;
+  transition: transform 0.25s var(--ease-out);
+}
+.faq__toggle[aria-expanded="true"]::after {
+  transform: rotate(45deg);
+}
+.faq__body {
+  margin: 12px 0 0;
+  padding: 4px 16px 4px 0;
+}
+.faq__body[hidden] {
+  display: none;
+}
+.is-live .faq__body {
+  position: fixed;
+  top: 50%;
+  right: var(--gut);
+  width: min(31rem, 38vw);
+  max-height: min(72vh, 40rem);
+  margin: 0;
+  padding: 24px 28px 26px;
+  transform: translateY(-50%);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--glass-2);
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  font-size: 0.95rem;
+}
+.faq__item + .faq__item {
+  margin-top: 12px;
+}
+.faq__item dt {
+  font-weight: 600;
+  color: var(--ink);
+}
+.faq__item dd {
+  margin: 2px 0 0;
+  line-height: 1.5;
+}
+
 /* ── narrow screens: the body above, the words below ───────────────────── */
 
 @media (max-width: 820px), (max-aspect-ratio: 1/1) {
@@ -867,10 +918,32 @@ a {
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
   }
-  .stop--squat .copy,
   .stop--afterSet .copy {
     top: 60px;
     bottom: auto;
+  }
+  /* An exercise: the words and the list at the bottom, the body above them.
+     The list goes on one wrapped line — five rows would bury the body. */
+  .copy--exercise p {
+    margin-top: 6px;
+  }
+  .checks {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+    margin-top: 8px;
+    font-size: 10.5px;
+  }
+  .checks__item,
+  .checks__item:last-child {
+    padding: 2px 0 2px 14px;
+    border: 0;
+  }
+  .checks__item::before {
+    left: 0;
+    width: 7px;
+    height: 7px;
+    margin-top: -3.5px;
   }
   .copy p,
   .lede {
@@ -883,9 +956,8 @@ a {
   .h2 {
     font-size: clamp(1.6rem, 7vw, 2.2rem);
   }
-  /* Room is short: the second paragraph of the squat and the explanation
-     beside the debrief stay for screen readers, and the debrief says it. */
-  .stop--squat .copy p + p,
+  /* Room is short: the explanation beside the debrief stays for screen
+     readers, and the debrief says it. */
   .stop--afterSet .copy p:not(.fine) {
     position: absolute;
     width: 1px;
@@ -893,22 +965,19 @@ a {
     overflow: hidden;
     clip: rect(0 0 0 0);
   }
-  .readout {
-    display: none;
-  }
-  .picker {
-    left: 12px;
-    right: 12px;
-    bottom: 42px;
-    width: auto;
-  }
-  .picker__row {
-    display: flex;
-  }
-  .picker__row > .lg-seg__item {
-    flex: 1;
-    padding: 9px 6px 8px;
+  /* The count, small, over the top of the screen — under the brand. */
+  .readout,
+  .readout--left,
+  .readout--right {
+    left: 16px;
+    right: auto;
+    top: 58px;
+    transform: none;
+    text-align: left;
     font-size: 10px;
+  }
+  .readout__reps {
+    font-size: 30px;
   }
   /* The debrief is this stop's whole point on a phone: it is set small enough
      to fit whole under the heading, rather than cut off at a max-height. */
@@ -948,6 +1017,16 @@ a {
   .price,
   .foot {
     margin-top: 14px;
+  }
+  .is-live .faq__body {
+    top: 60px;
+    left: 12px;
+    right: 12px;
+    width: auto;
+    max-height: calc(100% - 60px - 260px);
+    padding: 16px 18px 18px;
+    transform: none;
+    font-size: 0.85rem;
   }
   .finale .h2 {
     margin-bottom: 18px;
@@ -992,9 +1071,17 @@ a {
   grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
   align-items: start;
 }
+.is-still .checks {
+  max-width: 26rem;
+}
 .is-still .finale {
   margin: 0 auto;
   padding-bottom: 48px;
+}
+.is-still .faq__body {
+  width: 100%;
+  max-width: 42rem;
+  margin: -24px auto 48px;
 }
 @media (max-width: 820px) {
   .is-still .stop--form .stop__frame {

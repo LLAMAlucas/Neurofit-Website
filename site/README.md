@@ -1,10 +1,13 @@
 # Neuro-Fit — marketing site
 
-The landing page for Neuro-Fit, a camera form coach for squats. A single-page React
-site: prop your phone up, do your set, find out what your form actually did.
+The landing page for Neuro-Fit, a camera form coach for squats, push-ups and pull-ups.
+A single-page React site: prop your phone up, do your set, find out what your form
+actually did.
 
-The centrepiece is a scroll-driven WebGL squat rig — a pose skeleton that runs a set
-of reps while annotated callouts point at the faults as they happen. It degrades
+The centrepiece is one particle body in fog that the scroll carries through the page.
+At each exercise's stop it runs a scripted set on its own — clean reps mixed with
+faulty ones — while the list of what the app watches for lights the rep's fault, and
+between exercises it blows apart and re-forms as the next one. It degrades
 deliberately:
 
 - **No WebGL** → a static fallback, decided before first render.
@@ -32,13 +35,15 @@ Dev server comes up on <http://localhost:5180>.
 
 ## `npm run check`
 
-The rig's geometry, fault timing, camera framing and leader lines are verified
-**offscreen in Node**, not in a browser — a headless pane can't size a WebGL canvas
-(its `ResizeObserver` never fires), so there is nothing to screenshot. Instead
-[`scripts/check_rig.ts`](scripts/check_rig.ts) drives the same pure modules the scene
-uses and reimplements the projection independently, then asserts on the result: that
-every joint stays in frame, that each callout appears only on the rep it belongs to,
-that the labels never overlap, that no leader line crosses the midline.
+The poses, fault timing, scripted sets, sample debrief and camera path are verified
+**offscreen in Node**, not in a browser. [`scripts/check_site.ts`](scripts/check_site.ts)
+drives the same pure modules the scene uses and asserts on the result: that every bone
+keeps its length through every rep of every exercise, that contacts (feet, hands, the
+bar) never slide, that each fault crosses the line the app itself would flag while a
+clean rep stays inside it, that each set counts and lights the right line, and that
+the debrief quotes only numbers the poses actually produce.
+[`scripts/check_body.ts`](scripts/check_body.ts) does the same for the particle
+sampler and the retargeter (standing, in a plank, and hanging).
 
 It needs no browser and no build. Run it after touching anything in `src/lib/`.
 
@@ -46,13 +51,15 @@ It needs no browser and no build. Run it after touching anything in `src/lib/`.
 
 ```
 src/
-  sections/    one component per band of the page
-  components/  SquatRig (WebGL) + RigFallback (static) + ui/
-  lib/         pure modules — pose, frames, timeline, shots, framing
-  hooks/       scroll/reveal/motion
+  sections/    the page's stops (Journey) and the footer
+  stage/       the WebGL scene: particle body, props, driver
+  lib/         pure modules — poses (squat, push-up, pull-up), the scripted
+               loop, the camera path, the debrief
+  hooks/       scroll/ticker/motion
+  lab/         a dev-only page for tuning the body (/lab/)
   styles/      site.css (hand-written) + globals.css (Tailwind layer)
 scripts/
-  check_rig.ts the offscreen assertions
+  check_site.ts, check_body.ts  the offscreen assertions
 ```
 
 Tailwind is configured **inline** in [`vite.config.ts`](vite.config.ts) rather than via

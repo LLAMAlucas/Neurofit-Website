@@ -13,9 +13,10 @@
  * uses to put MediaPipe landmarks onto VRM avatars.
  *
  * Because the lengths differ, aiming alone would leave the feet somewhere new.
- * The last step slides the whole body so the feet land back where they stand in
- * the bind pose — the same "feet are planted and never move" rule `poseFrames`
- * builds its relaxation around.
+ * The last step slides the whole body so its contacts land where they belong:
+ * for the squat, the feet back where they stand in the bind pose — the same
+ * "feet are planted and never move" rule `poseFrames` builds its relaxation
+ * around; for a push-up or a pull-up, the hands (and toes) on our pose's own.
  */
 import { Matrix3, Matrix4, Object3D, Quaternion, Vector3 } from "three";
 import { J, type JointName } from "./pose";
@@ -37,7 +38,40 @@ export type RigMap = {
   aims: Aim[];
   /** Bones held at their bind orientation in the world — the planted feet. */
   lockWorld: string[];
+  /** The feet aimed at the toes instead, when they aren't planted flat (on the
+   *  balls of the feet in a plank, hanging pointed from a bar). */
+  footAims: Aim[];
+  /** The hand bones, our L side first — laid flat on the floor for a push-up. */
+  hands: [string, string];
 };
+
+/**
+ * Where the model is put once it is posed.
+ *
+ * `feet` — the squat's rule: the feet keep their bind orientation and position,
+ * flat on the floor where the model stands.
+ *
+ * `joints` — these model bones land (on average) on these joints of ours: the
+ * hands and the balls of the feet on the floor for a push-up, the hands on the
+ * bar for a pull-up. The feet are then aimed at our toes, and `handsFlat` lays
+ * the hands palm-down on the floor, fingers forward, instead of letting them
+ * run on down the forearm's line into it.
+ */
+export type Anchor =
+  | { kind: "feet" }
+  | { kind: "joints"; bones: readonly string[]; joints: readonly JointName[]; handsFlat?: boolean };
+
+export const FEET_ANCHOR: Anchor = { kind: "feet" };
+/** Push-up: hands and the balls of the feet on the floor (UE names; our L is
+ *  the model's right). */
+export const PUSHUP_ANCHOR: Anchor = {
+  kind: "joints",
+  bones: ["hand_r", "hand_l", "ball_r", "ball_l"],
+  joints: ["wristL", "wristR", "toeL", "toeR"],
+  handsFlat: true,
+};
+/** Pull-up: hands on the bar. */
+export const PULLUP_ANCHOR: Anchor = { kind: "joints", bones: ["hand_r", "hand_l"], joints: ["wristL", "wristR"] };
 
 /**
  * Unreal-mannequin names, as used by the Quaternius Universal Base Characters.
@@ -62,7 +96,22 @@ export const UE_RIG: RigMap = {
     { bone: "calf_l", tip: "foot_l", from: "kneeR", to: "ankleR" },
   ],
   lockWorld: ["foot_r", "foot_l"],
+  footAims: [
+    { bone: "foot_r", tip: "ball_r", from: "ankleL", to: "toeL" },
+    { bone: "foot_l", tip: "ball_l", from: "ankleR", to: "toeR" },
+  ],
+  hands: ["hand_r", "hand_l"],
 };
+
+/**
+ * Hands flat on the floor, fingers toward the head (+Z): the bind pose's hands
+ * run straight out along ±X, palm down, so each turns a quarter about the
+ * vertical. Ours-L (the model's right, −X) turns +90°; ours-R turns −90°.
+ */
+const HAND_FLAT: [Quaternion, Quaternion] = [
+  new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), Math.PI / 2),
+  new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), -Math.PI / 2),
+];
 
 /**
  * How much of the trunk's bend the pelvis takes. The rest is spread evenly up
@@ -135,14 +184,46 @@ export class Retargeter {
       this.bones.set(b.name, b);
       this.bind.set(b.name, { p: b.position.clone(), q: b.quaternion.clone(), s: b.scale.clone() });
     }
-    const need = [map.root, map.pelvis, map.trunkTip, ...map.spine, ...map.lockWorld];
-    for (const a of map.aims) need.push(a.bone, a.tip);
+    const need = [map.root, map.pelvis, map.trunkTip, ...map.spine, ...map.lockWorld, ...map.hands];
+    for (const a of [...map.aims, ...map.footAims]) need.push(a.bone, a.tip);
     const missing = need.filter((n) => !this.bones.has(n));
     if (missing.length) throw new Error(`rig is missing bones: ${missing.join(", ")}`);
 
     this.get(map.root).updateMatrixWorld(true);
-    for (const n of map.lockWorld) this.bindWorldQ.set(n, this.get(n).getWorldQuaternion(new Quaternion()));
+    for (const n of [...map.lockWorld, ...map.hands])
+      this.bindWorldQ.set(n, this.get(n).getWorldQuaternion(new Quaternion()));
     this.feet(this.bindFeet);
+  }
+
+  /** Aim one bone at our pose. */
+  private aim(a: Aim, pose: Pose): void {
+    const bone = this.get(a.bone);
+    worldDir(bone, this.get(a.tip), _b);
+    poseDir(pose, a.from, a.to, _d);
+    rotateWorld(bone, _q.setFromUnitVectors(_b, _d));
+  }
+
+  /** Set a bone's orientation in the world, keeping its parent as it is. */
+  private setWorld(name: string, q: Quaternion): void {
+    const bone = this.get(name);
+    _wq.copy(q);
+    if (bone.parent) {
+      bone.parent.getWorldQuaternion(_pq);
+      _wq.premultiply(_pq.invert());
+    }
+    bone.quaternion.copy(_wq);
+    bone.updateMatrixWorld(true);
+  }
+
+  /** Slide the whole body by a world-space offset. */
+  private shift(by: Vector3): void {
+    const root = this.get(this.map.root);
+    if (root.parent) {
+      _m4.copy(root.parent.matrixWorld).invert();
+      by.applyMatrix3(_m3.setFromMatrix4(_m4));
+    }
+    root.position.add(by);
+    root.updateMatrixWorld(true);
   }
 
   get(name: string): Object3D {
@@ -162,8 +243,9 @@ export class Retargeter {
     this.get(this.map.root).updateMatrixWorld(true);
   }
 
-  /** Put the model into `pose`. Allocation-free after construction. */
-  apply(pose: Pose): void {
+  /** Put the model into `pose`, placed by `anchor`. Allocation-free after
+   *  construction. */
+  apply(pose: Pose, anchor: Anchor = FEET_ANCHOR): void {
     const m = this.map;
     this.reset();
 
@@ -185,35 +267,29 @@ export class Retargeter {
     rotateWorld(pelvis, _q.setFromUnitVectors(_b, _d));
 
     // Limbs and neck, parent before child.
-    for (const a of m.aims) {
-      const bone = this.get(a.bone);
-      worldDir(bone, this.get(a.tip), _b);
-      poseDir(pose, a.from, a.to, _d);
-      rotateWorld(bone, _q.setFromUnitVectors(_b, _d));
+    for (const a of m.aims) this.aim(a, pose);
+
+    if (anchor.kind === "feet") {
+      // Planted feet keep their bind orientation in the world…
+      for (const n of m.lockWorld) this.setWorld(n, this.bindWorldQ.get(n)!);
+      // …and their bind position: slide the whole body so they land there.
+      this.feet(_d);
+      this.shift(_d.subVectors(this.bindFeet, _d));
+      return;
     }
 
-    // Planted feet keep their bind orientation in the world…
-    for (const n of m.lockWorld) {
-      const bone = this.get(n);
-      _wq.copy(this.bindWorldQ.get(n)!);
-      if (bone.parent) {
-        bone.parent.getWorldQuaternion(_pq);
-        _wq.premultiply(_pq.invert());
-      }
-      bone.quaternion.copy(_wq);
-      bone.updateMatrixWorld(true);
+    for (const a of m.footAims) this.aim(a, pose);
+    if (anchor.handsFlat) {
+      m.hands.forEach((n, i) => this.setWorld(n, _q.copy(HAND_FLAT[i]).multiply(this.bindWorldQ.get(n)!)));
     }
-
-    // …and their bind position: slide the whole body so they land there.
-    const root = this.get(m.root);
-    this.feet(_d);
-    _d.subVectors(this.bindFeet, _d);
-    if (root.parent) {
-      _m4.copy(root.parent.matrixWorld).invert();
-      _d.applyMatrix3(_m3.setFromMatrix4(_m4));
-    }
-    root.position.add(_d);
-    root.updateMatrixWorld(true);
+    // Slide the body so the anchor bones land, on average, on our joints.
+    _a.set(0, 0, 0);
+    for (const n of anchor.bones) _a.add(this.get(n).getWorldPosition(_b));
+    _a.divideScalar(anchor.bones.length);
+    _d.set(0, 0, 0);
+    for (const j of anchor.joints) _d.add(poseOut(pose, j, _b));
+    _d.divideScalar(anchor.joints.length);
+    this.shift(_d.sub(_a));
   }
 
   /** Mean world position of the planted feet. */

@@ -53,9 +53,10 @@ export default function App() {
     let reps = store.reps;
     let flash = store.faultFlash;
     return onTick(() => {
+      // Only a rep counted ticks — not the count starting over for the next set.
       if (store.reps !== reps) {
+        if (store.reps > reps) sfx.tick();
         reps = store.reps;
-        sfx.tick();
       }
       if (store.faultFlash !== flash) {
         flash = store.faultFlash;

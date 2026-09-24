@@ -69,6 +69,7 @@ export function createTuningPanel(onRebuild?: (r: Rebuild) => void): () => void 
   forming.add(st, "formStagger", 0, 3, 0.05).name("stagger (s)");
   forming.add(st, "formRise", 0, 1, 0.05).name("from the feet up (0…1)");
   forming.add({ form: () => store.formNonce++ }, "form").name("form again");
+  forming.add({ burst: () => store.burstNonce++ }, "burst").name("blow apart (exercise change)");
 
   const skeleton = gui.addFolder("Skeleton (shows through a hole)");
   rebuildable(skeleton.add(st, "skelCount", 1000, 20000, 500).name("grains"));
@@ -83,7 +84,6 @@ export function createTuningPanel(onRebuild?: (r: Rebuild) => void): () => void 
   fault.add(st, "glow", 0, 4, 0.05);
   fault.add(st, "radius", 0.05, 0.4, 0.005).name("radius (m)");
   fault.add(st, "severity", 0.2, 1, 0.05);
-  fault.add(st, "loop").name("loop the rep");
   fault.add(st, "speed", 0, 1.5, 0.05).name("rep speed (0 = freeze)");
 
   const world = gui.addFolder("World");

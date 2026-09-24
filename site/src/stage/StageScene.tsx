@@ -13,49 +13,52 @@ import { Bloom, BrightnessContrast, DepthOfField, EffectComposer, Noise, Vignett
 import { BlendFunction, type BrightnessContrastEffect, type DepthOfFieldEffect } from "postprocessing";
 import { HalfFloatType, Vector3, type PerspectiveCamera } from "three";
 
-import {
-  FAULTS,
-  REP_S,
-  SQUARE_ON,
-  kneeAngleDeg,
-  planeVisibility,
-  repAt,
-  trunkLeanDeg,
-  type Plane,
-} from "@/lib/faultDemo";
+import { EXERCISES, restPose, type ExerciseId } from "@/lib/exercises";
+import { loopAt, newLoopSample } from "@/lib/loop";
+import { BAR_HALF, BAR_Y } from "@/lib/pullup";
 import { newPose, type Pose } from "@/lib/poseFrames";
-import { STOPS, mixShot, newSample, stopIndex, storyAt, type Shot } from "@/lib/story";
+import { EXERCISE_AT, STOPS, mixShot, newSample, stopIndex, storyAt, type Shot } from "@/lib/story";
 import type { Tier } from "@/lib/quality";
 import { Environment } from "./Environment";
-import { ParticleBody } from "./ParticleBody";
-import { Iris, Pedestal, Phone } from "./Props";
+import { GHOST_X, ParticleBody } from "./ParticleBody";
+import { Bar, Iris, Pedestal, Phone } from "./Props";
 import { store } from "./store";
 import maleUrl from "./models/body-male.glb?url";
 
-const SQUAT = stopIndex("squat");
 const FRAME = stopIndex("frame");
 const WORKOUT = stopIndex("afterWorkout");
 const FINALE = stopIndex("finale");
 
-/** How far the cursor sways the camera, radians — well inside the band where a
- *  fault reads at full strength, so parallax never dims the red. */
+/** The stop where each exercise's scripted set plays. */
+const LOOP_STOP: Record<ExerciseId, number> = {
+  squat: stopIndex("squat"),
+  pushup: stopIndex("pushup"),
+  pullup: stopIndex("pullup"),
+};
+
+/** The invisible box around the body that a finger can swipe through, per
+ *  exercise: half its width and depth about the body, and its height, metres.
+ *  Tighter than the particles' glass container (±0.9 m), which is wider than a
+ *  portrait phone's whole view — a touch zone that size left nothing on the
+ *  page to scroll by. */
+const TOUCH: Record<ExerciseId, { halfW: number; halfD: number; top: number }> = {
+  squat: { halfW: 0.45, halfD: 0.35, top: 2.05 },
+  pushup: { halfW: 0.45, halfD: 0.95, top: 0.75 },
+  pullup: { halfW: 0.5, halfD: 0.4, top: 2.45 },
+};
+
+/** How far the cursor sways the camera, radians. */
 const PARALLAX_AZ = 0.05;
 const PARALLAX_EL = 0.03;
-const TAG_HOLD_S = 1.8;
 /** The pedestal's height: the body steps up onto it in the finale. */
 const LIFT = 0.12;
 /** The finale's slow turn, rad/s. */
 const TURN = 0.3;
-/** The invisible box around the body that a finger can swipe through: half its
- *  width and depth, and its height, metres. Tighter than the particles' glass
- *  container (±0.9 m), which is wider than a portrait phone's whole view — a
- *  touch zone that size left nothing on the page to scroll by. */
-const TOUCH_HALF_W = 0.45;
-const TOUCH_HALF_D = 0.35;
-const TOUCH_H = 2.05;
 /** On a portrait screen the camera stands this much further back, so the body
  *  has fog on both sides of it — room to scroll by. */
 const NARROW_PULLBACK = 0.45;
+/** How far over the body's highest point the HUD's labels sit, metres. */
+const LABEL_CLEAR = 0.26;
 
 const damp = (a: number, b: number, lambda: number, dt: number) => a + (b - a) * (1 - Math.exp(-lambda * dt));
 const smooth = (a: number, b: number, v: number) => {
@@ -63,23 +66,17 @@ const smooth = (a: number, b: number, v: number) => {
   return t * t * (3 - 2 * t);
 };
 
-/** The square-on view of `plane` nearest to where the camera already is. */
-function nearestSquareOn(plane: Plane, azimuth: number): number {
-  const base = SQUARE_ON[plane];
-  return base + Math.round((azimuth - base) / Math.PI) * Math.PI;
-}
-
-/** When in a knee-cave rep the cave is at its worst: the pose the ghosts and
- *  the body hold after the workout. */
-const CAVE_PEAK_T = (() => {
+/** When in an uneven pull the tilt is at its worst: the pose the ghosts and the
+ *  body hold after the workout — the thing that kept happening. */
+const UNEVEN_PEAK_PHASE = (() => {
   const p = newPose();
   let best = 0;
   let at = 0;
-  for (let t = 0; t <= REP_S; t += 0.01) {
-    const e = repAt("valgus", t, 1, p).envelope;
+  for (let ph = 0; ph <= 1; ph += 0.005) {
+    const e = EXERCISES.pullup.rep("uneven", ph, 1, p).envelope;
     if (e > best) {
       best = e;
-      at = t;
+      at = ph;
     }
   }
   return at;
@@ -92,19 +89,14 @@ function lerpPose(into: Pose, to: Pose, t: number) {
 function Driver({ dof }: { dof: MutableRefObject<DepthOfFieldEffect | null> }) {
   const size = useThree((s) => s.size);
   const sample = useMemo(newSample, []);
+  const loop = useMemo(newLoopSample, []);
   const shotNow = useMemo<Shot>(() => ({ ...STOPS[0].shot }), []);
-  const squatShot = useMemo<Shot>(() => ({ ...STOPS[SQUAT].shot }), []);
-  const caved = useMemo(newPose, []);
+  const looped = useMemo(newPose, []);
+  const held = useMemo(newPose, []);
   const parallax = useRef({ x: 0, y: 0 });
-  const autoRep = useRef(false);
   const lit = useRef(0);
+  const lastStop = useRef(0);
   const v = useMemo(() => new Vector3(), []);
-
-  // The squat stop's orbit starts where its shot does.
-  useEffect(() => {
-    store.azimuth = STOPS[SQUAT].shot.azimuth;
-    store.elevation = STOPS[SQUAT].shot.elevation;
-  }, []);
 
   useFrame((state, rawDt) => {
     const dt = Math.min(rawDt, 0.1);
@@ -113,69 +105,59 @@ function Driver({ dof }: { dof: MutableRefObject<DepthOfFieldEffect | null> }) {
     const cam = state.camera as PerspectiveCamera;
     storyAt(s.progress, sample);
 
-    // ── the squat stop: the reader's own orbit, and the fault picker ──────
-    if (sample.presence[SQUAT] === 0 && !s.dragging) {
-      // Away from it, the orbit drifts back to where the stop frames the body,
-      // so coming back never finds the camera somewhere odd.
-      s.azimuth = damp(s.azimuth, STOPS[SQUAT].shot.azimuth, 2, dt);
-      s.elevation = damp(s.elevation, STOPS[SQUAT].shot.elevation, 2, dt);
-      s.targetAzimuth = null;
+    // ── which exercise ─────────────────────────────────────────────────────
+    // Decided by the stop the reader is nearer, so it changes at the middle of
+    // a move — where both stops' words are out of focus. Between two exercises
+    // the body is blown apart there and re-forms as the next one; through the
+    // iris the change is hidden behind the closed blades, so it simply cuts.
+    // (Judged by the stops, not by how closed the iris is this frame: a jump
+    // of the scroll — a link, the End key — can land past the closed middle.)
+    const exercise = EXERCISE_AT[STOPS[sample.stop].id];
+    if (exercise !== s.exercise) {
+      const throughIris = STOPS[sample.stop].throughIris || STOPS[lastStop.current].throughIris;
+      s.exercise = exercise;
+      s.loopClock = 0;
+      if (!throughIris) s.burstNonce++;
     }
-    // Arriving at the squat for the first time, the body does one clean rep on
-    // its own, so the counter ticks before anyone has touched anything.
-    if (!autoRep.current && sample.focus[SQUAT] > 0.95 && s.phase === "idle") {
-      autoRep.current = true;
-      s.request ??= "clean";
-    }
-    if (s.request && s.phase === "idle") {
-      s.fault = s.request;
-      s.request = null;
-      s.tagHold = 0;
-      const plane = FAULTS[s.fault].plane;
-      if (plane) {
-        s.targetAzimuth = nearestSquareOn(plane, s.azimuth);
-        s.phase = "aligning";
-      } else {
-        s.phase = "rep";
-        s.repClock = 0;
-      }
-    }
-    if (!s.dragging && s.targetAzimuth !== null) s.azimuth = damp(s.azimuth, s.targetAzimuth, 3.2, dt);
-    if (s.phase === "aligning" && (s.targetAzimuth === null || Math.abs(s.azimuth - s.targetAzimuth) < 0.015)) {
-      s.phase = "rep";
-      s.repClock = 0;
-    }
+    lastStop.current = sample.stop;
+    const spec = EXERCISES[exercise];
 
     // ── pose ──────────────────────────────────────────────────────────────
-    if (s.phase === "rep") {
-      s.repClock += dt * st.speed;
-      const r = repAt(s.fault, s.repClock, st.severity, s.pose);
-      s.envelope = r.envelope;
-      if (r.done) {
-        s.reps++;
-        s.phase = "idle";
-        s.tagHold = TAG_HOLD_S;
-      }
-    } else {
-      repAt("clean", 0, 0, s.pose);
-      s.envelope = 0;
-      s.tagHold = Math.max(0, s.tagHold - dt);
-    }
+    // The exercise's own stop runs its scripted set, blended in as the stop
+    // arrives and out as it leaves; away from it the body rests. The loop
+    // starts over each time the stop is reached, so rep 1 is always first.
+    const here = sample.presence[LOOP_STOP[exercise]];
+    if (here > 0) s.loopClock += dt * st.speed;
+    else s.loopClock = 0;
+    loopAt(spec, s.loopClock, st.severity, looped, loop);
+    restPose(spec, s.pose);
+    lerpPose(s.pose, looped, here);
+    s.check = loop.check;
+    s.envelope = loop.envelope * here;
+    s.lit = here > 0.5 ? loop.lit : null;
+    s.reps = loop.counted;
+
     // After the workout the body — and the ghosts, which draw its pose — hold
-    // the bottom of a caved rep, lit: the thing that kept happening.
+    // the worst of an uneven pull, lit: the thing that kept happening.
     const workout = sample.presence[WORKOUT];
-    if (workout > 0 && s.phase !== "rep") {
-      repAt("valgus", CAVE_PEAK_T, 1, caved);
-      lerpPose(s.pose, caved, workout);
-      s.fault = "valgus";
-      s.envelope = workout;
+    if (workout > 0 && exercise === "pullup") {
+      EXERCISES.pullup.rep("uneven", UNEVEN_PEAK_PHASE, 1, held);
+      lerpPose(s.pose, held, workout);
+      s.check = "uneven";
+      s.envelope = Math.max(s.envelope, workout);
     }
-    s.knee = kneeAngleDeg(s.pose);
-    s.trunk = trunkLeanDeg(s.pose);
+    s.readA = spec.readouts[0].read(s.pose);
+    s.readB = spec.readouts[1].read(s.pose);
+    let top = 0;
+    for (let k = 1; k < s.pose.length; k += 3) top = Math.max(top, s.pose[k]);
+    s.labelY = top + LABEL_CLEAR;
 
     // ── what's on stage ───────────────────────────────────────────────────
     s.cone = sample.presence[FRAME];
-    s.ghosts = workout;
+    // The bar and the ghosts go with the pull-up: into the finale they cut out
+    // with it, behind the closed iris, rather than fading over a standing body.
+    s.ghosts = exercise === "pullup" ? workout : 0;
+    s.bar = exercise === "pullup" ? 1 : 0;
     s.holo = sample.presence[FINALE];
     s.lift = LIFT * s.holo;
     s.iris = sample.iris;
@@ -187,15 +169,10 @@ function Driver({ dof }: { dof: MutableRefObject<DepthOfFieldEffect | null> }) {
     }
 
     // ── camera ────────────────────────────────────────────────────────────
-    squatShot.azimuth = s.azimuth;
-    squatShot.elevation = s.elevation;
-    const a = sample.from === SQUAT ? squatShot : STOPS[sample.from].shot;
-    const b = sample.to === SQUAT ? squatShot : STOPS[sample.to].shot;
-    mixShot(a, b, sample.blend, shotNow);
+    mixShot(STOPS[sample.from].shot, STOPS[sample.to].shot, sample.blend, shotNow);
 
-    const hovering = s.pointerInside && !s.dragging;
-    parallax.current.x = damp(parallax.current.x, hovering ? s.pointer.x : 0, 2, dt);
-    parallax.current.y = damp(parallax.current.y, hovering ? s.pointer.y : 0, 2, dt);
+    parallax.current.x = damp(parallax.current.x, s.pointerInside ? s.pointer.x : 0, 2, dt);
+    parallax.current.y = damp(parallax.current.y, s.pointerInside ? s.pointer.y : 0, 2, dt);
     const az = shotNow.azimuth + parallax.current.x * PARALLAX_AZ;
     const el = shotNow.elevation + parallax.current.y * PARALLAX_EL;
     const aspect = size.width / Math.max(1, size.height);
@@ -216,23 +193,20 @@ function Driver({ dof }: { dof: MutableRefObject<DepthOfFieldEffect | null> }) {
     cam.setViewOffset(size.width, size.height, -sx * size.width, sy * size.height, size.width, size.height);
     cam.updateProjectionMatrix();
 
-    // The red answers to the view on screen, turned body and all.
-    s.viewAzimuth = az - s.spin;
-    const plane = FAULTS[s.fault].plane;
-    s.visibility = plane ? planeVisibility(plane, s.viewAzimuth) : 0;
-    const showing = s.envelope * s.visibility;
-    if (showing > 0.25 && lit.current <= 0.25) s.faultFlash++;
-    lit.current = showing;
+    // A fault first lighting up: for the sound and the exposure flash.
+    if (s.envelope > 0.25 && lit.current <= 0.25) s.faultFlash++;
+    lit.current = s.envelope;
 
     // The box around the body on screen: the only place a touch throws
     // particles.
+    const box = TOUCH[exercise];
     let x0 = Infinity;
     let y0 = Infinity;
     let x1 = -Infinity;
     let y1 = -Infinity;
-    for (const cx of [-TOUCH_HALF_W, TOUCH_HALF_W])
-      for (const cy of [0, TOUCH_H])
-        for (const cz of [-TOUCH_HALF_D, TOUCH_HALF_D]) {
+    for (const cx of [-box.halfW, box.halfW])
+      for (const cy of [0, box.top])
+        for (const cz of [-box.halfD, box.halfD]) {
           v.set(cx, cy + s.lift, cz).project(cam);
           const px = (v.x * 0.5 + 0.5) * size.width;
           const py = (-v.y * 0.5 + 0.5) * size.height;
@@ -304,6 +278,7 @@ export default function StageScene({ tier, onSlow }: { tier: Tier; onSlow: () =>
       <FrameWatch onSlow={onSlow} />
       <Environment />
       <Phone />
+      <Bar y={BAR_Y} half={BAR_HALF} reachX={GHOST_X[0] - BAR_HALF} />
       <Pedestal />
       <Suspense fallback={null}>
         <ParticleBody url={maleUrl} count={st.count} interior={st.interior} skelCount={st.skelCount} />
