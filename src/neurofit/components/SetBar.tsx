@@ -1,8 +1,11 @@
 /**
  * Set/orientation controller bar: which set, the target orientation, the
  * lock/countdown state, and the live reposition prompt. This is the alternating-
- * set session UI (spec §4).
+ * set session UI (spec §4). The setup hint ("turn side-on…") and the live
+ * detection label live behind a "?" beside the set badge — hover or tap to read.
+ * Finish workout lives in the App header, top right.
  */
+import { useEffect, useId, useRef, useState } from "react";
 import type { Workout } from "../hooks/useWorkout";
 
 const ORIENT_LABEL: Record<"front" | "side", string> = { front: "FRONT view", side: "SIDE view" };
@@ -28,27 +31,27 @@ export function SetBar({ workout }: { workout: Workout }) {
     workout.facingAngleDeg !== null
       ? `${Math.round(workout.facingAngleDeg)}°${workout.facingScore !== null ? ` · ${workout.facingScore.toFixed(2)}` : ""}`
       : "—";
+  const status = statusContent();
 
   return (
     <div className="setbar">
-      <div className="setbar__id">
-        <span className="setbar__set">SET {setIndex}</span>
-        <span className={"setbar__target setbar__target--" + targetOrientation}>{ORIENT_LABEL[targetOrientation]}</span>
-        <span className="setbar__facing" title="detected facing angle · score">{facing}</span>
+      <div className="setbar__main">
+        <div className="setbar__id">
+          <span className="setbar__set">SET {setIndex}</span>
+          <span className={"setbar__target setbar__target--" + targetOrientation}>{ORIENT_LABEL[targetOrientation]}</span>
+          <SetupHelp hint={HINTS[workout.exercise][targetOrientation]} detected={orientationLabel} />
+          <span className="setbar__facing" title="detected facing angle · score">{facing}</span>
+        </div>
+        {status && <div className="setbar__status">{status}</div>}
       </div>
 
-      <div className="setbar__status">{statusContent()}</div>
-
-      <div className="setbar__controls">
-        {phase === "active" && (
+      {phase === "active" && (
+        <div className="setbar__controls">
           <button className="lg-btn btn btn--primary" onClick={workout.endSet}>
             End set
           </button>
-        )}
-        <button className="lg-btn btn" onClick={workout.finishWorkout} disabled={phase === "finished"}>
-          Finish workout
-        </button>
-      </div>
+        </div>
+      )}
     </div>
   );
 
@@ -68,18 +71,56 @@ export function SetBar({ workout }: { workout: Workout }) {
         </span>
       );
     }
-    // positioning
+    // positioning: the how-to is behind the "?"; only the lock itself shows here.
     return (
       <div className="setbar__align">
-        <span className={"setbar__msg" + (aligned ? " setbar__msg--go" : "")}>
-          {aligned
-            ? "Hold it…"
-            : `${HINTS[workout.exercise][targetOrientation]} (${orientationLabel})`}
-        </span>
+        {aligned && <span className="setbar__msg setbar__msg--go">Hold it…</span>}
         <div className="setbar__lock">
           <div className="setbar__lock-fill" style={{ width: Math.round(lockProgress * 100) + "%" }} />
         </div>
       </div>
     );
   }
+}
+
+/** "?" beside the set badge: hover (pointer) or tap/click (touch, keyboard) shows how to stand for this view. */
+function SetupHelp({ hint, detected }: { hint: string; detected: string }) {
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLSpanElement>(null);
+  const tipId = useId();
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: PointerEvent) => {
+      if (!root.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  return (
+    <span ref={root} className={"setbar__help" + (open ? " is-open" : "")}>
+      <button
+        type="button"
+        className="setbar__help-btn"
+        aria-label="How to set up for this view"
+        aria-expanded={open}
+        aria-describedby={tipId}
+        onClick={() => setOpen((o) => !o)}
+      >
+        ?
+      </button>
+      <span id={tipId} role="tooltip" className="setbar__tip">
+        {hint}
+        <span className="setbar__tip-status">Camera sees: {detected}</span>
+      </span>
+    </span>
+  );
 }

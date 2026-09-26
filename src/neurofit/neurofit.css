@@ -391,12 +391,50 @@ code {
 
 /* ── header: the site's HUD, made static ───────────────────────────────── */
 .nf-head {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  align-items: end;
-  gap: 16px 28px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 16px;
   padding-bottom: 14px;
   border-bottom: 1px solid var(--rule);
+}
+/* Round glass icon buttons: the settings cog and the settings close X. */
+.lg-btn--icon {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  flex: 0 0 auto;
+}
+.lg-btn--icon svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* ── settings page header: brand, title, and the X back to coaching ────── */
+.nf-settings-head {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--rule);
+  background: rgba(190, 206, 224, 0.78);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+.nf-settings-head__title {
+  flex: 1;
+  margin: 0;
+  padding-left: 14px;
+  border-left: 1px solid var(--rule);
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-2);
 }
 .nf-brand__home {
   display: inline-flex;
@@ -439,22 +477,6 @@ code {
   line-height: 0.95;
   letter-spacing: -0.03em;
 }
-.stat__value--phase {
-  color: var(--ink-2);
-}
-.stat__value--phase.is-down {
-  color: var(--ink);
-}
-.stat__value--phase.is-down::before {
-  content: "";
-  display: inline-block;
-  width: 7px;
-  height: 7px;
-  margin-right: 6px;
-  vertical-align: 0.12em;
-  background: var(--fault);
-  animation: blink 0.9s steps(1) infinite;
-}
 @keyframes blink {
   50% {
     opacity: 0;
@@ -465,13 +487,7 @@ code {
   display: flex;
   align-items: center;
   gap: 10px;
-}
-/* ── tabs: a glass switch, numbered like the site stop index ─────────── */
-.nf-tabs {
-  display: flex;
-}
-.nf-tab__num {
-  opacity: 0.55;
+  margin-left: auto;
 }
 
 /* ── body layout ───────────────────────────────────────────────────────── */
@@ -650,12 +666,21 @@ code {
 
 /* ── set bar ───────────────────────────────────────────────────────────── */
 .setbar {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 18px;
+  justify-content: space-between;
+  gap: 10px 18px;
   padding: 12px 0;
   border-bottom: 1px solid var(--rule);
+}
+.setbar__main {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 18px;
+  min-width: 0;
 }
 .setbar__id {
   display: flex;
@@ -716,6 +741,78 @@ code {
 .setbar__controls {
   display: flex;
   gap: 8px;
+}
+
+/* "?" beside the set badge — the setup how-to, on hover or tap. The tip anchors to the
+   whole badge (not the button) so it opens rightward from the badge's edge and stays on screen. */
+.setbar__help {
+  display: inline-flex;
+}
+.setbar__help-btn {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--ink);
+  border-radius: 50%;
+  background: transparent;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--ink);
+  cursor: pointer;
+  transition:
+    background-color 0.2s var(--ease-out),
+    color 0.2s var(--ease-out);
+}
+.setbar__help-btn:hover,
+.setbar__help.is-open .setbar__help-btn {
+  background: var(--ink);
+  color: var(--fog-2);
+}
+.setbar__tip {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 10px);
+  z-index: 30;
+  width: max-content;
+  max-width: min(320px, calc(100vw - 32px));
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(246, 248, 250, 0.94);
+  backdrop-filter: blur(18px) saturate(170%);
+  -webkit-backdrop-filter: blur(18px) saturate(170%);
+  box-shadow: var(--lg-edge), var(--lg-drop);
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: var(--ink);
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(4px);
+  transition:
+    opacity 0.18s var(--ease-out),
+    transform 0.18s var(--ease-out),
+    visibility 0s linear 0.18s;
+}
+.setbar__help:hover .setbar__tip,
+.setbar__help.is-open .setbar__tip,
+.setbar__help-btn:focus-visible + .setbar__tip {
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+  transition-delay: 0s;
+}
+.setbar__tip-status {
+  display: block;
+  margin-top: 6px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-2);
 }
 
 /* ── form checks ───────────────────────────────────────────────────────── */
@@ -1611,22 +1708,161 @@ code {
   gap: 8px;
 }
 
+/* ── live coaching: full-screen camera, controls as a HUD ─────────────────
+   On the Coach tab mid-workout the feed fills the viewport and the header, view switch
+   and set bar float over it on glass. The HUD wrappers are `display: contents` everywhere
+   else, so Settings and the report keep the ordinary page layout untouched.
+   --hud-top / --hud-bottom (set from App.tsx) are how far the HUD reaches in from each
+   edge; the camera's own overlays sit in the clear band between them. */
+.nf-hud {
+  display: contents;
+}
+
+.nf--live {
+  --hud-gut: clamp(12px, 2vw, 24px);
+  --hud-plate: rgba(238, 243, 248, 0.68);
+  /* Controls on a moving picture need more milk than on the fog, or ink text vanishes on a dark feed. */
+  --lg-fill: rgba(238, 243, 248, 0.66);
+  position: fixed;
+  inset: 0;
+  max-width: none;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background: var(--ink);
+}
+.nf--live .nf-body,
+.nf--live .nf-stage {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  display: block;
+}
+.nf--live .coach-cam {
+  width: 100%;
+  height: 100%;
+  aspect-ratio: auto;
+}
+
+.nf--live .nf-hud {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 10px;
+  padding-left: max(var(--hud-gut), env(safe-area-inset-left));
+  padding-right: max(var(--hud-gut), env(safe-area-inset-right));
+  /* The wrapper spans the width; only its plates catch the pointer, so the feed between stays live. */
+  pointer-events: none;
+}
+.nf--live .nf-hud--top {
+  top: 0;
+  padding-top: max(var(--hud-gut), env(safe-area-inset-top));
+}
+.nf--live .nf-hud--bottom {
+  bottom: 0;
+  padding-bottom: max(var(--hud-gut), env(safe-area-inset-bottom));
+}
+.nf--live .nf-head {
+  display: contents;
+}
+.nf--live :is(.nf-settings-btn, .nf-stats, .nf-controls, .nf-finish, .setbar__main, .setbar__controls) {
+  pointer-events: auto;
+}
+.nf--live .nf-hud--top {
+  align-items: center;
+}
+.nf--live .lg-seg {
+  background: rgba(238, 243, 248, 0.58);
+}
+
+/* Read-only surfaces get a glass plate of their own — the same material as the controls. */
+.nf--live :is(.nf-stats, .setbar__main) {
+  background: var(--hud-plate);
+  backdrop-filter: blur(18px) saturate(170%);
+  -webkit-backdrop-filter: blur(18px) saturate(170%);
+  box-shadow: var(--lg-edge), var(--lg-drop);
+}
+/* The rep counter: one pill, label beside the number, the height of the buttons around it. */
+.nf--live .nf-stats {
+  padding: 4px 20px 4px 18px;
+  border-radius: 999px;
+}
+.nf--live .stat--hero {
+  flex-direction: row;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+.nf--live .stat--hero .stat__value {
+  font-size: 30px;
+  line-height: 1.2;
+}
+
+/* Bottom row: the set badge holds the left corner, End set (while live) the right. */
+.nf--live .setbar {
+  flex: 1 1 100%;
+  flex-wrap: nowrap;
+  align-items: flex-end;
+  padding: 0;
+  border-bottom: 0;
+}
+.nf--live .setbar__main {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  max-width: min(460px, 100%);
+  padding: 11px 18px 12px;
+  border-radius: 20px;
+}
+.nf--live .setbar__main:not(:has(.setbar__status)) {
+  border-radius: 999px;
+}
+.nf--live .setbar__lock {
+  max-width: none;
+}
+
+/* The camera's own overlays, moved into the clear band between the HUD rows. */
+.nf--live .fps-badge {
+  top: calc(var(--hud-top, 0px) + 10px);
+  right: max(var(--hud-gut), env(safe-area-inset-right));
+  border-radius: 999px;
+  padding: 5px 10px 4px;
+}
+.nf--live .missed-flash {
+  top: calc(var(--hud-top, 0px) + 12px);
+  border-radius: 999px;
+}
+.nf--live .reposition-overlay {
+  bottom: calc(var(--hud-bottom, 0px) + 12px);
+  border-radius: 999px;
+}
+.nf--live .postset-review {
+  padding: calc(var(--hud-top, 0px) + 12px) var(--hud-gut) calc(var(--hud-bottom, 0px) + 12px);
+}
+.nf--live .postset-review__card {
+  border-radius: 24px;
+}
+
+/* Too narrow for one HUD row: Finish workout keeps the top-right corner and the
+   exercise controls drop to a second row beneath it, still right-aligned. */
+@media (max-width: 860px) {
+  .nf--live .nf-finish {
+    order: 1;
+    margin-left: auto;
+  }
+  .nf--live .nf-controls {
+    order: 2;
+    flex: 1 1 100%;
+    justify-content: flex-end;
+  }
+}
+
 /* ── narrow screens ────────────────────────────────────────────────────── */
-@media (max-width: 1080px) {
-  .nf-head {
-    grid-template-columns: minmax(0, 1fr) auto;
-  }
-  .nf-controls {
-    grid-column: 1 / -1;
-    justify-content: flex-start;
-  }
-}
-@media (max-width: 920px) {
-  .setbar {
-    grid-template-columns: 1fr;
-    gap: 10px;
-  }
-}
 @media (max-width: 720px) {
   .mode-toggle,
   .depth-presets {
@@ -1637,14 +1873,9 @@ code {
   .nf {
     padding-top: 14px;
   }
-  .nf-head {
-    grid-template-columns: 1fr;
-    align-items: start;
-  }
-  .nf-stats {
-    gap: 20px;
-  }
   .nf-controls {
+    flex: 1 1 100%;
+    margin-left: 0;
     flex-wrap: wrap;
   }
   .nf-exercise {
@@ -1669,6 +1900,33 @@ code {
   }
   .setbar__controls {
     flex-wrap: wrap;
+  }
+  /* Phone HUD: a tighter plate set, so the feed keeps as much of the screen as it can. */
+  .nf--live .nf-hud {
+    gap: 8px;
+  }
+  .nf--live .nf-stats {
+    padding: 3px 16px 3px 14px;
+  }
+  .nf--live .stat--hero .stat__value {
+    font-size: 26px;
+  }
+  .nf--live .nf-controls {
+    flex: 1 1 100%;
+    margin-left: 0;
+    flex-wrap: nowrap;
+  }
+  .nf--live .lg-seg__item {
+    padding: 6px 10px 5px;
+  }
+  .nf--live .setbar {
+    gap: 8px;
+  }
+  .nf--live .setbar__main {
+    padding: 10px 14px 11px 16px;
+  }
+  .nf--live .setbar__msg {
+    font-size: 13px;
   }
 }
 
