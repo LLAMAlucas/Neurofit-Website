@@ -73,7 +73,9 @@ export const STOPS: readonly Stop[] = [
     span: 1.2,
     hold: [0, 0.55],
     // Text on the left, the body standing off to the right of it.
-    shot: shot({ azimuth: 0.35, distance: 3.9, shift: [0.2, 0] }),
+    // On a phone the words sit on the bottom ~45% of the screen, so the body is
+    // lifted and pulled back a touch to stand whole above them.
+    shot: shot({ azimuth: 0.35, distance: 3.9, shift: [0.2, 0], narrowShift: [0, 0.24], narrowFov: 34 }),
   },
   // (The three exercise stops — squat, push-up, pull-up — and "what it watches
   // for" were removed on 2026-09-26; so were the two debrief stops on
@@ -85,7 +87,15 @@ export const STOPS: readonly Stop[] = [
     hold: [0.3, 0.7],
     // Pulled back and round to the side, so the phone on the floor, its cone
     // and the body it's looking at all fit.
-    shot: shot({ azimuth: 1.05, elevation: 0.22, distance: 6.4, target: [0, 0.75, 1.1], shift: [0.16, 0] }),
+    shot: shot({
+      azimuth: 1.05,
+      elevation: 0.22,
+      distance: 6.4,
+      target: [0, 0.75, 1.1],
+      shift: [0.16, 0],
+      // Above the words on a phone, as in the opening.
+      narrowShift: [0, 0.22],
+    }),
   },
   {
     id: "flow",
@@ -111,8 +121,10 @@ export const STOPS: readonly Stop[] = [
       distance: 6.2,
       target: [0, 0.8, 1.2],
       shift: [0.2, 0],
-      narrowShift: [0, 0.3],
-      narrowFov: 44,
+      // Closer on a phone than it was (44°): the steps now fit in a shorter
+      // sheet, so the body and the phone can fill more of the room above it.
+      narrowShift: [0, 0.26],
+      narrowFov: 36,
     }),
   },
   {

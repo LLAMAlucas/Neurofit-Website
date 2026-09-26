@@ -75,6 +75,11 @@ export function Compare() {
         <div className="chart__row chart__row--us">
           <Timeline product={US} />
         </div>
+        {/* Phones only (site.css): there the others shrink to a row of pills,
+            and the one picked gets its moments here. */}
+        <div className="chart__row chart__row--them">
+          <Timeline product={other} />
+        </div>
         <div className="lg-seg lg-seg--cards chart__others" ref={track} role="group" aria-label="Compare with">
           <span className="lg-seg__thumb" aria-hidden="true" />
           {COMPETITORS.map((c) => (

@@ -1193,214 +1193,300 @@ a {
   line-height: 1.5;
 }
 
-/* ── narrow screens: the body above, the words below ───────────────────── */
+/* The picked product's own row, under Neuro-Fit's — phones only. On a wide
+   screen the others' rows carry their own moments. */
+.chart__row--them {
+  display: none;
+}
+
+/* ── phones: the body above, the words below ────────────────────────────
+   A layout of its own, not the wide one squeezed. The body gets the top of the
+   screen (the shots' narrowShift lifts it there, lib/story) and the words the
+   bottom:
+     - the opening stops set their words straight on the fog, over a fade of
+       it, so nothing boxes the body in;
+     - everything with more to it — the flow, the comparison, the finale, the
+       questions — is a sheet: rounded glass, docked to the bottom edge, never
+       taller than the room under the brand (it scrolls itself if it must);
+     - the flow shows only what the scene is doing now, and the comparison puts
+       just two products side by side, picked from a row of pills.
+   env(safe-area-*) needs `viewport-fit=cover` (index.html). */
 
 @media (max-width: 820px), (max-aspect-ratio: 1/1) {
+  :root {
+    --edge: 10px;
+    --safe-t: env(safe-area-inset-top, 0px);
+    --safe-b: env(safe-area-inset-bottom, 0px);
+    /* Clear of the brand and the button at the top. */
+    --top-room: calc(64px + var(--safe-t));
+    --sheet-bottom: calc(var(--edge) + var(--safe-b));
+  }
+
   .hud__brand {
-    top: 14px;
+    top: calc(16px + var(--safe-t));
+    left: 18px;
     font-size: 17px;
   }
   .hud__try {
-    top: 10px;
+    top: calc(11px + var(--safe-t));
+    right: var(--edge);
     padding: 9px 14px 8px;
   }
   .hud__boot {
-    bottom: 14px;
+    bottom: calc(14px + var(--safe-b));
   }
 
+  .h1 {
+    font-size: clamp(2.4rem, 11vw, 3.4rem);
+    line-height: 0.98;
+  }
+  .h2,
+  .panel .h2 {
+    font-size: clamp(1.5rem, 6.6vw, 2rem);
+  }
+
+  /* The opening stops: words on the fog, over a fade of it. */
   .copy,
   .copy--left,
-  .copy--right,
-  .copy--hero,
-  .copy--narrow {
-    left: 12px;
-    right: 12px;
+  .copy--hero {
+    left: 0;
+    right: 0;
     top: auto;
-    bottom: 46px;
+    bottom: 0;
     width: auto;
     transform: none;
-    padding: 16px 16px 18px;
-    background: var(--glass-2);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-  }
-  .stop--afterSet .copy {
-    top: 60px;
-    bottom: auto;
+    padding: 96px 22px calc(28px + var(--safe-b));
+    background: linear-gradient(
+      to top,
+      rgba(201, 214, 229, 0.94) 0%,
+      rgba(201, 214, 229, 0.86) 62%,
+      rgba(201, 214, 229, 0) 100%
+    );
   }
   .copy p,
   .lede {
-    margin-top: 10px;
-    font-size: 0.95rem;
-  }
-  .h1 {
-    font-size: clamp(2.1rem, 9vw, 3rem);
-  }
-  .h2 {
-    font-size: clamp(1.6rem, 7vw, 2.2rem);
-  }
-  /* Room is short: the explanation beside the debrief stays for screen
-     readers, and the debrief says it. */
-  .stop--afterSet .copy p:not(.fine) {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip: rect(0 0 0 0);
-  }
-  /* The debrief is this stop's whole point on a phone: it is set small enough
-     to fit whole under the heading, rather than cut off at a max-height. */
-  .debrief {
-    left: 12px;
-    right: 12px;
-    top: auto;
-    bottom: 42px;
-    width: auto;
-    padding: 14px 16px 16px;
-    transform: none;
-  }
-  .debrief__p,
-  .debrief__cues {
-    margin-top: 8px;
-    font-size: 0.8rem;
+    max-width: 30rem;
+    margin-top: 12px;
+    font-size: 1rem;
     line-height: 1.5;
   }
-  .stop--afterSet .h2 {
-    font-size: 1.5rem;
+  .copy .h1 + .lede {
+    margin-top: 16px;
   }
-  .stop--afterSet .copy .fine {
-    font-size: 0.82rem !important;
-  }
-  .finale {
-    left: 12px;
-    right: 12px;
-    top: auto;
-    bottom: 42px;
-    width: auto;
-    transform: none;
-    padding: 16px 16px 18px;
-    background: var(--glass-2);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-  }
-  .price,
-  .foot {
-    margin-top: 14px;
-  }
-  .is-live .faq__body {
-    top: 60px;
-    left: 12px;
-    right: 12px;
-    width: auto;
-    max-height: calc(100% - 60px - 260px);
-    padding: 16px 18px 18px;
-    transform: none;
-    font-size: 0.85rem;
-  }
-  .finale .h2 {
-    margin-bottom: 18px;
+  .hint {
+    margin-top: 20px !important;
   }
 
-  .panel {
-    left: 12px;
-    right: 12px;
+  /* Sheets. */
+  .panel,
+  .finale,
+  .is-live .faq__body {
+    left: var(--edge);
+    right: var(--edge);
     top: auto;
-    bottom: 42px;
+    bottom: var(--sheet-bottom);
     width: auto;
+    max-height: calc(100% - var(--top-room) - var(--sheet-bottom));
     transform: none;
-  }
-  .panel .h2 {
-    font-size: 1.5rem;
-  }
-  .flow {
-    padding: 14px 14px 16px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    border: 0;
+    border-radius: 26px;
     background: var(--glass-2);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(18px) saturate(160%);
+    -webkit-backdrop-filter: blur(18px) saturate(160%);
+    box-shadow:
+      inset 0 0 0 0.5px rgba(255, 255, 255, 0.7),
+      inset 0 1px 1px rgba(255, 255, 255, 0.9),
+      0 18px 40px -18px rgba(21, 25, 30, 0.35);
+    scrollbar-width: none;
   }
+  .panel,
+  .finale {
+    padding: 20px 20px 22px;
+  }
+
+  /* The flow: all four on-device steps as one line each — the one the scene
+     is on opens — and nothing kept for the read until it comes back. When it
+     does, it takes the steps' place. */
   .flow .h2 {
-    margin-bottom: 8px;
+    margin-bottom: 12px;
   }
-  /* A phone is short on room: the steps shrink to one line each, the one on
-     shows its words, and the read coming back is set small. */
   .flow__zone-label {
-    margin-bottom: 4px;
+    margin-bottom: 6px;
   }
   .flow__step {
-    padding: 2px 0 2px 22px;
+    padding: 3px 0 3px 22px;
   }
   .flow__step::before {
-    top: 6px;
+    top: 8px;
     width: 10px;
     height: 10px;
   }
   .flow__title {
-    font-size: 0.8rem;
+    font-size: 0.9rem;
   }
   .flow__text {
-    font-size: 0.72rem;
-    line-height: 1.35;
+    font-size: 0.82rem;
+    line-height: 1.4;
   }
   .flow__border {
-    margin: 6px 0;
+    margin: 10px 0;
+  }
+  .is-live .flow__read:not(.is-on) {
+    display: none;
+  }
+  .is-live .flow:has(.flow__read.is-on) :is(.flow__zone-label, .flow__steps:not(.flow__steps--ask)) {
+    display: none;
+  }
+  /* Room for the dots going out, now nothing sits above the border. */
+  .is-live .flow:has(.flow__read.is-on) .flow__border {
+    margin-top: 44px;
   }
   .flow__read {
-    margin-top: 6px;
-    padding: 10px 12px 12px;
+    margin-top: 10px;
+    padding: 14px 16px 16px;
+    border: 0;
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.5);
   }
   .flow__read .debrief__label {
-    font-size: 10px;
+    font-size: 10.5px;
   }
   .flow__read .debrief__p,
   .flow__read .debrief__cues {
-    margin-top: 5px;
-    font-size: 0.72rem;
-    line-height: 1.4;
+    margin-top: 7px;
+    font-size: 0.84rem;
+    line-height: 1.45;
   }
-  .compare {
-    padding: 14px 12px 12px;
-  }
+
+  /* The comparison: pick one from the pills, and the chart shows Neuro-Fit
+     and that one — the product's name over its three moments. */
   .compare__intro {
-    font-size: 0.8rem;
+    margin-top: 6px;
+    font-size: 0.88rem;
   }
   .chart {
-    margin-top: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 14px;
   }
-  .chart__row,
+  .chart__others {
+    order: -1;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 2px;
+    margin: 0 0 6px;
+    padding: 4px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.28);
+    box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.6);
+  }
   .chart__others > .lg-seg__item.chart__row {
-    grid-template-columns: 4.4rem repeat(3, minmax(0, 1fr));
-    gap: 0 6px;
-    padding: 5px 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 4px 7px;
+    border-radius: 999px;
+    text-align: center;
+  }
+  .chart__others .chart__name {
+    font-size: 0.8rem;
+    white-space: nowrap;
+  }
+  .chart__others .chart__cell {
+    display: none;
+  }
+  .chart__others .lg-seg__thumb,
+  .chart__others .lg-seg__lens {
+    border-radius: 999px;
+  }
+  .chart__row {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 4px 8px;
+    padding: 10px 12px;
   }
   .chart__row--head {
-    font-size: 8.5px;
-    letter-spacing: 0.04em;
+    padding: 0 12px;
+    font-size: 9.5px;
+    letter-spacing: 0.06em;
   }
-  .chart__name {
-    font-size: 0.74rem;
+  .chart__row--head > span:first-child {
+    display: none;
+  }
+  .chart__row > .chart__name {
+    grid-column: 1 / -1;
+    font-size: 0.9rem;
+  }
+  .chart__row--us {
+    border-radius: 16px;
+  }
+  .chart__row--them {
+    display: grid;
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.5);
+  }
+  .chart__row--them .chart__cell {
+    color: var(--ink);
   }
   .chart__cell {
-    gap: 4px;
-    font-size: 0.64rem;
-  }
-  .chart__dot {
-    width: 7px;
-    height: 7px;
-    margin-top: 3px;
+    font-size: 0.76rem;
   }
   .versus {
-    margin-top: 10px;
-    font-size: 0.7rem;
+    margin-top: 14px;
+    font-size: 0.8rem;
   }
   .versus th,
   .versus td {
-    padding: 4px 6px 4px 0;
+    padding: 7px 8px 7px 0;
   }
   .versus tbody th {
-    width: 4.8rem;
+    width: 5.6rem;
   }
   .compare__src {
-    font-size: 0.64rem;
+    margin-top: 12px;
+    font-size: 0.7rem;
+  }
+
+  /* The finale. */
+  .finale .h2 {
+    margin-bottom: 18px;
+  }
+  .price {
+    margin-top: 18px;
+    font-size: 0.92rem;
+  }
+  .foot {
+    margin-top: 16px;
+  }
+
+  /* The questions: a sheet of their own, over the top of the finale's. */
+  .is-live .faq__body {
+    top: var(--top-room);
+    bottom: auto;
+    max-height: calc(100% - var(--top-room) - 300px);
+    padding: 18px 20px 20px;
+    font-size: 0.9rem;
+  }
+}
+
+/* A short phone (an SE, or a landscape one): the opening words tighten. */
+@media ((max-width: 820px), (max-aspect-ratio: 1/1)) and (max-height: 700px) {
+  .copy,
+  .copy--left,
+  .copy--hero {
+    padding-top: 72px;
+  }
+  .copy p,
+  .lede {
+    font-size: 0.92rem;
+  }
+  .h1 {
+    font-size: clamp(2.1rem, 9.5vw, 2.8rem);
+  }
+  /* The read comes back taller than the room under the phone's readout. */
+  .stop--flow:has(.flow__read.is-on) .phone-tag {
+    visibility: hidden;
   }
 }
 
