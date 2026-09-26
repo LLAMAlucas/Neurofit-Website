@@ -35,6 +35,7 @@ import type { ImageFrame } from "./frameBuffer";
 import type { PushupPostSetData, PushupPostWorkoutData } from "../pushup/payload";
 import type { PullupPostSetData, PullupPostWorkoutData } from "../pullup/payload";
 import { quota, recordCall } from "../usage/usageStore";
+import { generateBody, generateEndpoint } from "./requestBody";
 import {
   POSTSET_SYSTEM,
   POSTWORKOUT_SYSTEM,
@@ -45,8 +46,7 @@ import {
 } from "./prompts";
 
 const MODEL = import.meta.env.GEMINI_MODEL ?? import.meta.env.VITE_GEMINI_MODEL ?? "gemini-3.6-flash";
-const ENDPOINT = (model: string) =>
-  `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+const ENDPOINT = generateEndpoint;
 
 // The key is the USER'S, entered in Settings and kept in localStorage on their
 // own device. It is deliberately NOT read from the environment in a production
@@ -481,8 +481,15 @@ export interface GeminiCallObservation {
   timestampMs: number;
   /** The exact JSON payload object sent (measured / causal_flags separate, as sent). */
   payload: unknown;
-  /** Frames that accompanied the call (0 on a rate-limit skip — none selected). */
-  frames: { count: number; timestamps: number[] };
+  /** Frames that accompanied the call (0 on a rate-limit skip — none selected). `images` =
+   *  the frames exactly as sent, so a dev replay can re-send them (the log used to keep only
+   *  timestamps, so no past call could be tried on another model). Filled only while an
+   *  observer is registered — zero work in production. */
+  frames: { count: number; timestamps: number[]; images?: ImageFrame[] };
+  /** The rest of the request a replay needs besides payload + images: the model, the system
+   *  prompt as sent (prompts.ts drifts) and the generationConfig. Never the key. Filled only
+   *  while an observer is registered. */
+  request?: GeminiRequestRecord;
   /** `skipped_quota` = blocked locally by the usage cap; nothing was sent. */
   outcome: "response" | "no_cue" | "skipped_rate_limit" | "skipped_quota" | "error";
   /** Raw model text verbatim, including "NO_CUE"; null on skip/error. */
@@ -497,6 +504,11 @@ export interface GeminiCallObservation {
   finishReason?: string | null;
   /** Token accounting from usageMetadata (thoughtsTokenCount = thinking tokens). */
   usage?: GeminiUsage | null;
+}
+export interface GeminiRequestRecord {
+  model: string;
+  system: string;
+  generationConfig: Record<string, unknown>;
 }
 let callObserver: ((o: GeminiCallObservation) => void) | null = null;
 /** Register (or clear with null) the dev-only call observer. */
@@ -552,19 +564,10 @@ function errMsg(e: unknown): string {
 
 // System prompts live in ai/prompts.ts (pure, so the Node checks can read them).
 
-/** Core generate: system + JSON payload + inline images. Throws on HTTP error.
- *  `tier` selects the thinking level from GEMINI.thinking; when GEMINI.sendThinking
+/** `tier` selects the thinking level from GEMINI.thinking; when GEMINI.sendThinking
  *  is on we send `thinkingConfig.thinkingLevel` and OMIT temperature (Gemini 3.x
  *  guidance — the default 1.0 is recommended; lowering it risks thinking loops). */
-async function geminiGenerate(
-  system: string,
-  payload: unknown,
-  images: string[],
-  maxTokens: number,
-  tier: keyof typeof GEMINI.thinking,
-): Promise<GeminiExtract> {
-  const parts: Record<string, unknown>[] = [{ text: system }, { text: JSON.stringify(payload) }];
-  for (const b64 of images) parts.push({ inline_data: { mime_type: "image/jpeg", data: b64 } });
+function generationConfigFor(maxTokens: number, tier: keyof typeof GEMINI.thinking): Record<string, unknown> {
   const generationConfig: Record<string, unknown> = { maxOutputTokens: maxTokens };
   if (GEMINI.sendThinking) {
     // REST v1beta: thinking is nested under generationConfig.thinkingConfig.
@@ -572,12 +575,27 @@ async function geminiGenerate(
   } else {
     generationConfig.temperature = 0.4;
   }
+  return generationConfig;
+}
+
+/** Dev replay record for the observer; null work when nothing is subscribed. */
+function requestRecord(system: string, generationConfig: Record<string, unknown>): GeminiRequestRecord | undefined {
+  return callObserver ? { model: MODEL, system, generationConfig } : undefined;
+}
+
+/** Core generate: system + JSON payload + inline images. Throws on HTTP error. */
+async function geminiGenerate(
+  system: string,
+  payload: unknown,
+  images: string[],
+  generationConfig: Record<string, unknown>,
+): Promise<GeminiExtract> {
   // Key travels as a header, never in the query string: a URL-borne key lands in
   // proxy logs, Referer headers and browser history, and this one is the user's.
   const res = await fetch(ENDPOINT(MODEL), {
     method: "POST",
     headers: { "Content-Type": "application/json", "x-goog-api-key": getApiKey() },
-    body: JSON.stringify({ contents: [{ parts }], generationConfig }),
+    body: JSON.stringify(generateBody(system, payload, images, generationConfig)),
   });
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
@@ -654,7 +672,13 @@ export function callPostSet(
   const firedAt = Date.now();
   const frames = selectPostSetFrames(archive);
   const images = frames.map((f) => f.jpegBase64);
-  const framesMeta = { count: frames.length, timestamps: frames.map((f) => f.timestampMs) };
+  // Snapshot for the dev log: the JPEG strings are shared, only the small tag arrays are copied
+  // (the ring keeps tagging frames after this call went out).
+  const framesMeta = {
+    count: frames.length,
+    timestamps: frames.map((f) => f.timestampMs),
+    images: callObserver ? frames.map((f) => ({ ...f, triggerTags: [...f.triggerTags] })) : undefined,
+  };
   // Cap raised 2048→8192: "medium" thinking draws from this budget and the detailed
   // debrief needs room — a tight cap truncated the analysis mid-sentence (finishReason
   // MAX_TOKENS), now flagged rather than shown as if complete.
@@ -662,19 +686,21 @@ export function callPostSet(
   // squat payload is unchanged and has none), so the prompt can never be paired with the wrong data.
   const exercise = "exercise" in data ? data.exercise : "squat";
   const system = exercise === "pushup" ? PUSHUP_POSTSET_SYSTEM : exercise === "pullup" ? PULLUP_POSTSET_SYSTEM : POSTSET_SYSTEM;
-  void geminiGenerate(system, data, images, 8192, "postSet")
+  const config = generationConfigFor(8192, "postSet");
+  const request = requestRecord(system, config);
+  void geminiGenerate(system, data, images, config)
     .then(({ text, finishReason, usage }) => {
       const t = (text ?? "").trim();
       if (finishReason && finishReason !== "STOP") {
         // Truncated / abnormal finish — do NOT surface as a normal debrief.
-        emitObs({ tier: "post_set", timestampMs: Date.now(), payload: data, frames: framesMeta, outcome: "error", responseText: t || null, latencyMs: Date.now() - firedAt, errorMessage: `truncated (finishReason=${finishReason})`, finishReason, usage });
+        emitObs({ tier: "post_set", timestampMs: Date.now(), payload: data, frames: framesMeta, request, outcome: "error", responseText: t || null, latencyMs: Date.now() - firedAt, errorMessage: `truncated (finishReason=${finishReason})`, finishReason, usage });
         return callback(null);
       }
-      emitObs({ tier: "post_set", timestampMs: Date.now(), payload: data, frames: framesMeta, outcome: t ? "response" : "no_cue", responseText: t || null, latencyMs: Date.now() - firedAt, finishReason, usage });
+      emitObs({ tier: "post_set", timestampMs: Date.now(), payload: data, frames: framesMeta, request, outcome: t ? "response" : "no_cue", responseText: t || null, latencyMs: Date.now() - firedAt, finishReason, usage });
       callback(t || null);
     })
     .catch((e) => {
-      emitObs({ tier: "post_set", timestampMs: Date.now(), payload: data, frames: framesMeta, outcome: "error", responseText: null, latencyMs: Date.now() - firedAt, errorMessage: errMsg(e) });
+      emitObs({ tier: "post_set", timestampMs: Date.now(), payload: data, frames: framesMeta, request, outcome: "error", responseText: null, latencyMs: Date.now() - firedAt, errorMessage: errMsg(e) });
       callback(null);
     });
 }
@@ -695,19 +721,21 @@ export function callPostWorkout(
   // tokens can't truncate it.
   const exercise = "exercise" in data ? data.exercise : "squat";
   const system = exercise === "pushup" ? PUSHUP_POSTWORKOUT_SYSTEM : exercise === "pullup" ? PULLUP_POSTWORKOUT_SYSTEM : POSTWORKOUT_SYSTEM;
-  void geminiGenerate(system, data, [], 4096, "postWorkout")
+  const config = generationConfigFor(4096, "postWorkout");
+  const request = requestRecord(system, config);
+  void geminiGenerate(system, data, [], config)
     .then(({ text, finishReason, usage }) => {
       const t = (text ?? "").trim();
       if (finishReason && finishReason !== "STOP") {
         // Truncated / abnormal finish — do NOT surface as a normal summary.
-        emitObs({ tier: "post_workout", timestampMs: Date.now(), payload: data, frames: framesMeta, outcome: "error", responseText: t || null, latencyMs: Date.now() - firedAt, errorMessage: `truncated (finishReason=${finishReason})`, finishReason, usage });
+        emitObs({ tier: "post_workout", timestampMs: Date.now(), payload: data, frames: framesMeta, request, outcome: "error", responseText: t || null, latencyMs: Date.now() - firedAt, errorMessage: `truncated (finishReason=${finishReason})`, finishReason, usage });
         return callback(null);
       }
-      emitObs({ tier: "post_workout", timestampMs: Date.now(), payload: data, frames: framesMeta, outcome: t ? "response" : "no_cue", responseText: t || null, latencyMs: Date.now() - firedAt, finishReason, usage });
+      emitObs({ tier: "post_workout", timestampMs: Date.now(), payload: data, frames: framesMeta, request, outcome: t ? "response" : "no_cue", responseText: t || null, latencyMs: Date.now() - firedAt, finishReason, usage });
       callback(t || null);
     })
     .catch((e) => {
-      emitObs({ tier: "post_workout", timestampMs: Date.now(), payload: data, frames: framesMeta, outcome: "error", responseText: null, latencyMs: Date.now() - firedAt, errorMessage: errMsg(e) });
+      emitObs({ tier: "post_workout", timestampMs: Date.now(), payload: data, frames: framesMeta, request, outcome: "error", responseText: null, latencyMs: Date.now() - firedAt, errorMessage: errMsg(e) });
       callback(null);
     });
 }

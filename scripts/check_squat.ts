@@ -5,7 +5,7 @@
    They validate the math + gating (incl. severity zones, per-check tolerance
    EDGES, and the AI-trigger coordinator), NOT real footage. Real-footage edge
    validation is a manual step — see TOLERANCE_VALIDATION.md.                  */
-import { ORIENTATION, SEVERITY, SQUAT, TRIGGERS } from "../src/neurofit/squat/config";
+import { GEMINI, ORIENTATION, SEVERITY, SQUAT, TRIGGERS } from "../src/neurofit/squat/config";
 import { computeSquatFrame, type SquatFrame } from "../src/neurofit/squat/frame";
 import { SquatRepTracker, type SquatRep } from "../src/neurofit/squat/repCounter";
 import { VelocityTracker } from "../src/neurofit/squat/velocity";
@@ -30,6 +30,7 @@ import {
 } from "../src/neurofit/squat/checks";
 import { BaselineTracker, EccentricTracker, PersistenceGate } from "../src/neurofit/squat/dynamics";
 import { LandmarkBuffer, ImageBuffer } from "../src/neurofit/ai/frameBuffer";
+import { bodyCropRect, fitWithin, type CropPoint } from "../src/neurofit/ai/frameGeometry";
 import {
   classify,
   distanceFromOrientation,
@@ -536,6 +537,63 @@ check("image buffer: ring cap drops oldest", ib.getAll().length === 3 && ib.getA
 check("image buffer: getFramesAround windows correctly", ib.getFramesAround(500, 300, 100).length === 2);
 ib.tagFrames(500, "knee_valgus", 0.7, 300);
 check("image buffer: tagFrames tags nearby frames", ib.getAll().some((f) => f.triggerTags.some((t) => t.triggerType === "knee_valgus")));
+
+// --- Gemini frame geometry: keep the camera's shape, crop to the body -------
+// The sent JPEG used to be the full frame squashed into a fixed 640×480 — 25% narrower on a
+// 1280×720 feed, far worse on a portrait phone — so Gemini judged angles off bent bodies.
+{
+  const aspectErr = (w: number, h: number, o: { width: number; height: number }) => Math.abs(o.width / o.height / (w / h) - 1);
+  check("frame fit: no fixed output height left in config (shape comes from the source)", !("height" in GEMINI.image) && !("width" in GEMINI.image));
+  const land = fitWithin(1280, 720, 640);
+  check("frame fit: 1280×720 → 640×360", land.width === 640 && land.height === 360);
+  const port = fitWithin(720, 1280, 640);
+  check("frame fit: portrait 720×1280 → 360×640", port.width === 360 && port.height === 640);
+  const small = fitWithin(300, 500, 640);
+  check("frame fit: a crop smaller than the cap is never upscaled", small.width === 300 && small.height === 500);
+  check("frame fit: an odd crop keeps its shape within 1%", aspectErr(347, 611, fitWithin(347, 611, 640)) < 0.01 && aspectErr(1111, 233, fitWithin(1111, 233, 640)) < 0.01);
+
+  // A standing body as 33 points: x 0.44–0.56, y 0.10–0.90, all visible, plus one joint MediaPipe
+  // placed at the corner with low visibility (a hidden limb) that must not widen the box.
+  const body: CropPoint[] = Array.from({ length: 33 }, (_, i) => ({ x: 0.44 + 0.12 * ((i * 7) % 33) / 32, y: 0.1 + 0.8 * (i / 32), visibility: 0.9 }));
+  body[5] = { x: 0.02, y: 0.02, visibility: 0.1 };
+  const opts = GEMINI.image.crop;
+  const visible = body.filter((p) => (p.visibility ?? 0) >= opts.minVisibility);
+  for (const [W, H] of [[1280, 720], [720, 1280]] as const) {
+    const r = bodyCropRect(body, W, H, opts);
+    const tag = `${W}×${H}`;
+    check(`body crop ${tag}: returns a crop`, r !== null);
+    if (!r) continue;
+    const xs = visible.map((p) => p.x * W);
+    const ys = visible.map((p) => p.y * H);
+    const [minX, maxX, minY, maxY] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+    check(`body crop ${tag}: contains every visible landmark`, r.x <= minX && r.y <= minY && r.x + r.w >= maxX && r.y + r.h >= maxY);
+    check(`body crop ${tag}: stays inside the frame`, r.x >= 0 && r.y >= 0 && r.x + r.w <= W && r.y + r.h <= H);
+    check(`body crop ${tag}: the hidden corner joint does not widen the box`,
+      JSON.stringify(r) === JSON.stringify(bodyCropRect(body.filter((_, i) => i !== 5), W, H, opts)));
+    // Unclamped sides get the same margin in PIXELS on x and y (a normalized margin would be 16:9-uneven).
+    const pad = opts.padFrac * Math.max(maxX - minX, maxY - minY);
+    const padL = minX - r.x;
+    const padR = r.x + r.w - maxX;
+    check(`body crop ${tag}: left/right margin = padFrac × longer side (±1 px)`, Math.abs(padL - pad) <= 1 && Math.abs(padR - pad) <= 1);
+    if (r.y > 0) check(`body crop ${tag}: top margin equals the side margin in pixels (±1 px)`, Math.abs(minY - r.y - padL) <= 1);
+    check(`body crop ${tag}: the encoded crop keeps its shape within 1%`, aspectErr(r.w, r.h, fitWithin(r.w, r.h, GEMINI.image.maxEdgePx)) < 0.01);
+    check(`body crop ${tag}: smaller than the full frame (background cut)`, r.w * r.h < W * H);
+  }
+  // A horizontal (push-up) body: nothing clamps, so the x and y margins must match in pixels.
+  const plank: CropPoint[] = Array.from({ length: 33 }, (_, i) => ({ x: 0.2 + 0.6 * (i / 32), y: 0.5 + 0.1 * ((i * 5) % 33) / 32, visibility: 0.9 }));
+  const rp = bodyCropRect(plank, 1280, 720, opts);
+  const pxs = plank.map((p) => p.x * 1280);
+  const pys = plank.map((p) => p.y * 720);
+  check("body crop: push-up body, top margin = left margin in pixels (±1 px)",
+    rp !== null && rp.y > 0 && Math.abs((Math.min(...pys) - rp.y) - (Math.min(...pxs) - rp.x)) <= 1);
+  // A body at the right edge is clamped, never pushed past the frame.
+  const edge = body.map((p) => ({ ...p, x: Math.min(1, p.x + 0.43) }));
+  const re = bodyCropRect(edge, 1280, 720, opts);
+  check("body crop: a body at the frame edge clamps to the edge", re !== null && re.x + re.w === 1280);
+  check("body crop: too few visible landmarks → null (send the full frame)",
+    bodyCropRect(body.map((p, i) => ({ ...p, visibility: i < opts.minPoints - 1 ? 0.9 : 0.1 })), 1280, 720, opts) === null);
+  check("body crop: no landmarks → null", bodyCropRect(null, 1280, 720, opts) === null && bodyCropRect([], 1280, 720, opts) === null);
+}
 
 // --- Dev eval-log trigger table (descriptive audit of fired/not-fired) -----
 function stubMetrics(over: Partial<Record<string, "ok" | "warn">> = {}): RepMetrics {

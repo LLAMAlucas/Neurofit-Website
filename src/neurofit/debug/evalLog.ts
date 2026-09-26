@@ -21,7 +21,7 @@ import { GEMINI, SQUAT, TRIGGERS, DEPTH_PRESETS, type SquatMode } from "../squat
 import type { MetricId, Orientation } from "../squat/metrics";
 import type { RepMetrics } from "../squat/checks";
 import type { LandmarkSample, TriggerTag } from "../ai/frameBuffer";
-import type { GeminiCallObservation } from "../ai/gemini";
+import type { GeminiCallObservation, GeminiRequestRecord } from "../ai/gemini";
 import { PUSHUP, PUSHUP_DEPTH_PRESETS, PUSHUP_TRIGGERS } from "../pushup/config";
 import { buildPushupTriggerTable, type PushupEvalContext } from "../pushup/evalTable";
 import type { PushupRepRecord } from "../pushup/session";
@@ -113,7 +113,13 @@ export interface GeminiCallLog {
   rep: number | null;
   /** Exact JSON payload sent (measured + causal_flags are already separate objects). */
   payload: unknown;
-  frames_sent: { count: number; timestamps: number[] };
+  /** `images` holds the JPEGs exactly as sent (post-set), so the call can be replayed against
+   *  another model — see scripts/replay_calls.ts. Logs exported before 2026-09-26 have
+   *  timestamps only, and their frames were squashed into 640×480. */
+  frames_sent: GeminiCallObservation["frames"];
+  /** Model, system prompt as sent, generationConfig — the rest of a replay. Never the key.
+   *  null on a local skip (nothing was sent) and in logs exported before 2026-09-26. */
+  request: GeminiRequestRecord | null;
   /** Verbatim model text, including "NO_CUE"; null on error or skip. */
   response_raw: string | null;
   /** Mid-set: was the cue surfaced to the user or suppressed (NO_CUE / skip / error)? */
@@ -273,6 +279,7 @@ function thresholdSnapshot(exercise: ExerciseId): Record<string, unknown> {
       velocityCollapse_ofBaseline: TRIGGERS.velocityCollapse.ofBaseline,
       top_presets: Object.fromEntries(Object.values(PULLUP_TOP_PRESETS).map((p) => [p.id, { chinClearance: p.chinClearanceTarget, pullRatio: p.pullRatioTarget }])),
       gemini_thinking: GEMINI.thinking,
+      gemini_image: GEMINI.image,
     };
   }
   if (exercise === "pushup") {
@@ -291,6 +298,7 @@ function thresholdSnapshot(exercise: ExerciseId): Record<string, unknown> {
       velocityCollapse_ofBaseline: TRIGGERS.velocityCollapse.ofBaseline,
       depth_presets: Object.fromEntries(Object.values(PUSHUP_DEPTH_PRESETS).map((p) => [p.id, { upperArmDeg: p.targetUpperArmDeg, frontRatio: p.frontRatioTarget }])),
       gemini_thinking: GEMINI.thinking,
+      gemini_image: GEMINI.image,
     };
   }
   return {
@@ -314,6 +322,9 @@ function thresholdSnapshot(exercise: ExerciseId): Record<string, unknown> {
     depth_presets: Object.fromEntries(Object.values(DEPTH_PRESETS).map((p) => [p.id, p.targetGap])),
     front_ratio_targets: { ...SQUAT.frontRatioTarget }, // UNVALIDATED — front-view depth counting floors
     gemini_thinking: GEMINI.thinking,
+    // Frames before 2026-09-26 were the full frame squashed into 640×480; from then on they
+    // are cropped to the body with the camera's shape kept.
+    gemini_image: GEMINI.image,
   };
 }
 
@@ -855,6 +866,7 @@ export function logGeminiObservation(obs: GeminiCallObservation): void {
     rep: p?.rep_context?.rep_number ?? null,
     payload: obs.payload,
     frames_sent: obs.frames,
+    request: obs.request ?? null,
     response_raw: obs.responseText,
     surfaced: obs.outcome === "response",
     latency_ms: obs.latencyMs ?? null,

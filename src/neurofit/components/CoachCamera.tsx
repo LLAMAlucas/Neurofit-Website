@@ -27,6 +27,7 @@ import { POSE_LANDMARK_INDEX } from "../pose/landmarks";
 import { decideExposure, lumaStats, type ExposureDecision } from "../vision/exposure";
 import { setShoulderHipFrameSize } from "../debug/shoulderHipLog";
 import { GEMINI } from "../squat/config";
+import { bodyCropRect, fitWithin } from "../ai/frameGeometry";
 
 type CameraState =
   | { status: "idle" }
@@ -111,10 +112,15 @@ export function CoachCamera({
   const [delegate, setDelegate] = useState<"GPU" | "CPU" | null>(null);
   const detCountRef = useRef(0);
 
-  // -- Capture handle: hand a DOWNSCALED JPEG grabber to the parent ---------
-  // Downscaled to GEMINI.image resolution/quality (spec Part 2) so both the live
-  // Gemini calls and the image buffer get a small 640x480 q0.75 frame.
+  // -- Capture handle: hand a CROPPED, DOWNSCALED JPEG grabber to the parent --
+  // Cropped to the lifter (the latest landmarks) and scaled so the long side is at most
+  // GEMINI.image.maxEdgePx, keeping the source's shape — a fixed 640x480 target squashed a
+  // 16:9 feed 25% sideways and bent the angles Gemini judges. Full frame when too few
+  // landmarks are visible to trust a crop.
   const scaleCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  /** Landmarks of the frame currently on procRef — set in the draw loop just before onResult,
+   *  which is where the parent calls capture, so the crop always matches the pixels. */
+  const lastLandmarksRef = useRef<NormalizedLandmark[] | null>(null);
   useEffect(() => {
     captureRef.current = () => {
       const proc = procRef.current;
@@ -124,11 +130,18 @@ export function CoachCamera({
         sc = document.createElement("canvas");
         scaleCanvasRef.current = sc;
       }
-      sc.width = GEMINI.image.width;
-      sc.height = GEMINI.image.height;
+      const src = bodyCropRect(lastLandmarksRef.current, proc.width, proc.height, GEMINI.image.crop) ?? {
+        x: 0,
+        y: 0,
+        w: proc.width,
+        h: proc.height,
+      };
+      const out = fitWithin(src.w, src.h, GEMINI.image.maxEdgePx);
+      sc.width = out.width;
+      sc.height = out.height;
       const ctx = sc.getContext("2d");
       if (!ctx) return null;
-      ctx.drawImage(proc, 0, 0, sc.width, sc.height);
+      ctx.drawImage(proc, src.x, src.y, src.w, src.h, 0, 0, out.width, out.height);
       // strip the "data:image/jpeg;base64," prefix
       return sc.toDataURL("image/jpeg", GEMINI.image.jpegQuality).split(",")[1] ?? null;
     };
@@ -260,6 +273,7 @@ export function CoachCamera({
           detCountRef.current += 1;
           drawCoachPose(overlayCtx, result, kneeWarnRef.current, debugGapRef.current, debugValgusRef.current, debugTagsRef.current);
           setShoulderHipFrameSize(proc.width, proc.height); // debug-only, inert when off
+          lastLandmarksRef.current = result.landmarks[0] ?? null;
           onResultRef.current(result, { width: proc.width, height: proc.height });
         }
       }

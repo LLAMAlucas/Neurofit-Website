@@ -307,8 +307,25 @@ export const GEMINI = {
     cadenceMs: 250,
     /** Hard cap on retained frames (ring buffer). */
     maxFrames: 30,
-    width: 640,
-    height: 480,
+    /** Long side of the sent JPEG (px); the short side follows the source's shape. Replaced a
+     *  fixed 640×480 (2026-09-26), which squashed a 1280×720 feed 25% sideways — and a portrait
+     *  phone far worse — so Gemini judged lean and knee cave from bent bodies (the image twin of
+     *  the landmark-angle bug fixed 2026-09-18). 640 = the old width. Never downscale into a fixed
+     *  W×H again. Smaller crops are never upscaled (no new detail, just more pixels). */
+    maxEdgePx: 640,
+    /** Crop each frame to the lifter (ai/frameGeometry.ts `bodyCropRect`). All UNVALIDATED. */
+    crop: {
+      /** Landmarks below this don't widen the box — MediaPipe still places off-screen and hidden
+       *  joints, at low visibility. Same 0.5 the skeleton overlay uses to draw a joint. */
+      minVisibility: 0.5,
+      /** Fewer visible landmarks than this → send the full frame. A box from a handful of points
+       *  (lifter half out of shot) could cut away the body the model is asked to judge. */
+      minPoints: 6,
+      /** Margin on every side, as a fraction of the box's longer side (same pixels on x and y).
+       *  Landmarks sit on joint centres, not the body's edge, and the model needs a little scene:
+       *  the floor under the feet / hands and the bar above the knuckles. */
+      padFrac: 0.2,
+    },
     /** JPEG quality for toDataURL (0–1; spec's "75" → 0.75). */
     jpegQuality: 0.75,
   },
