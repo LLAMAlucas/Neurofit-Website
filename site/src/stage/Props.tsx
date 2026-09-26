@@ -115,6 +115,9 @@ const LENS = new Vector3(0, PHONE_H - 0.022, -PHONE_D / 2);
 const VIEW_HALF_W = 0.72;
 const VIEW_BOTTOM = -0.02;
 const VIEW_TOP = 2.12;
+/** The lens in the world: the phone stands at PHONE_AT, leaned back. The
+ *  flow's scan lights the body from here (ParticleBody). */
+export const PHONE_LENS = LENS.clone().applyAxisAngle(new Vector3(1, 0, 0), PHONE_LEAN).add(PHONE_AT);
 /** How far past the body the cone runs before it ends. */
 const VIEW_BACK = -0.35;
 
@@ -191,8 +194,7 @@ export function Phone() {
     return g;
   }, []);
 
-  // The lens in the world: the phone stands at PHONE_AT, leaned back.
-  const apex = useMemo(() => LENS.clone().applyAxisAngle(new Vector3(1, 0, 0), PHONE_LEAN).add(PHONE_AT), []);
+  const apex = PHONE_LENS;
   const cone = useMemo(() => coneGeometry(apex), [apex]);
   const coneMat = useMemo(
     () =>
@@ -240,7 +242,9 @@ export function Phone() {
     [grains, lens, cone, grainMat, lensMat, coneMat],
   );
 
-  const amount = () => store.cone;
+  // The phone itself shows for its view (the setup stop) and on its own (the
+  // flow, which draws the phone's scan on the body instead of the cone).
+  const amount = () => Math.max(store.cone, store.phoneShow);
   useGrainSync(grainMat, amount, group);
   useGrainSync(lensMat, amount, lensPts);
   const tag = useMemo(() => new Vector3(), []);

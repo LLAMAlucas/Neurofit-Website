@@ -72,6 +72,28 @@ export type StageStore = {
   lift: number;
   /** Radians the body is turned about the vertical (the finale's slow turn). */
   spin: number;
+
+  /* ── the flow stop (lib/flowScript) ──────────────────────────────────── */
+  /** Which of its steps the reader is on, −1 off the stop. */
+  flowStep: number;
+  /** Cycles of the dots going out across the border — scrubbed by scroll. */
+  flowStream: number;
+  /** Radians the body is turned to the phone: its side view. */
+  turn: number;
+  /** 0…1: the phone on the floor, without its view (the flow shows the phone
+   *  and draws the scan itself). */
+  phoneShow: number;
+  /** The phone's scan: how lit the front it faces is (0…1), and the sweep
+   *  line's height, metres (world). */
+  scan: number;
+  scanY: number;
+  /** 0…1: the 33 points and their lines, and seconds since they started being
+   *  marked (each point and line pops in on its own clock). */
+  marks: number;
+  marksClock: number;
+  /** The 33 points, xyz in the body's own space — written by the body each
+   *  frame from its posed bones, drawn by Landmarks. */
+  landmarks: Float32Array;
   /** The glass box around the body on screen, CSS px — the only place a touch
    *  throws particles instead of scrolling the page. */
   box: { x: number; y: number; w: number; h: number };
@@ -112,6 +134,15 @@ export const store: StageStore = {
   holo: 0,
   lift: 0,
   spin: 0,
+  flowStep: -1,
+  flowStream: 0,
+  turn: 0,
+  phoneShow: 0,
+  scan: 0,
+  scanY: 0,
+  marks: 0,
+  marksClock: 0,
+  landmarks: new Float32Array(33 * 3),
   box: { x: 0, y: 0, w: 0, h: 0 },
   labels: [
     { x: 0, y: 0 },

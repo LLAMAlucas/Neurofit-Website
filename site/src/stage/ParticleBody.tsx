@@ -37,9 +37,11 @@ import { sampleSkinned } from "@/lib/sampleSkinned";
 import { sampleSkeleton } from "@/lib/sampleSkeleton";
 import { nearestK } from "@/lib/nearest";
 import { grainScale } from "@/lib/quality";
-import { J } from "@/lib/pose";
 import type { ExerciseId } from "@/lib/exercises";
+import { J } from "@/lib/pose";
 import { ParticleSim, type Cursor } from "./particleSim";
+import { Landmarks, writeLandmarks } from "./Landmarks";
+import { PHONE_LENS } from "./Props";
 import { store } from "./store";
 import vertexShader from "./shaders/particleBody.vert.glsl?raw";
 import fragmentShader from "./shaders/particleBody.frag.glsl?raw";
@@ -103,8 +105,22 @@ const CAPSULES: Record<ExerciseId, Record<string, Capsule[]>> = {
 /** How the model is placed in each exercise (lib/retarget). */
 const ANCHORS: Record<ExerciseId, Anchor> = { squat: FEET_ANCHOR, pushup: PUSHUP_ANCHOR, pullup: PULLUP_ANCHOR };
 
-/** The burst between exercises: how hard the body is blown apart. */
-const BURST = { speed: 1.7, lift: 0.8, heat: 0.62 };
+/**
+ * The burst between exercises: how hard the body is blown apart, and how fast
+ * it comes back. At the swipe's pace (speed 1.7, heat 0.62, 3 s heat life,
+ * pull 3.7) the next exercise took 2.6 s to re-form — mean grain within 3 cm
+ * of home, measured with `__labSim.probe()` on squat → push-up — which read
+ * as waiting. Now the cloud is thrown less far, lets go sooner and is pulled
+ * home harder: 1.3 s by the same measure, still a visible flight, not a snap.
+ * (A cold flow from body to body replaced it for a day; the user preferred the
+ * breaking apart — keep it.)
+ */
+const BURST = {
+  speed: 1.25,
+  lift: 0.6,
+  heat: 0.5,
+  recover: { seconds: 1.6, heatLife: 1.1, pull: 6 },
+};
 
 /**
  * How far past its own origin a LEAF bone's axis runs, in metres. A leaf has no
@@ -193,6 +209,21 @@ export function ParticleBody({
   const gltf = useLoader(GLTFLoader, url);
   const gl = useThree((s) => s.gl);
   const group = useRef<Group>(null);
+  /** Every node of the model by name — the leaf bones (toe tips) too, which
+   *  the skin's own bone list may not carry — for the 33 landmarks. */
+  const nodes = useMemo(() => {
+    const m = new Map<string, Object3D>();
+    gltf.scene.traverse((o) => m.set(o.name, o));
+    return m;
+  }, [gltf]);
+  const node = useMemo(
+    () => (name: string) => {
+      const o = nodes.get(name);
+      if (!o) throw new Error(`${url} has no node ${name}`);
+      return o;
+    },
+    [nodes, url],
+  );
 
   const rig = useMemo(() => {
     const mesh = gltf.scene.getObjectByProperty("isSkinnedMesh", true) as SkinnedMesh | undefined;
@@ -343,6 +374,10 @@ export function ParticleBody({
           uOffsetScale: { value: 1 },
           uHolo: { value: 0 },
           uTime: { value: 0 },
+          uScan: { value: 0 },
+          uScanY: { value: -1 },
+          uScanBand: { value: 1 },
+          uScanFrom: { value: PHONE_LENS.clone() },
         },
       }),
     [],
@@ -352,7 +387,7 @@ export function ParticleBody({
   // the same uniform objects otherwise, so it poses and lights red with it.
   const ghostMaterial = useMemo(() => {
     const m = material.clone();
-    m.uniforms = { ...material.uniforms, uOffsetScale: { value: 0 }, uOpacity: { value: 0 }, uHolo: { value: 0 } };
+    m.uniforms = { ...material.uniforms, uOffsetScale: { value: 0 }, uOpacity: { value: 0 }, uHolo: { value: 0 }, uScan: { value: 0 } };
     m.depthWrite = false;
     return m;
   }, [material]);
@@ -423,19 +458,32 @@ export function ParticleBody({
   useFrame((state, rawDt) => {
     const g = group.current;
     if (!g) return;
-    g.position.y = store.lift;
-    g.rotation.y = store.spin;
     const dt = Math.min(rawDt, 0.1);
     const s = store;
     const st = s.settings;
     const u = material.uniforms;
 
+    // The retargeter aims bones by their WORLD directions at a pose given in
+    // the body's own space, so the rig is posed with the group at identity and
+    // the lift and turns go back on after. Posed under a turned group, every
+    // limb was aimed a quarter-turn off and the feet stayed locked facing the
+    // old way — the body came apart as it turned side-on to the phone — and the
+    // feet anchor slid the body back down by the lift, into the pedestal.
+    g.position.y = 0;
+    g.rotation.y = 0;
+    g.updateMatrixWorld();
     rig.retarget.apply(s.pose, ANCHORS[s.exercise]);
+    g.position.y = s.lift;
+    // The finale's slow turn, and the flow's quarter turn to the phone.
+    g.rotation.y = s.spin + s.turn;
+    g.updateMatrixWorld();
     rig.skeleton.update();
     rig.mesh.visible = st.showMesh;
 
     g.updateMatrixWorld();
     scratch.inv.copy(g.matrixWorld).invert();
+    // The flow's 33 points, on the body as it's posed this frame.
+    if (s.marks > 0) writeLandmarks(node, scratch.inv, s.landmarks);
     const at = ([from, to, t]: BonePoint, out: Vector3) => {
       rig.retarget.get(from).getWorldPosition(scratch.a);
       rig.retarget.get(to).getWorldPosition(scratch.b);
@@ -542,6 +590,8 @@ export function ParticleBody({
     u.uGlow.value = st.glow;
     u.uOpacity.value = st.opacity;
     u.uHolo.value = s.holo;
+    u.uScan.value = s.scan;
+    u.uScanY.value = s.scanY;
     u.uTime.value = state.clock.elapsedTime;
     body.geometry.setDrawRange(0, drawn);
 
@@ -572,6 +622,7 @@ export function ParticleBody({
       ))}
       {/* After the body, so the body's depth hides every grain it still covers. */}
       <points geometry={body.skeleton} material={skeletonMaterial} frustumCulled={false} renderOrder={1} />
+      <Landmarks />
     </group>
   );
 }

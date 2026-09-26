@@ -21,6 +21,7 @@ uniform float uFogDensity;
 uniform float uHolo;
 uniform float uTime;
 
+varying float vScan;
 varying float vRim;
 varying float vShade;
 varying float vRed;
@@ -52,6 +53,12 @@ void main() {
   // painted on, not as light.
   float band = 0.93 + 0.07 * sin(vY * 160.0 - uTime * 2.4);
   col = mix(col, uHotColor * (0.8 + 0.5 * vRim) * band, uHolo * 0.72);
+
+  // The phone's scan: what it faces lights the same cool white-blue as a
+  // thrown grain, a touch past 1.0 for the bloom's haze — the red still the
+  // one thing that really glows.
+  float scanned = clamp(vScan, 0.0, 1.4);
+  col = mix(col, uHotColor * (1.05 + 0.2 * scanned), min(1.0, scanned) * 0.92);
 
   float red = smoothstep(0.0, 1.0, vRed);
   col = mix(col, uRed * (1.0 + uGlow * red), red);

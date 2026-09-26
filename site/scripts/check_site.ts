@@ -6,11 +6,32 @@
  */
 import { BONES, J, type JointName } from "../src/lib/pose";
 import { BOTTOM, REST, STAND, depthAt, leanEnvelope, newPose, shiftEnvelope, valgusEnvelope } from "../src/lib/poseFrames";
-import { EXERCISES, EXERCISE_ORDER, checkOf, type ExerciseId } from "../src/lib/exercises";
+import { EXERCISES, EXERCISE_ORDER, checkOf, trunkLeanDeg, type ExerciseId } from "../src/lib/exercises";
 import { cycleS, loopAt, newLoopSample } from "../src/lib/loop";
 import { WRIST_Y as PUSHUP_WRIST_Y, flareRatio, pressTiltDeg, pushupBodyLineDeg } from "../src/lib/pushup";
 import { BAR_Y, chinY, kneeLiftDeg, shoulderTiltDeg, swingDeg } from "../src/lib/pullup";
-import { KIP_SWING_DEG, LEG_DRIVE_DEG, POST_SET } from "../src/lib/postSet";
+import { LEAN_EXTRA_DEG, POST_SET } from "../src/lib/postSet";
+import {
+  FLOW_DUR,
+  FLOW_REP,
+  FLOW_REP_S,
+  FLOW_SET,
+  FLOW_STEPS,
+  LANDMARK_COUNT,
+  LANDMARK_LINKS,
+  LINE_FROM_S,
+  READ_FROM,
+  READ_TO,
+  SCAN_S,
+  SIDE_SCAN_AT_S,
+  STEP,
+  flowStepAt,
+  flowAt,
+  linkAt,
+  markAt,
+  scanAt,
+} from "../src/lib/flowScript";
+import { CHECKED, COMPETITORS, FACTS, MOMENTS, US } from "../src/lib/competitors";
 import {
   END,
   EXERCISE_AT,
@@ -21,7 +42,7 @@ import {
   TOTAL,
   mixShot,
   newSample,
-  settleTarget,
+  stopIndex,
   storyAt,
   type Shot,
 } from "../src/lib/story";
@@ -284,24 +305,22 @@ console.log("\n4c. the post-set summary");
 
   /* 2. No normalised numbers: every number is a rep number, a count, or
      degrees — the check is on the decimals, the form the leak took. And of the
-     degrees, only the ones the pull-up prompt lets the model quote. */
+     degrees, only the trunk lean, read side-on. */
   const decimals = prose.match(/-?\d+\.\d+/g) ?? [];
   ok("no normalised coordinate is quoted at the reader", decimals.every((d) => prose.includes(`${d} degrees`)), decimals.join(", ") || "no decimals");
   ok("no negative number reaches the reader", !/-\d/.test(prose));
   const degrees = [...prose.matchAll(/(\d+) degrees/g)].map((m) => Number(m[1]));
-  ok(
-    "the only degrees quoted are the swing and the knees",
-    degrees.length === 2 && degrees.includes(KIP_SWING_DEG) && degrees.includes(LEG_DRIVE_DEG),
-    degrees.join(", "),
-  );
+  ok("the only degrees quoted are the trunk lean's", degrees.length === 1 && degrees[0] === LEAN_EXTRA_DEG, degrees.join(", "));
 
-  /* 3. The two numbers are MEASURED: re-derived here from the same poses the
-     scene draws, so editing a pose fails this check rather than leaving the
-     page quoting a figure the body stopped producing. */
-  const swing = range("pullup", "kip", swingDeg).span;
-  ok("the quoted swing is the one the kipping rep makes", Math.abs(swing - KIP_SWING_DEG) < 1, `copy ${KIP_SWING_DEG}°, pose ${swing.toFixed(1)}°`);
-  const lift = range("pullup", "legDrive", kneeLiftDeg).hi;
-  ok("the quoted knee lift is the one the leg-drive rep makes", Math.abs(lift - LEG_DRIVE_DEG) < 1, `copy ${LEG_DRIVE_DEG}°, pose ${lift.toFixed(1)}°`);
+  /* 3. The number is MEASURED: re-derived here from the same poses the scene
+     draws, so editing a pose fails this check rather than leaving the page
+     quoting a figure the body stopped producing. */
+  const extra = range("squat", "lean", trunkLeanDeg).hi - range("squat", "clean", trunkLeanDeg).hi;
+  ok(
+    "the quoted lean is how much further the flagged reps lean than the clean ones",
+    Math.abs(extra - LEAN_EXTRA_DEG) < 1,
+    `copy ${LEAN_EXTRA_DEG}°, pose ${extra.toFixed(1)}°`,
+  );
 
   /* 4. No causation, between faults or from context to fault. A cue makes no
      claim about the set; the give-away in one would be a retrospective
@@ -316,24 +335,23 @@ console.log("\n4c. the post-set summary");
   );
   ok("the cues make no retrospective claim either", POST_SET.cues.every((t) => !RETROSPECTIVE.test(t)));
   ok(
-    "each finding is its own sentence",
-    POST_SET.paras[1].split(/(?<=\.)\s+/).every((sentence) => (sentence.match(/\bRep \d/g) ?? []).length === 1),
+    "every sentence of the findings names the reps it is about",
+    POST_SET.paras[1].split(/(?<=\.)\s+/).every((sentence) => /\bReps? \d/.test(sentence)),
   );
 
-  /* 5. It describes the set the page just played. The clean reps come first
+  /* 5. It describes the set the flow just played. The clean reps come first
      and by number; every rep that went wrong is accounted for; the count is
-     the count the loop ends on. */
-  const script = EXERCISES.pullup.script;
+     the set's. */
+  const script = FLOW_SET;
   const cleanReps = script.map((c, i) => (c === "clean" ? i + 1 : 0)).filter(Boolean);
   ok("the clean reps are named, first", new RegExp(`Reps ${cleanReps[0]} and ${cleanReps[1]} were clean`).test(POST_SET.paras[0]));
-  ok("every rep the set flags is accounted for", script.every((c, i) => c === "clean" || POST_SET.paras[1].includes(`Rep ${i + 1} `)));
-  const counted = script.filter((c) => checkOf(EXERCISES.pullup, c).kind !== "miss").length;
+  const flagged = script.map((c, i) => (c === "clean" ? 0 : i + 1)).filter(Boolean);
+  const named = (POST_SET.paras[1].match(/^Reps? ((?:\d+(?:, | and ))*\d+)\b/)?.[1] ?? "").match(/\d+/g)?.map(Number) ?? [];
+  ok("every rep the set flags is accounted for", flagged.join() === named.join(), `flagged ${flagged}, named ${named}`);
+  const counted = script.filter((c) => checkOf(EXERCISES.squat, c).kind !== "miss").length;
   const words = ["zero", "one", "two", "three", "four", "five", "six", "seven"];
   ok("the count matches the set", POST_SET.paras[0].toLowerCase().startsWith(`${words[script.length]} reps, ${words[counted]} counted`));
-  ok(
-    "the rep that didn't count says so, and isn't called a fault",
-    /Rep 6 stopped with the chin short of the bar and didn't count/.test(POST_SET.paras[1]),
-  );
+  ok("the flagged reps are the ones the flow flashes", script.slice(cleanReps.length).every((c) => c === FLOW_REP));
 
   /* 6. It says what it is, and ends on exactly two cues. */
   ok("the panel names itself", /post-set summary/i.test(POST_SET.label));
@@ -354,6 +372,131 @@ console.log("\n4c. the post-set summary");
   ok("the panel fits a 375x667 phone", phone < 667 - 40, `${phone.toFixed(0)}px`);
 }
 
+/* ── 4e. the flow script ──────────────────────────────────────────────────
+   The flow stop's steps, played by scroll, and the timed pieces each starts. */
+console.log("\n4e. the flow script");
+{
+  ok(
+    "the steps start in order, the first at the start of the hold",
+    FLOW_STEPS[0].from === 0 && FLOW_STEPS.every((s, i) => i === 0 || s.from > FLOW_STEPS[i - 1].from) && FLOW_STEPS.at(-1)!.from < 1,
+  );
+  let back = 0;
+  let prevStep = flowStepAt(-0.1);
+  for (let u = -0.1; u <= 1.1; u += 0.001) {
+    const k = flowStepAt(u);
+    if (k < prevStep) back++;
+    prevStep = k;
+  }
+  ok("scrolling on only ever moves the step on", back === 0 && flowStepAt(-0.01) === -1 && flowStepAt(1.2) === FLOW_STEPS.length - 1);
+
+  /* The scrub: every animation in the flow is a function of the scroll, so
+     it moves only while the reader scrolls and freezes when they stop. */
+  const at = (u: number) => flowAt(u);
+  const stepEnd = (i: number) => (FLOW_STEPS[i + 1]?.from ?? 1) - 1e-6;
+  ok("the same scroll always shows the same scene (stopped = frozen)", JSON.stringify(at(0.37)) === JSON.stringify(at(0.37)));
+  ok("nothing moves before the hold", at(-0.01).step === -1 && at(-0.01).scan === 0 && at(-0.01).squat === 0 && at(-0.01).turn === 0);
+  {
+    // The front scan: sweeps top to bottom, blinks, and is gone by the end of
+    // its step — all within its own stretch of scroll.
+    let blinks = 0;
+    let wasOn = true;
+    let maxSweep = 0;
+    for (let u = 0; u < FLOW_STEPS[STEP.points].from; u += 0.0005) {
+      const f = at(u);
+      maxSweep = Math.max(maxSweep, f.sweep < 1 ? f.sweep : 0);
+      // A blink is the scan dropping to its dim "off" level (the final fade
+      // passes through smoothly and never sits there).
+      const on = !(f.sweep === 1 && Math.abs(f.scan - 0.1) < 1e-9);
+      if (wasOn && !on) blinks++;
+      wasOn = on;
+    }
+    ok("the front scan sweeps down and blinks twice as you scroll", maxSweep > 0.9 && blinks === 2, `${blinks} blinks`);
+    ok("…and has gone before the points start", at(stepEnd(STEP.camera)).scan === 0);
+  }
+  {
+    const end = at(stepEnd(STEP.points));
+    ok(
+      "every point pops in and every line is drawn within the points' scroll",
+      Array.from({ length: LANDMARK_COUNT }, (_, i) => markAt(i, end.marksT)).every((m) => m === 1) &&
+        LANDMARK_LINKS.every((_, k) => linkAt(k, end.marksT) === 1),
+    );
+    const first = at(FLOW_STEPS[STEP.points].from + 0.002);
+    ok("…one by one, not all at once", markAt(0, first.marksT) < 1 && markAt(LANDMARK_COUNT - 1, first.marksT) === 0);
+  }
+  {
+    const v0 = at(FLOW_STEPS[STEP.view].from);
+    const v1 = at(stepEnd(STEP.view));
+    let sideScan = 0;
+    for (let u = FLOW_STEPS[STEP.view].from; u < FLOW_STEPS[STEP.reps].from; u += 0.0005) sideScan = Math.max(sideScan, at(u).turn === 1 ? at(u).scan : 0);
+    ok("the body turns to the side within the view's scroll, points faded first", v0.turn === 0 && v1.turn === 1 && v1.marks === 0);
+    ok("…and is scanned again once side-on", sideScan === 1 && v1.scan === 0);
+  }
+  {
+    const r1 = at(stepEnd(STEP.reps));
+    let flashes = 0;
+    let wasLit = false;
+    for (let u = FLOW_STEPS[STEP.reps].from; u < FLOW_STEPS[STEP.ask].from; u += 0.0005) {
+      const lit = at(u).flash > 0.6;
+      if (lit && !wasLit) flashes++;
+      wasLit = lit;
+    }
+    ok("two whole flagged reps play within the reps' scroll", Math.abs(r1.squatT - FLOW_DUR.reps) < 1e-3, `${r1.squatT.toFixed(2)} s`);
+    ok("two red flashes a rep, each scrolled through", flashes === 4, `${flashes} flashes`);
+  }
+  {
+    // No jumps: the turn, the squat and the points only ever move a little
+    // for a little scroll — scrubbing never skips a frame of them.
+    let worst = 0;
+    let prev = at(0);
+    for (let u = 0.0005; u <= 1; u += 0.0005) {
+      const f = at(u);
+      worst = Math.max(worst, Math.abs(f.turn - prev.turn), Math.abs(f.squatT - prev.squatT), Math.abs(f.squat - prev.squat));
+      prev = f;
+    }
+    ok("a little scroll only ever moves the scene a little", worst < 0.05, `worst ${worst.toFixed(3)}`);
+    ok("the dots go out across the border only in the ask step", at(stepEnd(STEP.reps)).stream === 0 && at(0.99).stream > 3);
+  }
+  const mid = scanAt(0.3);
+  ok("the scan is lit while it sweeps down", mid.amount === 1 && mid.sweep > 0 && mid.sweep < 1);
+  ok("the scan has gone once it's done", scanAt(SCAN_S).amount === 0 && scanAt(SCAN_S - 0.001).amount < 0.01);
+  let blinks = 0;
+  let wasOn = true;
+  for (let t = 0; t < SCAN_S; t += 0.005) {
+    const on = scanAt(t).amount > 0.5;
+    if (on && !wasOn) blinks++;
+    wasOn = on;
+  }
+  ok("it blinks twice before it goes", blinks === 2, `${blinks}`);
+  ok(
+    "33 points, joined only to each other",
+    LANDMARK_COUNT === 33 && LANDMARK_LINKS.every(([a, b]) => a >= 0 && b >= 0 && a < 33 && b < 33 && a !== b),
+  );
+  ok("every point is joined to something", Array.from({ length: 33 }, (_, i) => i).every((i) => LANDMARK_LINKS.some(([a, b]) => a === i || b === i)));
+}
+
+/* ── 4d. the comparison ───────────────────────────────────────────────────
+   Public claims about other companies' products. Each one in the product's
+   own words from its own pages, dated; what they don't say stays unsaid. */
+console.log("\n4d. the comparison");
+{
+  ok("the comparison says when it was checked", /\b20\d\d\b/.test(CHECKED), CHECKED);
+  ok(
+    "every other product names its sources, on https",
+    COMPETITORS.every((c) => c.sources.length > 0 && c.sources.every((s) => s.url.startsWith("https://"))),
+  );
+  ok("Neuro-Fit states every fact about itself", FACTS.every((f) => !!US.facts[f.id]));
+  ok("Neuro-Fit shows up at every moment it covers", MOMENTS.every((m) => !!US.when[m.id]));
+  ok("every other product has at least one moment it covers", COMPETITORS.every((c) => MOMENTS.some((m) => c.when[m.id])));
+  /* A gap is "not stated", never a "no": nothing about another product is
+     written as a lack. */
+  const NEGATIVE = /^(no|not|none|doesn’t|doesn't|can’t|can't|never|without)\b/i;
+  const claims = COMPETITORS.flatMap((c) => [...Object.values(c.facts), ...Object.values(c.when)]).filter(
+    (v): v is string => typeof v === "string",
+  );
+  ok("nothing about another product is written as a lack", claims.every((t) => !NEGATIVE.test(t)), claims.find((t) => NEGATIVE.test(t)) ?? "");
+  ok("product ids are unique", new Set([US, ...COMPETITORS].map((c) => c.id)).size === COMPETITORS.length + 1);
+}
+
 /* ── 5. the page's camera path ─────────────────────────────────────────────
    The canvas and the text both read storyAt(); these are the promises they
    rely on. */
@@ -367,9 +510,20 @@ console.log("\n5. the camera path");
     HOLDS.every(([a, b], i) => a < b && a >= STARTS[i] - 1e-9 && b <= STARTS[i] + STOPS[i].span + 1e-9 && (i === 0 || HOLDS[i - 1][1] < a)),
   );
   ok(
-    "there is a stop for each exercise, in order",
-    EXERCISE_ORDER.map((ex) => STOPS.findIndex((s) => s.id === ex)).every((k, i, arr) => k > 0 && (i === 0 || k > arr[i - 1])),
+    "the stops run in order: opening, in frame, what happens to it, how it compares, try it",
+    STOPS.map((s) => s.id).join(" ") === "form frame flow compare finale",
   );
+  // Scrubbed by the scroll, slowly enough to follow: every step of the flow
+  // takes most of a screen of scroll, none more than one.
+  const flowHold = HOLDS[stopIndex("flow")][1] - HOLDS[stopIndex("flow")][0];
+  const perStep = FLOW_STEPS.slice(0, -1).map((st, i) => (FLOW_STEPS[i + 1].from - st.from) * flowHold);
+  ok(
+    "each flow step takes 0.6–0.9 screens of scroll",
+    perStep.every((x) => x >= 0.6 && x <= 0.9),
+    perStep.map((x) => x.toFixed(2)).join(" "),
+  );
+  const readScroll = (READ_TO - READ_FROM) * flowHold;
+  ok("the read gets half a screen or more to write itself out", readScroll >= 0.5, `${readScroll.toFixed(2)} screens`);
 
   const s = newSample();
   const cam = (smp: ReturnType<typeof storyAt>) => {
@@ -421,15 +575,6 @@ console.log("\n5. the camera path");
   ok("props fade rather than pop", presenceJump < 0.01, `worst ${presenceJump.toFixed(4)} per step`);
   ok("each stop's own progress only runs forward", localBack === 0);
 
-  let settleBad = 0;
-  for (let p = 0; p <= END; p += 0.01) {
-    const t = settleTarget(p);
-    const inHold = HOLDS.some(([a, b]) => p >= a && p <= b);
-    if (inHold !== (t === null)) settleBad++;
-    if (t !== null && Math.max(...storyAt(t, s).focus) !== 1) settleBad++;
-    if (t !== null && Math.abs(t - p) > 0.6) settleBad++;
-  }
-  ok("stopping between holds settles into the nearer one, sharply", settleBad === 0, `${settleBad} bad`);
 
   /* The exercise changes at the middle of a move, where no stop's words are
      sharp — so the body blowing apart and re-forming never happens under text
@@ -442,7 +587,6 @@ console.log("\n5. the camera path");
     if (ex !== prevEx && Math.max(...s.focus) > 0.05) underText++;
     prevEx = ex;
   }
-  ok("each exercise's own stop shows it", EXERCISE_ORDER.every((ex) => EXERCISE_AT[ex] === ex));
   ok("the body only changes exercise between stops, with no words in focus", underText === 0, `${underText} change(s) under text`);
 }
 

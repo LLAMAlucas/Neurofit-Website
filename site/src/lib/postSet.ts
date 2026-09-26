@@ -1,10 +1,13 @@
 /**
- * The example debrief the "after the set" stop writes out, and the numbers in it.
- * The page labels it an EXAMPLE: the reader didn't film this set.
+ * The example post-set read that comes back at the end of the flow stop, and
+ * the number in it. The page labels it an EXAMPLE: the reader didn't film this
+ * set.
  *
- * It is the set of pull-ups the page has just shown — the pull-up stop's scripted
- * loop, rep for rep (lib/exercises: clean, kip, clean, uneven, leg drive, chin
- * short). The reader watched it happen; this is what the app would hand back.
+ * It is the squat the flow has just shown, side-on (lib/flowScript FLOW_SET:
+ * two clean reps that set the baseline, then three leaning forward — the trunk
+ * the phone flagged and kept flashing). This is what the app would hand back.
+ * (It was the pull-up stop's set until the "after the set" stop was removed,
+ * 2026-09-25.)
  *
  * PURE — no React, no DOM. It is a module and not a string in the component for
  * two reasons: the still page (reduced motion, no WebGL) has to show the SAME
@@ -17,19 +20,18 @@
  * its output has to obey the app's own rules or the page is lying about the
  * product. Three of them bind every word here, and `check_site` enforces them:
  *
- * 1. NO NORMALISED NUMBERS. The app's payload carries pull ratios, clearances
- *    and velocities as image coordinates, and the model is forbidden from
- *    speaking them. Degrees and rep numbers are the exception — they are real
- *    units. And not every degree: the pull-up prompt lets the model quote the
- *    swing and the leg angles (in the image plane side-on) but NOT the elbow
- *    (projection-lenient). So this copy quotes those two, and rep numbers.
+ * 1. NO NORMALISED NUMBERS. The app's payload carries depth ratios, gaps and
+ *    velocities as image coordinates, and the model is forbidden from speaking
+ *    them. Degrees and rep numbers are the exception — they are real units,
+ *    and the squat's trunk lean is read side-on, in the plane it happens in.
+ *    So this copy quotes one angle, and rep numbers.
  *
- * 2. THE NUMBERS ARE MEASURED, NOT WRITTEN. Both come off the same poses the
- *    scene draws (see `KIP_SWING_DEG`, `LEG_DRIVE_DEG`), and the check
- *    re-derives them from the geometry. Edit a pose and the check fails rather
- *    than the page quietly quoting a figure the body can no longer produce.
+ * 2. THE NUMBER IS MEASURED, NOT WRITTEN. It comes off the same poses the
+ *    scene draws (see `LEAN_EXTRA_DEG`), and the check re-derives it from the
+ *    geometry. Edit a pose and the check fails rather than the page quietly
+ *    quoting a figure the body can no longer produce.
  *
- * 3. NO CAUSATION, between faults or from context to fault. Each finding gets
+ * 3. NO CAUSATION, between faults or from context to fault. The finding gets
  *    its own sentence, and no sentence says why.
  *
  * And no markdown. The app renders debriefs verbatim into a paragraph with no
@@ -39,17 +41,12 @@
  */
 
 /**
- * How far the body swings on the kipping rep, degrees: the RANGE of the
- * hands-to-hips angle over the rep, which is the quantity the app's swing check
- * reads (a strict rep keeps it to a few degrees).
+ * How much further forward the trunk leans on the flagged reps than on the
+ * two clean ones, degrees: the peak of the trunk's angle from vertical over a
+ * lean rep, less the same over a clean rep. Baseline-relative, like the app's
+ * own forward-lean check, which measures against your first two reps.
  */
-export const KIP_SWING_DEG = 27;
-
-/**
- * How far the knees come up on the leg-drive rep, degrees: the thighs' lift off
- * the trunk line at its peak, side-on.
- */
-export const LEG_DRIVE_DEG = 53;
+export const LEAN_EXTRA_DEG = 20;
 
 export type PostSet = {
   /** Names the artefact: what the app hands back at the end of a set. */
@@ -61,22 +58,19 @@ export type PostSet = {
 export const POST_SET: PostSet = {
   label: "Post-set summary",
   paras: [
-    /* What went RIGHT, first and unhedged. A debrief that opened on the faults
+    /* What went RIGHT, first and unhedged. A debrief that opened on the fault
        would be describing a different set — and a page whose sample output was
        all faults would be selling a nag. */
-    "Six reps, five counted. Reps 1 and 3 were clean — from a dead hang to the chin over the bar, the body quiet under it.",
-    /* The findings, in rep order, each with the rep it happened on, each its
-       own sentence (rule 3). The last one isn't a fault at all: the rep just
-       didn't count, and it says so. */
-    `Rep 2 swung, the body travelling through about ${KIP_SWING_DEG} degrees on the way up. Rep 4 came up with the left side trailing the right. Rep 5 drove with the legs, the knees coming up about ${LEG_DRIVE_DEG} degrees. Rep 6 stopped with the chin short of the bar and didn't count.`,
+    "Five reps, five counted. Reps 1 and 2 were clean — down to depth with the chest up, the trunk steady all the way.",
+    /* The finding: which reps, how much, against what — in one sentence, with
+       no reason given for it (rule 3). */
+    `Reps 3, 4 and 5 brought the chest forward at the bottom, about ${LEAN_EXTRA_DEG} degrees more lean than your first two.`,
   ],
   /* Two, and phrased as things to do rather than things to stop doing. The app
-     ends every debrief on exactly two: one is thin for a set with four
-     findings, and a list long enough to be complete is a list nobody carries
-     to the next set. */
+     ends every debrief on exactly two. */
   cues: [
-    "Start every rep from a still, dead hang, legs together and quiet.",
-    "Pull the elbows down to your ribs, both sides together, until the chin clears the bar.",
+    "Sit the hips back and keep the chest up through the bottom.",
+    "Hold the trunk angle of your first two reps on every rep after them.",
   ],
 };
 

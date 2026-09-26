@@ -5,9 +5,9 @@
  *
  * On the live page each stop is a stretch of scroll (`--span` screens) whose
  * text is fixed over the scene and racked in and out of focus by useJourney.
- * Everything here that follows the scene — the counter and the angles, the line
- * of each list that lights, the labels pinned over figures, the debrief writing
- * itself out — is written from one ticker, straight to the DOM.
+ * Everything here that follows the scene — the phone's readout, the flow's
+ * steps, the read writing itself out — is written from one ticker, straight to
+ * the DOM.
  *
  * Copy rules carried over from the app: the only numbers on screen are degrees
  * and rep/set numbers, computed from the pose, never typed; no cause-and-effect
@@ -15,14 +15,18 @@
  */
 import { useEffect, useRef, type CSSProperties, type ReactNode } from "react";
 
-import { EXERCISES, type ExerciseId } from "@/lib/exercises";
-import { CARD_BLOCKS, POST_SET, cardBlockAmount } from "@/lib/postSet";
-import { STOPS, stopIndex, type StopId } from "@/lib/story";
+import { cardBlockAmount } from "@/lib/postSet";
+import { FLOW_STEPS, PHONE_SAYS, readAt } from "@/lib/flowScript";
+import { STOPS, holdAt, stopIndex, type StopId } from "@/lib/story";
 import { store } from "@/stage/store";
 import { onTick } from "@/hooks/ticker";
 import { Scrambler } from "@/hooks/scramble";
+import { Compare } from "./Compare";
+import { Flow, READ_BLOCKS } from "./Flow";
 import { Foot } from "./Foot";
 import { refract } from "@/lib/liquidGlass";
+
+const FLOW = stopIndex("flow");
 
 const TRY_URL = "https://try.neurofit-training.com";
 /** The hint to touch the body shows once it has formed. */
@@ -43,57 +47,6 @@ function Stop({ id, children, labelledBy }: { id: StopId; children: ReactNode; l
   );
 }
 
-/**
- * One exercise: what counts as a rep, and the list of what it watches for.
- * While the body runs the exercise's set, the line for the rep in progress
- * lights — red for a fault, dark for a clean rep or one that didn't count — and
- * the counter and two angles read off the live pose.
- */
-function ExerciseStop({
-  id,
-  heading,
-  counts,
-  side,
-}: {
-  id: ExerciseId;
-  heading: string;
-  counts: string;
-  side: "left" | "right";
-}) {
-  const spec = EXERCISES[id];
-  return (
-    <Stop id={id} labelledBy={`h-${id}`}>
-      <div className={`copy copy--${side} copy--exercise`}>
-        <h2 className="h2" id={`h-${id}`}>
-          {heading}
-        </h2>
-        <p>{counts} On every rep, it watches for:</p>
-        <ul className="checks" data-checks={id}>
-          {spec.checks.map((c) => (
-            <li key={c.id} className="checks__item" data-check={c.id} data-kind={c.kind}>
-              {c.label}
-              {c.kind === "miss" && <span className="checks__note"> — didn’t count</span>}
-            </li>
-          ))}
-        </ul>
-      </div>
-
-      <div className={`readout readout--${side === "left" ? "right" : "left"}`} aria-hidden="true" data-live-only data-readout={id}>
-        <div className="readout__label">Reps</div>
-        <div className="readout__reps" data-read="reps">
-          00
-        </div>
-        <div>
-          {spec.readouts[0].label} <span data-read="a">—</span> · {spec.readouts[1].label} <span data-read="b">—</span>
-        </div>
-      </div>
-    </Stop>
-  );
-}
-
-/** The debrief's blocks: the label, each paragraph, then the cues as one. */
-const DEBRIEF_BLOCKS: string[] = [POST_SET.label, ...POST_SET.paras, POST_SET.cues.join(" ")];
-
 export function Journey({ live }: { live: boolean }) {
   const root = useRef<HTMLDivElement>(null);
   const cta = useRef<HTMLAnchorElement>(null);
@@ -106,68 +59,66 @@ export function Journey({ live }: { live: boolean }) {
     if (!live || !el) return;
     const q = <T extends HTMLElement = HTMLElement>(sel: string) => el.querySelector<T>(sel);
     const hint = q(".hint");
-    const phoneTag = q(".phone-tag");
-    const labels = Array.from(el.querySelectorAll<HTMLElement>(".set-label"));
+    // The phone's own readout, over the phone: in the setup stop, and in the
+    // flow, where it says what the phone is doing at each step.
+    const tags = Array.from(el.querySelectorAll<HTMLElement>(".phone-tag")).map((node) => ({
+      node,
+      flow: node.dataset.tag === "flow",
+      text: new Scrambler(node),
+    }));
     const typed = Array.from(el.querySelectorAll<HTMLElement>("[data-typed]"));
-    const debriefStop = el.querySelector<HTMLElement>("[data-stop=afterSet]");
-    const phoneText = phoneTag ? new Scrambler(phoneTag) : null;
+    const flowParts = Array.from(el.querySelectorAll<HTMLElement>("[data-flow] [data-step]"));
+    const streamDots = Array.from(el.querySelectorAll<HTMLElement>(".flow__stream i"));
+    let streamShown = -1;
+    let flowShown = -2;
     let readyAt = 0;
     const typedLen = typed.map(() => -1);
-
-    // Each exercise stop's list and readout, and what each last showed — the
-    // DOM is only touched when something changes.
-    const stops = (Object.keys(EXERCISES) as ExerciseId[]).map((id) => ({
-      id,
-      items: Array.from(el.querySelectorAll<HTMLElement>(`[data-checks=${id}] [data-check]`)),
-      reps: q(`[data-readout=${id}] [data-read=reps]`),
-      a: q(`[data-readout=${id}] [data-read=a]`),
-      b: q(`[data-readout=${id}] [data-read=b]`),
-      lit: "",
-      text: ["", "", ""],
-    }));
-    const put = (node: HTMLElement | null, text: string, last: string[], i: number) => {
-      if (node && last[i] !== text) node.textContent = last[i] = text;
-    };
 
     const off = onTick((now) => {
       const s = store;
       if (s.ready && !readyAt) readyAt = now;
       hint?.classList.toggle("is-on", readyAt > 0 && now - readyAt > HINT_AFTER_S * 1000);
 
-      // The exercise stops: only the one whose set is playing is live.
-      for (const st of stops) {
-        const mine = s.exercise === st.id;
-        const lit = mine ? (s.lit ?? "") : "";
-        if (lit !== st.lit) {
-          st.lit = lit;
-          for (const li of st.items) li.classList.toggle("is-on", li.dataset.check === lit);
-        }
-        if (mine) {
-          put(st.reps, String(s.reps).padStart(2, "0"), st.text, 0);
-          put(st.a, `${Math.round(s.readA)}°`, st.text, 1);
-          put(st.b, `${Math.round(s.readB)}°`, st.text, 2);
+      // The phone's readout. In the setup it faces the body head-on, and the
+      // app settles its view while the lifter stands still; in the flow it
+      // says what the scene's step has the phone doing.
+      const flowSays = s.flowStep >= 0 ? PHONE_SAYS[FLOW_STEPS[s.flowStep].id] : PHONE_SAYS.camera;
+      for (const tag of tags) {
+        tag.text.set(tag.flow ? flowSays : "Front view · locked", now);
+        // Centred over the phone, but kept on screen: near an edge — the flow
+        // puts the phone close to a phone's right edge — it slides in.
+        const half = tag.node.offsetWidth / 2 + 8;
+        const x = Math.min(window.innerWidth - half, Math.max(half, s.phone.x));
+        tag.node.style.transform = `translate(${x}px, ${s.phone.y}px)`;
+      }
+
+      // What happens to it: the step the scene is on is open, the ones before
+      // it done — forward and back as the reader scrolls.
+      if (s.flowStep !== flowShown) {
+        flowShown = s.flowStep;
+        for (const part of flowParts) {
+          const k = Number(part.dataset.step);
+          part.classList.toggle("is-on", k === flowShown || (part.tagName !== "LI" && k <= flowShown));
+          part.classList.toggle("is-done", part.tagName === "LI" && k < flowShown);
         }
       }
 
-      // In frame: the phone's own readout, over the phone. It faces the body
-      // head-on, and the app settles its view while the lifter stands still.
-      if (phoneTag) {
-        phoneText?.set("Front view · locked", now);
-        phoneTag.style.transform = `translate(${s.phone.x}px, ${s.phone.y}px)`;
+      // The dots going out across the border, scrubbed by the scroll like the
+      // rest of the flow: each falls through the border and fades, staggered.
+      if (s.flowStream !== streamShown) {
+        streamShown = s.flowStream;
+        streamDots.forEach((dot, i) => {
+          const ph = (((s.flowStream + i / streamDots.length) % 1) + 1) % 1;
+          dot.style.transform = `translateY(${(ph * 75).toFixed(1)}px)`;
+          dot.style.opacity = String(Math.min(1, ph / 0.2, (1 - ph) / 0.2));
+        });
       }
 
-      // After the workout: which set each figure is.
-      labels.forEach((lab, i) => {
-        const p = s.labels[i];
-        if (p) lab.style.transform = `translate(${p.x}px, ${p.y}px)`;
-      });
-
-      // After the set: the debrief writes itself out as the reader scrolls
-      // through the stop, and un-writes on the way back up.
-      const local = debriefStop ? parseFloat(debriefStop.style.getPropertyValue("--local")) || 0 : 0;
-      const cardT = Math.min(1, Math.max(0, (local - 0.24) / 0.46));
+      // The read coming back writes itself out as the reader scrolls through
+      // the end of the flow, and un-writes on the way back up.
+      const cardT = readAt(holdAt(s.progress, FLOW));
       typed.forEach((span, i) => {
-        const full = DEBRIEF_BLOCKS[i];
+        const full = READ_BLOCKS[i];
         const n = Math.round(full.length * cardBlockAmount(cardT, i));
         if (n !== typedLen[i]) {
           typedLen[i] = n;
@@ -222,71 +173,13 @@ export function Journey({ live }: { live: boolean }) {
         <div className="phone-tag" aria-hidden="true" data-live-only />
       </Stop>
 
-      <ExerciseStop
-        id="squat"
-        side="right"
-        heading="Squats, rep by rep."
-        counts="A rep counts only when you reach the depth you picked."
-      />
-      <ExerciseStop
-        id="pushup"
-        side="left"
-        heading="Push-ups, rep by rep."
-        counts="A rep counts only when you get down to depth and lock your arms out at the top."
-      />
-      <ExerciseStop
-        id="pullup"
-        side="right"
-        heading="Pull-ups, rep by rep."
-        counts="A rep counts from a dead hang until your chin clears the bar."
-      />
-
-      <Stop id="afterSet" labelledBy="h-afterSet">
-        <div className="copy copy--left copy--narrow">
-          <h2 className="h2" id="h-afterSet">
-            Find out how that one went.
-          </h2>
-          <p>
-            End the set and ask for a read: a few sentences on what it actually did, measured against your own first
-            couple of reps. Only when you ask for it.
-          </p>
-          <p className="fine">
-            Your video stays on your phone. Asking for a read sends a handful of still frames from the set; the
-            end-of-workout summary sends none.
-          </p>
-        </div>
-
-        <article className="debrief" aria-label="An example of a post-set summary, for a set of pull-ups">
-          <span className="debrief__kind">Example</span>
-          {DEBRIEF_BLOCKS.map((text, i) => {
-            const cls = i === 0 ? "debrief__label" : i === CARD_BLOCKS - 1 ? "debrief__cues" : "debrief__p";
-            return (
-              <p key={i} className={cls}>
-                <span className="sr-only">{text}</span>
-                <span aria-hidden="true" data-typed>
-                  {live ? "" : text}
-                </span>
-              </p>
-            );
-          })}
-        </article>
+      <Stop id="flow" labelledBy="h-flow">
+        <Flow live={live} />
+        <div className="phone-tag" data-tag="flow" aria-hidden="true" data-live-only />
       </Stop>
 
-      <Stop id="afterWorkout" labelledBy="h-afterWorkout">
-        <div className="copy copy--left copy--top">
-          <h2 className="h2" id="h-afterWorkout">
-            See the pattern across sets.
-          </h2>
-          <p>
-            One read across the whole session: what kept happening, what was a one-off, and what genuinely changed as
-            you got tired — judged on how your reps slowed, not assumed because it was the last set.
-          </p>
-        </div>
-        {[1, 2, 3].map((n) => (
-          <span key={n} className="set-label" aria-hidden="true" data-live-only>
-            Set {n}
-          </span>
-        ))}
+      <Stop id="compare" labelledBy="h-compare">
+        <Compare />
       </Stop>
 
       <Stop id="finale" labelledBy="h-finale">

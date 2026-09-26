@@ -13,13 +13,13 @@
  * text is fully in focus — and between two holds the camera moves from one shot
  * to the next while the text racks focus: the old stop blurs out over the first
  * half of the move, the new one sharpens over the second. The reader is never
- * left reading two stops at once, and the page settles into a hold whenever
- * they stop scrolling between two.
+ * left reading two stops at once. The page does not snap: stop between two
+ * holds and it stays there.
  */
 
 import type { ExerciseId } from "./exercises";
 
-export type StopId = "form" | "frame" | "squat" | "pushup" | "pullup" | "afterSet" | "afterWorkout" | "finale";
+export type StopId = "form" | "frame" | "flow" | "compare" | "finale";
 
 /** Where the camera is for one stop. */
 export type Shot = {
@@ -75,6 +75,9 @@ export const STOPS: readonly Stop[] = [
     // Text on the left, the body standing off to the right of it.
     shot: shot({ azimuth: 0.35, distance: 3.9, shift: [0.2, 0] }),
   },
+  // (The three exercise stops — squat, push-up, pull-up — and "what it watches
+  // for" were removed on 2026-09-26; so were the two debrief stops on
+  // 2026-09-25 — the post-set read now comes back at the end of the flow.)
   {
     id: "frame",
     label: "IN FRAME",
@@ -84,86 +87,47 @@ export const STOPS: readonly Stop[] = [
     // and the body it's looking at all fit.
     shot: shot({ azimuth: 1.05, elevation: 0.22, distance: 6.4, target: [0, 0.75, 1.1], shift: [0.16, 0] }),
   },
-  // The three exercises. Each one's words and list sit on one side and the body
-  // on the other, alternating, at a three-quarter view that shows the front
-  // and the side at once — the camera no longer turns to a fault; the list
-  // says what it caught. On a phone the words sit at the top and the counter at
-  // the bottom, so the body goes a little LOWER than on the other stops.
   {
-    id: "squat",
-    label: "SQUAT",
-    span: 1.8,
-    hold: [0.25, 0.8],
+    id: "flow",
+    label: "WHAT HAPPENS TO IT",
+    // Its hold is five steps the scene plays one after another as the reader
+    // scrolls through it (lib/flowScript) — scan, points, turn to the side and
+    // scan again, a flagged squat, the read going out and coming back — every
+    // bit of it scrubbed by the scroll. 1.7× the 2.8 screens it had: at ~0.4
+    // screens a step the animations ran too fast under a scroll wheel; now
+    // ~0.65–0.75 a step.
+    span: 4.76,
+    hold: [0.1, 0.9],
+    // At 45° to the body the whole way: it starts facing the phone on the floor
+    // in front of it, and turns 90° to it (the phone's side view) — from here
+    // that's 45° either way. From this side the phone sits to the body's right
+    // on screen, so the words go on the left and the two of them on the right;
+    // on a phone the words fill the bottom, so body and phone go up.
+    // Far enough back for both: the phone stands 2.4 m in front of the body,
+    // which from 45° is ~1.7 m across the screen.
     shot: shot({
-      azimuth: 0.55,
-      elevation: 0.08,
-      distance: 3.9,
-      target: [0, 0.85, 0],
-      shift: [-0.17, 0],
-      narrowShift: [0, -0.03],
-    }),
-  },
-  {
-    id: "pushup",
-    label: "PUSH-UP",
-    span: 1.8,
-    hold: [0.25, 0.8],
-    // Low, from the side and a little ahead of the hands: the body line (sag,
-    // pike) reads side-on, the elbows and the press read from in front. Any
-    // more side-on and a plank this long runs under the words at 4:3.
-    shot: shot({
-      azimuth: 0.8,
-      elevation: 0.2,
-      distance: 4.1,
-      target: [0, 0.3, 0],
+      azimuth: -Math.PI / 4,
+      elevation: 0.16,
+      distance: 6.2,
+      target: [0, 0.8, 1.2],
       shift: [0.2, 0],
-      // On a phone held upright the plank is the width of the screen and an
-      // eighth of its height: closer in, and up out of the words' way.
-      narrowShift: [0, 0.08],
-      narrowFov: 36,
+      narrowShift: [0, 0.3],
+      narrowFov: 44,
     }),
   },
   {
-    id: "pullup",
-    label: "PULL-UP",
+    id: "compare",
+    label: "HOW IT COMPARES",
     span: 1.8,
     hold: [0.25, 0.8],
-    // Pulled back far enough for the whole hang and the bar over it.
+    // The comparison on the left, the body standing on the right.
     shot: shot({
-      azimuth: 0.6,
-      elevation: 0.04,
-      distance: 5.1,
-      target: [0, 1.25, 0],
-      shift: [-0.17, 0],
-      narrowShift: [0, -0.02],
-    }),
-  },
-  {
-    id: "afterSet",
-    label: "AFTER THE SET",
-    span: 1.8,
-    hold: [0.25, 0.8],
-    // The body, hanging, in the gap between the words on the left and the
-    // debrief writing itself out on the right.
-    shot: shot({ azimuth: 0.7, distance: 5.2, target: [0, 1.25, 0], shift: [-0.04, 0] }),
-  },
-  {
-    id: "afterWorkout",
-    label: "AFTER THE WORKOUT",
-    span: 1.6,
-    hold: [0.3, 0.75],
-    // Wide, nearly square-on — the uneven pull is a front-view fault, and the
-    // three sets have to show it — across the row of sets on the one bar.
-    shot: shot({
-      azimuth: 0.08,
-      elevation: 0.1,
-      distance: 7.6,
-      target: [-1.25, 1.2, 0],
-      shift: [0.19, 0.02],
-      narrowShift: [0, 0.16],
-      // Three bodies side by side don't fit a phone held upright at 30°;
-      // pulling back far enough instead would bury them in the fog.
-      narrowFov: 46,
+      azimuth: 0.25,
+      elevation: 0.08,
+      distance: 5,
+      target: [0, 0.95, 0],
+      shift: [0.24, 0],
+      narrowShift: [0, 0.28],
     }),
   },
   {
@@ -179,18 +143,15 @@ export const STOPS: readonly Stop[] = [
 ];
 
 /**
- * What the body is doing at each stop. Up to the squat it stands; the pull-up's
- * hang carries on through the two debriefs (they are about a set of pull-ups);
- * the finale stands again, on the pedestal, reached through the iris.
+ * What the body is doing at each stop: squatting, all the way down — it stands
+ * for the opening and the setup, squats on cue in the flow, and stands on the
+ * pedestal in the finale, reached through the iris.
  */
 export const EXERCISE_AT: Record<StopId, ExerciseId> = {
   form: "squat",
   frame: "squat",
-  squat: "squat",
-  pushup: "pushup",
-  pullup: "pullup",
-  afterSet: "pullup",
-  afterWorkout: "pullup",
+  flow: "squat",
+  compare: "squat",
   finale: "squat",
 };
 
@@ -313,6 +274,17 @@ export function storyAt(pRaw: number, out: StorySample = newSample()): StorySamp
   return out;
 }
 
+/**
+ * How far through stop `i`'s hold the reader is: 0 at its start, 1 at its end,
+ * below 0 on the way in and above 1 on the way out. For a stop whose hold is
+ * itself a script, played by scroll (the flow).
+ */
+export function holdAt(pRaw: number, i: number): number {
+  const p = Math.min(END, Math.max(0, pRaw));
+  const [a, b] = HOLDS[i];
+  return (p - a) / (b - a);
+}
+
 /** Interpolate two shots. Linear per component; the ease is in `blend`. */
 export function mixShot(a: Shot, b: Shot, t: number, out: Shot): Shot {
   const l = (x: number, y: number) => x + (y - x) * t;
@@ -325,20 +297,4 @@ export function mixShot(a: Shot, b: Shot, t: number, out: Shot): Shot {
   out.fov = l(a.fov, b.fov);
   out.narrowFov = l(a.narrowFov, b.narrowFov);
   return out;
-}
-
-/**
- * Where to ease to when the reader stops scrolling: the nearer end of the
- * nearer hold, or null if they are already in one. Aiming at the hold's EDGE
- * (just inside it) rather than its middle moves the page as little as it can.
- */
-export function settleTarget(pRaw: number): number | null {
-  const p = Math.min(END, Math.max(0, pRaw));
-  let best: number | null = null;
-  for (const [a, b] of HOLDS) {
-    if (p >= a && p <= b) return null;
-    const edge = p < a ? a + 0.02 : b - 0.02;
-    if (best === null || Math.abs(edge - p) < Math.abs(best - p)) best = edge;
-  }
-  return best;
 }

@@ -550,7 +550,7 @@ a {
      from the glass buttons inside it. */
   filter: none;
 }
-.is-live .stop[data-live] .stop__frame :is(a, button, .copy, .debrief, .finale, .faq__body) {
+.is-live .stop[data-live] .stop__frame :is(a, button, .copy, .debrief, .finale, .faq__body, .panel) {
   pointer-events: auto;
 }
 
@@ -625,93 +625,6 @@ a {
   }
 }
 
-/* ── the exercises: what it watches for, the count, the angles ─────────── */
-
-/* The list. Every line is there from the start; the one for the rep in
-   progress lights as the rep shows it — red for a fault, ink for a clean rep
-   or one that didn't count (that isn't a fault, the counter is the feedback). */
-.checks {
-  margin: 14px 0 0;
-  padding: 0;
-  list-style: none;
-  font-family: var(--mono);
-  font-size: 12.5px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-.checks__item {
-  position: relative;
-  padding: 5px 0 5px 22px;
-  border-top: 1px solid var(--rule);
-  color: var(--ink-2);
-  transition: color 0.25s var(--ease-out);
-}
-.checks__item:last-child {
-  border-bottom: 1px solid var(--rule);
-}
-.checks__item::before {
-  content: "";
-  position: absolute;
-  left: 2px;
-  top: 50%;
-  width: 8px;
-  height: 8px;
-  margin-top: -4px;
-  border: 1px solid currentColor;
-  border-radius: 50%;
-  transition:
-    background-color 0.25s var(--ease-out),
-    transform 0.35s var(--ease-out);
-}
-.checks__note {
-  text-transform: none;
-  letter-spacing: 0.02em;
-}
-.checks__item.is-on {
-  color: var(--ink);
-  font-weight: 500;
-}
-.checks__item.is-on::before {
-  background: currentColor;
-  transform: scale(1.15);
-}
-.checks__item.is-on[data-kind="fault"] {
-  color: var(--fault-ink-fog);
-}
-
-.readout {
-  position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
-  font-family: var(--mono);
-  font-size: 11px;
-  line-height: 1.6;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-.readout--left {
-  left: var(--gut);
-}
-/* On the right it is the push-up's, whose body lies low across the frame: up
-   over the feet rather than on top of them. */
-.readout--right {
-  right: var(--gut);
-  top: 24%;
-  transform: none;
-  text-align: right;
-}
-.readout__label {
-  color: var(--ink-2);
-}
-.readout__reps {
-  margin: 2px 0 6px;
-  font-size: 46px;
-  font-weight: 500;
-  line-height: 1;
-  letter-spacing: -0.03em;
-  font-variant-numeric: tabular-nums;
-}
-
 .phone-tag,
 .set-label {
   position: absolute;
@@ -730,10 +643,403 @@ a {
 }
 /* Pinned over a point in the scene: centred on it, a little above. */
 .phone-tag {
-  margin: -2.6em 0 0 -5.5em;
+  margin-top: -2.6em;
+  /* Centred on the point Journey places it at (kept on screen there). */
+  translate: -50% 0;
 }
 .set-label {
   margin: -2.4em 0 0 -2.3em;
+}
+
+/* ── panels: the flow and the comparison, beside the body ──────────────── */
+
+.panel {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+}
+.panel .h2 {
+  font-size: clamp(1.8rem, 2.8vw, 2.7rem);
+}
+
+/* What happens to what it sees: the steps the scene plays, as a list. On the
+   live page the step the scene is on is open, the ones before it are ticked
+   and the ones after are just their titles; below the border the read goes
+   out, and comes back as the post-set read, writing itself out. */
+.flow {
+  left: var(--gut);
+  width: min(30rem, 36vw);
+}
+.flow .h2 {
+  margin-bottom: 16px;
+}
+.flow__zone-label,
+.flow__border-label {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+.flow__zone-label {
+  margin: 0 0 8px;
+}
+.flow__steps {
+  position: relative;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+/* The line down the steps, from each marker to the next. */
+.flow__steps::before {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 12px;
+  bottom: 12px;
+  width: 1px;
+  background: var(--rule);
+}
+.flow__step {
+  position: relative;
+  padding: 5px 0 5px 24px;
+  transition: opacity 0.35s var(--ease-out);
+}
+/* Its marker: an open ring, filled once done, ringed in ink while on. */
+.flow__step::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 10px;
+  width: 11px;
+  height: 11px;
+  box-sizing: border-box;
+  border: 1px solid var(--ink-2);
+  border-radius: 50%;
+  background: var(--fog-2);
+  transition:
+    background-color 0.3s var(--ease-out),
+    transform 0.3s var(--ease-out);
+}
+.flow__title {
+  display: block;
+  font-size: 0.95rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+.flow__text {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.84rem;
+  line-height: 1.45;
+  color: var(--ink-2);
+}
+/* Live: only the step the scene is on shows its words. */
+.is-live .flow__step {
+  opacity: 0.45;
+}
+.is-live .flow__step .flow__text {
+  max-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition:
+    max-height 0.4s var(--ease-out),
+    opacity 0.3s var(--ease-out);
+}
+.is-live .flow__step.is-on {
+  opacity: 1;
+}
+.is-live .flow__step.is-on .flow__text {
+  max-height: 5em;
+  opacity: 1;
+}
+.is-live .flow__step.is-done {
+  opacity: 0.75;
+}
+.flow__step.is-on::before {
+  background: var(--ink);
+  border-color: var(--ink);
+  transform: scale(1.2);
+  box-shadow: 0 0 0 4px rgba(21, 25, 30, 0.12);
+}
+.flow__step.is-done::before {
+  background: var(--ink-2);
+}
+
+/* The border: what's above stays on the device. While the read goes out, a
+   stream of dots runs down across it, out of the device's side. */
+.flow__border {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 0;
+  padding-left: 24px;
+}
+.flow__border::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--ink);
+}
+.flow__stream {
+  position: absolute;
+  left: 3px;
+  top: -40px;
+  width: 5px;
+  height: 80px;
+  overflow: hidden;
+  opacity: 0;
+  transition: opacity 0.3s var(--ease-out);
+}
+.flow__stream i {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--ink);
+  opacity: 0;
+}
+.flow__border.is-on .flow__stream {
+  opacity: 1;
+}
+
+/* What comes back: the post-set read, writing itself out. */
+.flow__read {
+  margin-top: 10px;
+  padding: 16px 18px 18px;
+  background: var(--glass-2);
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  transition: opacity 0.4s var(--ease-out);
+}
+.is-live .flow__read:not(.is-on) {
+  opacity: 0;
+}
+.flow__read .debrief__p,
+.flow__read .debrief__cues {
+  margin-top: 8px;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+.flow__read .debrief__cues {
+  font-size: 0.86rem;
+}
+
+/* How it compares: when each product tells you about a set, as a chart, and
+   the one you pick beside Neuro-Fit, row by row. */
+.compare {
+  left: var(--gut);
+  width: min(40rem, 47vw);
+  padding: 22px 24px 18px;
+  background: var(--glass-2);
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+.compare__intro {
+  margin-top: 8px;
+  font-size: 0.93rem;
+  color: var(--ink-2);
+}
+.chart {
+  margin-top: 16px;
+}
+.chart__row {
+  display: grid;
+  grid-template-columns: 6.2rem repeat(3, minmax(0, 1fr));
+  align-items: start;
+  gap: 0 10px;
+  padding: 7px 12px;
+  text-align: left;
+}
+.chart__row--head {
+  padding-top: 0;
+  padding-bottom: 5px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+.chart__row--us {
+  background: var(--ink);
+  color: var(--fog-2);
+  border-radius: 12px;
+}
+.chart__name {
+  font-size: 0.88rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+.chart__cell {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+  font-size: 0.76rem;
+  line-height: 1.35;
+  color: var(--ink-2);
+}
+.chart__row--us .chart__cell {
+  color: rgba(201, 214, 229, 0.9);
+}
+.chart__dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin-top: 4px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  opacity: 0.3;
+}
+.chart__cell.has .chart__dot {
+  background: currentColor;
+  opacity: 1;
+}
+.chart__row--us .chart__cell.has .chart__dot {
+  background: var(--hot);
+  border-color: var(--hot);
+}
+/* The others: a glass track of rows, the droplet on the one picked. */
+.chart__others {
+  display: grid;
+  gap: 2px;
+  margin-top: 4px;
+}
+.chart__others > .lg-seg__item.chart__row {
+  display: grid;
+  align-items: start;
+  justify-content: stretch;
+  gap: 0 10px;
+  padding: 7px 12px;
+  border-radius: 12px;
+  font-family: var(--sans);
+  font-size: inherit;
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
+  white-space: normal;
+}
+.chart__others > .chart__row[aria-pressed="true"] .chart__cell {
+  color: var(--ink);
+}
+
+.versus {
+  width: 100%;
+  margin-top: 16px;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+  line-height: 1.35;
+}
+.versus th,
+.versus td {
+  padding: 6px 8px 6px 0;
+  text-align: left;
+  vertical-align: top;
+  border-top: 1px solid var(--rule);
+}
+.versus thead th,
+.versus thead td {
+  border-top: 0;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.versus tbody th {
+  width: 7.2rem;
+  font-weight: 600;
+}
+.versus td {
+  width: calc((100% - 7.2rem) / 2);
+  color: var(--ink-2);
+}
+.versus td.is-unstated {
+  font-style: italic;
+  opacity: 0.75;
+}
+.compare__src {
+  margin-top: 10px;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  color: var(--ink-2);
+}
+.compare__src a {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* A short laptop screen (720–820px tall): the flow and the comparison run up
+   under the brand at full size — 686px and 650px tall at 1280×720 — so they
+   tighten until each fits under it. */
+@media (min-width: 821px) and (min-aspect-ratio: 1/1) and (max-height: 820px) {
+  .panel .h2 {
+    font-size: clamp(1.6rem, 2.3vw, 2.1rem);
+  }
+  .flow {
+    top: calc(50% + 22px);
+  }
+  .flow .h2 {
+    margin-bottom: 10px;
+  }
+  .flow__step {
+    padding: 3px 0 3px 24px;
+  }
+  .flow__step::before {
+    top: 8px;
+  }
+  .flow__title {
+    font-size: 0.88rem;
+  }
+  .flow__text {
+    font-size: 0.78rem;
+  }
+  .flow__border {
+    margin: 8px 0;
+  }
+  .flow__read {
+    padding: 12px 14px 14px;
+  }
+  .flow__read .debrief__p,
+  .flow__read .debrief__cues {
+    margin-top: 6px;
+    font-size: 0.8rem;
+  }
+  .compare {
+    top: calc(50% + 22px);
+    padding: 16px 20px 14px;
+  }
+  .compare__intro {
+    margin-top: 4px;
+    font-size: 0.86rem;
+  }
+  .chart {
+    margin-top: 10px;
+  }
+  .chart__row,
+  .chart__others > .lg-seg__item.chart__row {
+    padding: 5px 10px;
+  }
+  .chart__cell {
+    font-size: 0.72rem;
+  }
+  .versus {
+    margin-top: 10px;
+    font-size: 0.76rem;
+  }
+  .versus th,
+  .versus td {
+    padding: 4px 8px 4px 0;
+  }
+  .compare__src {
+    margin-top: 6px;
+    font-size: 0.68rem;
+  }
 }
 
 /* ── after the set: the debrief, writing itself out ────────────────────── */
@@ -922,29 +1228,6 @@ a {
     top: 60px;
     bottom: auto;
   }
-  /* An exercise: the words and the list at the bottom, the body above them.
-     The list goes on one wrapped line — five rows would bury the body. */
-  .copy--exercise p {
-    margin-top: 6px;
-  }
-  .checks {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px 12px;
-    margin-top: 8px;
-    font-size: 10.5px;
-  }
-  .checks__item,
-  .checks__item:last-child {
-    padding: 2px 0 2px 14px;
-    border: 0;
-  }
-  .checks__item::before {
-    left: 0;
-    width: 7px;
-    height: 7px;
-    margin-top: -3.5px;
-  }
   .copy p,
   .lede {
     margin-top: 10px;
@@ -964,20 +1247,6 @@ a {
     height: 1px;
     overflow: hidden;
     clip: rect(0 0 0 0);
-  }
-  /* The count, small, over the top of the screen — under the brand. */
-  .readout,
-  .readout--left,
-  .readout--right {
-    left: 16px;
-    right: auto;
-    top: 58px;
-    transform: none;
-    text-align: left;
-    font-size: 10px;
-  }
-  .readout__reps {
-    font-size: 30px;
   }
   /* The debrief is this stop's whole point on a phone: it is set small enough
      to fit whole under the heading, rather than cut off at a max-height. */
@@ -1031,6 +1300,108 @@ a {
   .finale .h2 {
     margin-bottom: 18px;
   }
+
+  .panel {
+    left: 12px;
+    right: 12px;
+    top: auto;
+    bottom: 42px;
+    width: auto;
+    transform: none;
+  }
+  .panel .h2 {
+    font-size: 1.5rem;
+  }
+  .flow {
+    padding: 14px 14px 16px;
+    background: var(--glass-2);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+  }
+  .flow .h2 {
+    margin-bottom: 8px;
+  }
+  /* A phone is short on room: the steps shrink to one line each, the one on
+     shows its words, and the read coming back is set small. */
+  .flow__zone-label {
+    margin-bottom: 4px;
+  }
+  .flow__step {
+    padding: 2px 0 2px 22px;
+  }
+  .flow__step::before {
+    top: 6px;
+    width: 10px;
+    height: 10px;
+  }
+  .flow__title {
+    font-size: 0.8rem;
+  }
+  .flow__text {
+    font-size: 0.72rem;
+    line-height: 1.35;
+  }
+  .flow__border {
+    margin: 6px 0;
+  }
+  .flow__read {
+    margin-top: 6px;
+    padding: 10px 12px 12px;
+  }
+  .flow__read .debrief__label {
+    font-size: 10px;
+  }
+  .flow__read .debrief__p,
+  .flow__read .debrief__cues {
+    margin-top: 5px;
+    font-size: 0.72rem;
+    line-height: 1.4;
+  }
+  .compare {
+    padding: 14px 12px 12px;
+  }
+  .compare__intro {
+    font-size: 0.8rem;
+  }
+  .chart {
+    margin-top: 10px;
+  }
+  .chart__row,
+  .chart__others > .lg-seg__item.chart__row {
+    grid-template-columns: 4.4rem repeat(3, minmax(0, 1fr));
+    gap: 0 6px;
+    padding: 5px 8px;
+  }
+  .chart__row--head {
+    font-size: 8.5px;
+    letter-spacing: 0.04em;
+  }
+  .chart__name {
+    font-size: 0.74rem;
+  }
+  .chart__cell {
+    gap: 4px;
+    font-size: 0.64rem;
+  }
+  .chart__dot {
+    width: 7px;
+    height: 7px;
+    margin-top: 3px;
+  }
+  .versus {
+    margin-top: 10px;
+    font-size: 0.7rem;
+  }
+  .versus th,
+  .versus td {
+    padding: 4px 6px 4px 0;
+  }
+  .versus tbody th {
+    width: 4.8rem;
+  }
+  .compare__src {
+    font-size: 0.64rem;
+  }
 }
 
 /* ── the still page: reduced motion, or no WebGL ───────────────────────── */
@@ -1058,6 +1429,12 @@ a {
   background: none;
   padding: 0;
 }
+.is-still .panel {
+  position: static;
+  width: auto;
+  max-width: 42rem;
+  transform: none;
+}
 .is-still .stop--form .stop__frame {
   min-height: 92vh;
   align-items: center;
@@ -1070,9 +1447,6 @@ a {
 .is-still .stop--afterSet .stop__frame {
   grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
   align-items: start;
-}
-.is-still .checks {
-  max-width: 26rem;
 }
 .is-still .finale {
   margin: 0 auto;

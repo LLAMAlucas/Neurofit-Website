@@ -22,8 +22,17 @@ uniform vec3 uFaultB[4];
 uniform float uFaultR[4];
 uniform float uFaultAmt[4];
 
+// The phone's scan (the flow stop): how lit the front it faces is, the sweep
+// line's height and whether it's still sweeping, and where the lens is — all
+// in world space, so it follows the body as it turns side-on.
+uniform float uScan;
+uniform float uScanY;
+uniform float uScanBand;
+uniform vec3 uScanFrom;
+
 attribute vec2 aSimUv;
 
+varying float vScan;        // 0…1+: how lit by the phone's scan
 varying float vRim;
 varying float vShade;
 varying float vRed;
@@ -77,6 +86,16 @@ void main() {
   // orbits — lit shoulders and thighs, shadowed undersides.
   vec3 wn = normalize(mat3(modelMatrix) * n);
   vShade = clamp(dot(wn, normalize(vec3(0.2, 1.0, 0.35))) * 0.5 + 0.5, 0.0, 1.0);
+  // Only what faces the lens is scanned — the front, then side-on the side —
+  // from the top down to the sweep line, which itself is a brighter band.
+  vScan = 0.0;
+  if (uScan > 0.001) {
+    vec3 wp = (modelMatrix * vec4(p, 1.0)).xyz;
+    float facing = smoothstep(0.05, 0.45, dot(wn, normalize(uScanFrom - wp))) * (1.0 - inner);
+    float swept = smoothstep(uScanY - 0.015, uScanY + 0.015, wp.y);
+    float line = (1.0 - smoothstep(0.0, 0.035, abs(wp.y - uScanY))) * uScanBand;
+    vScan = uScan * facing * (swept + 0.8 * line);
+  }
   vRed = red;
   vSeed = seed;
   vDepth = -mv.z;

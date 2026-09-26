@@ -157,7 +157,8 @@ void main() {
   // The burst: every grain comes loose where it is and is thrown out from the
   // body's centre. It is hot, so the line below keeps it in the room while the
   // body's pose changes under it — and as it cools it flows home to the NEW
-  // pose: the body re-forms as the next exercise.
+  // pose: the body re-forms as the next exercise. (A cold flow from body to
+  // body was tried on 2026-09-25; the user preferred this breaking apart.)
   if (uBurst * uFirst > 0.5) {
     vec3 was = texelFetch(tHomePrev, t, 0).xyz + d;
     vec3 away = was - uBurstCentre + (hash31(seed * 1.93) - 0.5) * 0.6;

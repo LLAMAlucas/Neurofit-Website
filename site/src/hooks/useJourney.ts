@@ -1,7 +1,8 @@
 /**
  * The scroll: inertial, feeding the scene and racking each stop's text in and
- * out of focus, and easing into the nearer stop when the reader stops scrolling
- * between two — so text is never left half-blurred on screen.
+ * out of focus. The reader's scroll is theirs — the page never moves itself to
+ * a stop (it used to ease into the nearer one after 180 ms of stillness; the
+ * user had that removed, 2026-09-25).
  *
  * Off under reduced motion and without WebGL: those readers get the page as
  * plain, still, normal-flow sections, and the browser's own scroll.
@@ -9,14 +10,9 @@
 import { useEffect } from "react";
 import Lenis from "lenis";
 
-import { STOPS, STOP_COUNT, newSample, settleTarget, storyAt } from "@/lib/story";
+import { STOPS, STOP_COUNT, newSample, storyAt } from "@/lib/story";
 import { store } from "@/stage/store";
 import { onTick } from "./ticker";
-
-/** Stopped this long between two stops, the page settles into one, ms. */
-const SETTLE_AFTER_MS = 180;
-const SETTLE_S = 0.9;
-const easeInOut = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
 
 export function useJourney(live: boolean) {
   useEffect(() => {
@@ -40,32 +36,6 @@ export function useJourney(live: boolean) {
 
     const lenis = new Lenis({ autoRaf: false, lerp: 0.1, smoothWheel: true });
 
-    // Settling: never while a finger or button is down, and any fresh input
-    // cancels a settle in progress.
-    let pressed = false;
-    let settling = false;
-    let lastY = -1;
-    let lastMove = performance.now();
-    const input = () => {
-      settling = false;
-      lastMove = performance.now();
-    };
-    const down = () => {
-      pressed = true;
-      input();
-    };
-    const up = () => {
-      pressed = false;
-      lastMove = performance.now();
-    };
-    window.addEventListener("wheel", input, { passive: true });
-    window.addEventListener("keydown", input);
-    window.addEventListener("pointerdown", down, { passive: true });
-    window.addEventListener("pointerup", up);
-    window.addEventListener("pointercancel", up);
-    window.addEventListener("touchstart", down, { passive: true });
-    window.addEventListener("touchend", up);
-
     const sample = newSample();
     // `section`, not just [data-stop]: the page also marks <body> with the stop
     // it is at.
@@ -77,27 +47,8 @@ export function useJourney(live: boolean) {
 
     const off = onTick((now) => {
       lenis.raf(now);
-      const y = window.scrollY;
-      const p = y / vh;
+      const p = window.scrollY / vh;
       store.progress = p;
-      if (y !== lastY) {
-        lastY = y;
-        if (!settling) lastMove = now;
-      }
-      if (!pressed && !settling && now - lastMove > SETTLE_AFTER_MS) {
-        const t = settleTarget(p);
-        if (t !== null) {
-          settling = true;
-          lenis.scrollTo(t * vh, {
-            duration: SETTLE_S,
-            easing: easeInOut,
-            onComplete: () => {
-              settling = false;
-              lastMove = performance.now();
-            },
-          });
-        }
-      }
 
       storyAt(p, sample);
       for (let i = 0; i < sections.length; i++) {
@@ -134,13 +85,6 @@ export function useJourney(live: boolean) {
       off();
       lenis.destroy();
       window.removeEventListener("resize", onResize);
-      window.removeEventListener("wheel", input);
-      window.removeEventListener("keydown", input);
-      window.removeEventListener("pointerdown", down);
-      window.removeEventListener("pointerup", up);
-      window.removeEventListener("pointercancel", up);
-      window.removeEventListener("touchstart", down);
-      window.removeEventListener("touchend", up);
       delete document.body.dataset.stop;
       root.style.removeProperty("--vh");
     };

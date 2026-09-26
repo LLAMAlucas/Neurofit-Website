@@ -13,11 +13,12 @@ import { Bloom, BrightnessContrast, DepthOfField, EffectComposer, Noise, Vignett
 import { BlendFunction, type BrightnessContrastEffect, type DepthOfFieldEffect } from "postprocessing";
 import { HalfFloatType, Vector3, type PerspectiveCamera } from "three";
 
-import { EXERCISES, restPose, type ExerciseId } from "@/lib/exercises";
+import { EXERCISES, restPose, type ExerciseId, type ExerciseSpec } from "@/lib/exercises";
+import { FLOW_REP, FLOW_REP_S, STEP, TURN as FLOW_TURN, flowAt, newFlowFrame } from "@/lib/flowScript";
 import { loopAt, newLoopSample } from "@/lib/loop";
 import { BAR_HALF, BAR_Y } from "@/lib/pullup";
 import { newPose, type Pose } from "@/lib/poseFrames";
-import { EXERCISE_AT, STOPS, mixShot, newSample, stopIndex, storyAt, type Shot } from "@/lib/story";
+import { EXERCISE_AT, STOPS, holdAt, mixShot, newSample, stopIndex, storyAt, type Shot } from "@/lib/story";
 import type { Tier } from "@/lib/quality";
 import { Environment } from "./Environment";
 import { GHOST_X, ParticleBody } from "./ParticleBody";
@@ -26,15 +27,16 @@ import { store } from "./store";
 import maleUrl from "./models/body-male.glb?url";
 
 const FRAME = stopIndex("frame");
-const WORKOUT = stopIndex("afterWorkout");
+const FLOW = stopIndex("flow");
+/** The flow's scene with the reader off the stop: everything at rest. */
+const FLOW_REST = newFlowFrame();
 const FINALE = stopIndex("finale");
 
-/** The stop where each exercise's scripted set plays. */
-const LOOP_STOP: Record<ExerciseId, number> = {
-  squat: stopIndex("squat"),
-  pushup: stopIndex("pushup"),
-  pullup: stopIndex("pullup"),
-};
+/** The flow's squat: the lean rep, over and over (lib/flowScript). */
+const FLOW_SPEC: ExerciseSpec = { ...EXERCISES.squat, script: [FLOW_REP], repS: FLOW_REP_S };
+/** The phone's scan sweeps from over the head to the floor, metres. */
+const SCAN_TOP = 2.02;
+const SCAN_BOTTOM = -0.04;
 
 /** The invisible box around the body that a finger can swipe through, per
  *  exercise: half its width and depth about the body, and its height, metres.
@@ -59,28 +61,14 @@ const TURN = 0.3;
 const NARROW_PULLBACK = 0.45;
 /** How far over the body's highest point the HUD's labels sit, metres. */
 const LABEL_CLEAR = 0.26;
+/** How fast the pull-up bar fades in or out with a change of exercise, 1/s. */
+const BAR_FADE = 9;
 
 const damp = (a: number, b: number, lambda: number, dt: number) => a + (b - a) * (1 - Math.exp(-lambda * dt));
 const smooth = (a: number, b: number, v: number) => {
   const t = Math.min(1, Math.max(0, (v - a) / (b - a)));
   return t * t * (3 - 2 * t);
 };
-
-/** When in an uneven pull the tilt is at its worst: the pose the ghosts and the
- *  body hold after the workout — the thing that kept happening. */
-const UNEVEN_PEAK_PHASE = (() => {
-  const p = newPose();
-  let best = 0;
-  let at = 0;
-  for (let ph = 0; ph <= 1; ph += 0.005) {
-    const e = EXERCISES.pullup.rep("uneven", ph, 1, p).envelope;
-    if (e > best) {
-      best = e;
-      at = ph;
-    }
-  }
-  return at;
-})();
 
 function lerpPose(into: Pose, to: Pose, t: number) {
   for (let i = 0; i < into.length; i++) into[i] += (to[i] - into[i]) * t;
@@ -89,10 +77,12 @@ function lerpPose(into: Pose, to: Pose, t: number) {
 function Driver({ dof }: { dof: MutableRefObject<DepthOfFieldEffect | null> }) {
   const size = useThree((s) => s.size);
   const sample = useMemo(newSample, []);
-  const loop = useMemo(newLoopSample, []);
   const shotNow = useMemo<Shot>(() => ({ ...STOPS[0].shot }), []);
-  const looped = useMemo(newPose, []);
-  const held = useMemo(newPose, []);
+  const flowPose = useMemo(newPose, []);
+  const flowLoop = useMemo(newLoopSample, []);
+  const flowFrame = useMemo(newFlowFrame, []);
+  /** The flow step shown last frame — for the flash as the squat starts. */
+  const flowStep = useRef(-1);
   const parallax = useRef({ x: 0, y: 0 });
   const lit = useRef(0);
   const lastStop = useRef(0);
@@ -123,29 +113,42 @@ function Driver({ dof }: { dof: MutableRefObject<DepthOfFieldEffect | null> }) {
     const spec = EXERCISES[exercise];
 
     // ── pose ──────────────────────────────────────────────────────────────
-    // The exercise's own stop runs its scripted set, blended in as the stop
-    // arrives and out as it leaves; away from it the body rests. The loop
-    // starts over each time the stop is reached, so rep 1 is always first.
-    const here = sample.presence[LOOP_STOP[exercise]];
-    if (here > 0) s.loopClock += dt * st.speed;
-    else s.loopClock = 0;
-    loopAt(spec, s.loopClock, st.severity, looped, loop);
+    // At rest, except where the flow has it squat (below). (The exercise stops,
+    // each running its scripted set, were removed on 2026-09-26.)
     restPose(spec, s.pose);
-    lerpPose(s.pose, looped, here);
-    s.check = loop.check;
-    s.envelope = loop.envelope * here;
-    s.lit = here > 0.5 ? loop.lit : null;
-    s.reps = loop.counted;
+    s.check = "clean";
+    s.envelope = 0;
+    s.lit = null;
+    s.reps = 0;
 
-    // After the workout the body — and the ghosts, which draw its pose — hold
-    // the worst of an uneven pull, lit: the thing that kept happening.
-    const workout = sample.presence[WORKOUT];
-    if (workout > 0 && exercise === "pullup") {
-      EXERCISES.pullup.rep("uneven", UNEVEN_PEAK_PHASE, 1, held);
-      lerpPose(s.pose, held, workout);
-      s.check = "uneven";
-      s.envelope = Math.max(s.envelope, workout);
+    // ── the flow (lib/flowScript) ─────────────────────────────────────────
+    // Scrubbed by the scroll: every sweep, point, turn, rep and flash is a
+    // function of how far through the stop the reader is (`flowAt`), so it
+    // moves only while they scroll, freezes when they stop, and plays
+    // backwards on the way back up. Off the stop it's all at rest.
+    const ff = flowFrame;
+    if (sample.presence[FLOW] > 0) flowAt(holdAt(s.progress, FLOW), ff);
+    else Object.assign(ff, FLOW_REST);
+    // The flag lights with an exposure flash (and its sound) as the squat
+    // starts, on the way down the page.
+    if (ff.step === STEP.reps && flowStep.current < STEP.reps && flowStep.current >= 0) s.faultFlash++;
+    flowStep.current = ff.step;
+    s.flowStep = ff.step;
+    s.scan = ff.scan;
+    // Once the sweep is done its line goes below the floor, out of sight.
+    s.scanY = ff.sweep < 1 ? SCAN_TOP + (SCAN_BOTTOM - SCAN_TOP) * ff.sweep : -1;
+    s.marks = ff.marks;
+    s.marksClock = ff.marksT;
+    s.turn = FLOW_TURN * ff.turn;
+    // The flagged squat: side-on, leaning, the trunk flashing red — through
+    // the reps and on while the read goes out and comes back.
+    if (ff.squat > 0) {
+      loopAt(FLOW_SPEC, ff.squatT * st.speed, st.severity, flowPose, flowLoop);
+      lerpPose(s.pose, flowPose, ff.squat);
+      s.check = FLOW_REP;
+      s.envelope = ff.flash;
     }
+    s.flowStream = ff.stream;
     s.readA = spec.readouts[0].read(s.pose);
     s.readB = spec.readouts[1].read(s.pose);
     let top = 0;
@@ -154,10 +157,14 @@ function Driver({ dof }: { dof: MutableRefObject<DepthOfFieldEffect | null> }) {
 
     // ── what's on stage ───────────────────────────────────────────────────
     s.cone = sample.presence[FRAME];
-    // The bar and the ghosts go with the pull-up: into the finale they cut out
-    // with it, behind the closed iris, rather than fading over a standing body.
-    s.ghosts = exercise === "pullup" ? workout : 0;
-    s.bar = exercise === "pullup" ? 1 : 0;
+    // The flow shows the phone in front of the body, without its view: the
+    // phone's scan is drawn on the body itself.
+    s.phoneShow = sample.presence[FLOW];
+    // The ghosts of earlier sets went with the "after the workout" stop.
+    s.ghosts = 0;
+    // The bar goes with the pull-up, fading in or out with the burst.
+    s.bar = damp(s.bar, exercise === "pullup" ? 1 : 0, BAR_FADE, dt);
+    if (Math.abs(s.bar - (exercise === "pullup" ? 1 : 0)) < 0.002) s.bar = exercise === "pullup" ? 1 : 0;
     s.holo = sample.presence[FINALE];
     s.lift = LIFT * s.holo;
     s.iris = sample.iris;
@@ -193,8 +200,10 @@ function Driver({ dof }: { dof: MutableRefObject<DepthOfFieldEffect | null> }) {
     cam.setViewOffset(size.width, size.height, -sx * size.width, sy * size.height, size.width, size.height);
     cam.updateProjectionMatrix();
 
-    // A fault first lighting up: for the sound and the exposure flash.
-    if (s.envelope > 0.25 && lit.current <= 0.25) s.faultFlash++;
+    // A fault first lighting up: for the sound and the exposure flash. Not the
+    // flow's flashing trunk — that blinks on purpose, and flashed once as the
+    // squat started (above).
+    if (flowFrame.squat === 0 && s.envelope > 0.25 && lit.current <= 0.25) s.faultFlash++;
     lit.current = s.envelope;
 
     // The box around the body on screen: the only place a touch throws

@@ -104,6 +104,14 @@ export type Burst = {
   lift: number;
   /** How hot every grain comes loose, 0…1: how long before home takes it. */
   heat: number;
+  /**
+   * How fast the body re-forms. For `seconds` after the burst, grains cool
+   * with this heat life and home pulls this hard (rad/s), easing back to the
+   * ordinary physics over the last third. Every grain is burst-hot then
+   * anyway, so a swipe caught in the window just heals a little quicker.
+   * Omitted: the body re-forms at the pace a swipe heals.
+   */
+  recover?: { seconds: number; heatLife: number; pull: number };
 };
 
 /** Seconds after a burst that the glass walls stay down: the thrown cloud
@@ -142,6 +150,9 @@ export class ParticleSim {
    *  the walls must wait for the body to have formed, not for a clock. */
   private simTime = 0;
   private wallsFrom = -Infinity;
+  /** The last burst's quicker re-forming, and when it runs out. */
+  private recover: NonNullable<Burst["recover"]> | null = null;
+  private recoverUntil = -Infinity;
   private readonly quad: Mesh;
   private readonly scene = new Scene();
   private readonly camera = new OrthographicCamera(-1, 1, 1, -1, 0, 1);
@@ -398,7 +409,17 @@ export class ParticleSim {
       u.uBurstLift.value = b.lift;
       u.uBurstHeat.value = b.heat;
       this.wallsFrom = Math.max(this.wallsFrom, this.simTime + BURST_WALLS_S);
+      this.recover = b.recover ?? null;
+      this.recoverUntil = b.recover ? this.simTime + b.recover.seconds : -Infinity;
       this.pendingBurst = null;
+    }
+    // Re-forming after a burst: cooler sooner and pulled home harder, easing
+    // back to the ordinary physics over the window's last third.
+    const r = this.recover;
+    if (r && this.simTime < this.recoverUntil) {
+      const k = Math.min(1, (3 * (this.recoverUntil - this.simTime)) / r.seconds);
+      u.uHeatLife.value = Math.max(0.05, p.heat + (r.heatLife - p.heat) * k);
+      u.uPull.value = p.pull + (r.pull - p.pull) * k;
     }
     u.uWalls.value = p.walls && this.simTime >= this.wallsFrom ? 1 : 0;
     (u.uBoxMin.value as Vector3).set(-p.room, 0, -p.room);
