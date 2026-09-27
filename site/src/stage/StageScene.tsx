@@ -7,7 +7,7 @@
  * priority: the driver (−2) decides the pose and the camera, the body (−1) skins
  * itself to that pose, and the effect composer (+1) renders.
  */
-import { Suspense, useEffect, useMemo, useRef, type MutableRefObject, type Ref } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, type MutableRefObject, type Ref } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import { Bloom, BrightnessContrast, DepthOfField, EffectComposer, Noise, Vignette } from "@react-three/postprocessing";
 import { BlendFunction, type BrightnessContrastEffect, type DepthOfFieldEffect } from "postprocessing";
@@ -23,6 +23,7 @@ import type { Tier } from "@/lib/quality";
 import { Environment } from "./Environment";
 import { GHOST_X, ParticleBody } from "./ParticleBody";
 import { Bar, Iris, Pedestal, Phone } from "./Props";
+import { trimDepthOfField } from "./rackFocus";
 import { store } from "./store";
 import maleUrl from "./models/body-male.glb?url";
 
@@ -274,6 +275,11 @@ function FrameWatch({ onSlow }: { onSlow: () => void }) {
 export default function StageScene({ tier, onSlow }: { tier: Tier; onSlow: () => void }) {
   const exposure = useRef<BrightnessContrastEffect | null>(null);
   const dof = useRef<DepthOfFieldEffect | null>(null);
+  // Sampled for its 1.6 px bokeh as it arrives (stage/rackFocus).
+  const dofRef = useCallback((effect: DepthOfFieldEffect | null) => {
+    dof.current = effect;
+    if (effect) trimDepthOfField(effect);
+  }, []);
   const focus = useMemo(() => new Vector3(0, 0.92, 0), []);
   useExposure(exposure);
   useEffect(() => {
@@ -298,7 +304,7 @@ export default function StageScene({ tier, onSlow }: { tier: Tier; onSlow: () =>
           goes under it is not something it expects. */}
       {tier.dof ? (
         <EffectComposer multisampling={0} frameBufferType={HalfFloatType}>
-          <DepthOfField ref={dof} target={focus} worldFocusRange={2.5} bokehScale={1.6} />
+          <DepthOfField ref={dofRef} target={focus} worldFocusRange={2.5} bokehScale={1.6} />
           <Bloom mipmapBlur luminanceThreshold={1} luminanceSmoothing={0.15} intensity={st.bloom} />
           <BrightnessContrast ref={exposureRef} brightness={0} contrast={0} />
           <Noise premultiply blendFunction={BlendFunction.SCREEN} opacity={st.grain} />

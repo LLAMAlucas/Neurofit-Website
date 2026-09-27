@@ -416,6 +416,7 @@ export function Pedestal() {
  */
 export function Iris() {
   const size = useThree((s) => s.size);
+  const get = useThree((s) => s.get);
   const scene = useMemo(() => new Scene(), []);
   const geometry = useMemo(() => new PlaneGeometry(2, 2), []);
   const material = useMemo(
@@ -474,12 +475,21 @@ export function Iris() {
     const mesh = new Mesh(geometry, material);
     mesh.frustumCulled = false;
     scene.add(mesh);
+    // Built now rather than on the first frame the iris closes, which stalled
+    // on it: of every shader on the page, the only one not already built by
+    // the end of the first few frames (measured, scrolling top to bottom).
+    // Compiled for the screen, which is what it's drawn to.
+    const { gl, camera } = get();
+    const target = gl.getRenderTarget();
+    gl.setRenderTarget(null);
+    gl.compile(scene, camera);
+    gl.setRenderTarget(target);
     return () => {
       scene.remove(mesh);
       geometry.dispose();
       material.dispose();
     };
-  }, [scene, geometry, material]);
+  }, [scene, geometry, material, get]);
   useFrame(({ gl, camera }) => {
     if (store.iris <= 0.001) return;
     material.uniforms.uClose.value = store.iris;
