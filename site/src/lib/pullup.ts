@@ -49,11 +49,14 @@ const GRIP_X = 0.3;
 
 const ARM_REACH = 0.995 * (boneLen("shoulderL", "elbowL") + boneLen("elbowL", "wristL"));
 /** Shoulders in a dead hang (arms straight, a hair short of locked), and at the
- *  top: just under the hands, and pulled back behind the bar so the face
- *  clears it. */
+ *  top: 8 cm under the bar, and pulled back behind it so the face clears it.
+ *  The hang hangs off the hands; the top is measured from the BAR, because
+ *  chin-over-bar is what the rep is. It was once `WRIST_Y − 0.04`, and moving
+ *  the wrists down 4 cm for the grip took the whole top down with them — the
+ *  chin cleared the bar by 1–2 cm instead of 5–6. */
 const SZ_HANG = -0.02;
 const SY_HANG = WRIST_Y - Math.sqrt(ARM_REACH ** 2 - (GRIP_X - standX("shoulderR")) ** 2 - SZ_HANG ** 2);
-const SY_TOP = WRIST_Y - 0.04;
+const SY_TOP = BAR_Y - 0.08;
 const SZ_TOP = -0.14;
 /** At the top the trunk leans back and the head tips back, chest to the bar. */
 const LEAN_TOP = (12 * Math.PI) / 180;
