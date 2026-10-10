@@ -32,8 +32,9 @@ export const USAGE_SCHEMA_VERSION = 1;
  *    - `mid_set`       — removed; latency made real-time cues unusable.
  *    - `deep_analysis` — removed; the manual "Generate" button used a weaker prompt
  *                        and overwrote the good post-workout summary.
- *  Live tiers are `post_set` and `post_workout`. */
-export type CallTier = "mid_set" | "post_set" | "post_workout" | "deep_analysis";
+ *  Live tiers are `post_set` and `post_workout` (the live coach) and `form_clip` /
+ *  `form_frame` (Analyze: whole-clip analysis and the single-frame question). */
+export type CallTier = "mid_set" | "post_set" | "post_workout" | "deep_analysis" | "form_clip" | "form_frame";
 
 /**
  * Outcome of a call attempt.
@@ -296,6 +297,8 @@ export function summarize(ledger: UsageLedger, nowMs: number): UsageSummary {
     post_set: EMPTY_TIER_STATS(),
     post_workout: EMPTY_TIER_STATS(),
     deep_analysis: EMPTY_TIER_STATS(),
+    form_clip: EMPTY_TIER_STATS(),
+    form_frame: EMPTY_TIER_STATS(),
   };
 
   let totalSent = 0;

@@ -35,7 +35,14 @@ import type { ImageFrame } from "./frameBuffer";
 import type { PushupPostSetData, PushupPostWorkoutData } from "../pushup/payload";
 import type { PullupPostSetData, PullupPostWorkoutData } from "../pullup/payload";
 import { quota, recordCall } from "../usage/usageStore";
+import { buildGenerateBody, type GenerateOptions } from "./requestBody";
+import { ANALYZE } from "../analyze/config";
+import { parseFormResult, type FormResult } from "../analyze/aiResult";
+import type { ClipPayload, FramePayload } from "../analyze/payload";
 import {
+  FORM_CLIP_SYSTEM,
+  FORM_FRAME_SYSTEM,
+  formResultSchema,
   POSTSET_SYSTEM,
   POSTWORKOUT_SYSTEM,
   PULLUP_POSTSET_SYSTEM,
@@ -477,7 +484,7 @@ export interface PostWorkoutData {
 // "NO_CUE"), and rate-limit skips. This is the audit hook `debug/evalLog.ts`
 // subscribes to; when nothing is subscribed it's a single null-check, zero cost.
 export interface GeminiCallObservation {
-  tier: "mid_set" | "post_set" | "post_workout" | "deep_analysis";
+  tier: "mid_set" | "post_set" | "post_workout" | "deep_analysis" | "form_clip" | "form_frame";
   timestampMs: number;
   /** The exact JSON payload object sent (measured / causal_flags separate, as sent). */
   payload: unknown;
@@ -555,29 +562,25 @@ function errMsg(e: unknown): string {
 /** Core generate: system + JSON payload + inline images. Throws on HTTP error.
  *  `tier` selects the thinking level from GEMINI.thinking; when GEMINI.sendThinking
  *  is on we send `thinkingConfig.thinkingLevel` and OMIT temperature (Gemini 3.x
- *  guidance — the default 1.0 is recommended; lowering it risks thinking loops). */
+ *  guidance — the default 1.0 is recommended; lowering it risks thinking loops).
+ *  The body is built by the pure `buildGenerateBody` (ai/requestBody.ts); without `opts`
+ *  it is byte-identical to what this function built inline before Analyze existed —
+ *  `check:analyze` asserts that. */
 async function geminiGenerate(
   system: string,
   payload: unknown,
   images: string[],
   maxTokens: number,
   tier: keyof typeof GEMINI.thinking,
+  opts?: GenerateOptions,
 ): Promise<GeminiExtract> {
-  const parts: Record<string, unknown>[] = [{ text: system }, { text: JSON.stringify(payload) }];
-  for (const b64 of images) parts.push({ inline_data: { mime_type: "image/jpeg", data: b64 } });
-  const generationConfig: Record<string, unknown> = { maxOutputTokens: maxTokens };
-  if (GEMINI.sendThinking) {
-    // REST v1beta: thinking is nested under generationConfig.thinkingConfig.
-    generationConfig.thinkingConfig = { thinkingLevel: GEMINI.thinking[tier] };
-  } else {
-    generationConfig.temperature = 0.4;
-  }
+  const body = buildGenerateBody(system, payload, images, maxTokens, GEMINI.sendThinking ? GEMINI.thinking[tier] : null, opts);
   // Key travels as a header, never in the query string: a URL-borne key lands in
   // proxy logs, Referer headers and browser history, and this one is the user's.
   const res = await fetch(ENDPOINT(MODEL), {
     method: "POST",
     headers: { "Content-Type": "application/json", "x-goog-api-key": getApiKey() },
-    body: JSON.stringify({ contents: [{ parts }], generationConfig }),
+    body,
   });
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
@@ -710,6 +713,81 @@ export function callPostWorkout(
       emitObs({ tier: "post_workout", timestampMs: Date.now(), payload: data, frames: framesMeta, outcome: "error", responseText: null, latencyMs: Date.now() - firedAt, errorMessage: errMsg(e) });
       callback(null);
     });
+}
+
+// --- Analyze (video form analysis) ---------------------------------------------
+/**
+ * The two Analyze tiers. Like the live tiers they fire ONLY on an explicit click, pass the
+ * kill-switch and the quota gate, and record every path through `emitObs` (so they show in the
+ * usage panel under their own tier). Differences, all for cost or for the UI:
+ *  - request-wide `mediaResolution` (LOW for the 12-frame clip call, MEDIUM for one frame);
+ *  - JSON out with a schema (`formResultSchema`), parsed here by the pure `parseFormResult`, so an
+ *    answer the app can't read is logged as an error rather than shown as a blank card;
+ *  - Promise-based: the Analyze page awaits the outcome instead of passing a callback.
+ */
+export type FormCallOutcome =
+  | { kind: "ok"; result: FormResult }
+  | { kind: "disabled" }
+  | { kind: "blocked"; message: string }
+  | { kind: "error"; message: string };
+
+async function callForm(
+  tier: "form_clip" | "form_frame",
+  system: string,
+  payload: ClipPayload | FramePayload,
+  images: string[],
+  imageTimesMs: number[],
+  cfg: { maxOutputTokens: number; mediaResolution: string; maxIssues: number },
+  thinking: keyof typeof GEMINI.thinking,
+): Promise<FormCallOutcome> {
+  if (!geminiEnabled()) return { kind: "disabled" };
+  const blocked = quotaBlock(tier, payload);
+  if (blocked) return { kind: "blocked", message: blocked };
+  const firedAt = Date.now();
+  const framesMeta = { count: images.length, timestamps: imageTimesMs };
+  try {
+    const { text, finishReason, usage } = await geminiGenerate(system, payload, images, cfg.maxOutputTokens, thinking, {
+      mediaResolution: cfg.mediaResolution,
+      responseMimeType: "application/json",
+      responseSchema: formResultSchema(),
+    });
+    const t = (text ?? "").trim();
+    const base = { tier, timestampMs: Date.now(), payload, frames: framesMeta, responseText: t || null, latencyMs: Date.now() - firedAt, finishReason, usage };
+    if (finishReason && finishReason !== "STOP") {
+      // Truncated / abnormal finish — never shown as if complete.
+      emitObs({ ...base, outcome: "error", errorMessage: `truncated (finishReason=${finishReason})` });
+      return { kind: "error", message: "The answer was cut off before it finished. Try again." };
+    }
+    const result = parseFormResult(t, images.length, cfg.maxIssues);
+    if (!result) {
+      emitObs({ ...base, outcome: "error", errorMessage: "unreadable answer (not the expected JSON)" });
+      return { kind: "error", message: "The answer came back in a shape the app couldn't read. Try again." };
+    }
+    emitObs({ ...base, outcome: "response" });
+    return { kind: "ok", result };
+  } catch (e) {
+    emitObs({ tier, timestampMs: Date.now(), payload, frames: framesMeta, outcome: "error", responseText: null, latencyMs: Date.now() - firedAt, errorMessage: errMsg(e) });
+    return { kind: "error", message: friendlyError(errMsg(e)) };
+  }
+}
+
+/** An HTTP error, in words a lifter can act on. */
+function friendlyError(msg: string): string {
+  if (/Gemini (400|403)/.test(msg) && /API key|API_KEY|permission/i.test(msg)) return "Gemini rejected the API key. Check it in Settings.";
+  if (/Gemini 429/.test(msg)) return "Gemini's rate limit for your key was hit. Wait a minute and try again.";
+  if (/Gemini 5\d\d/.test(msg)) return "Gemini had a server error. Try again in a moment.";
+  if (/Failed to fetch|NetworkError|network/i.test(msg)) return "Couldn't reach Gemini — check your connection.";
+  return `Gemini call failed: ${truncate(msg, 120)}`;
+}
+
+/** "Find my form errors": up to ANALYZE.ai.clip.maxFrames key frames at LOW resolution. */
+export function callFormClip(payload: ClipPayload, images: string[], imageTimesMs: number[]): Promise<FormCallOutcome> {
+  return callForm("form_clip", FORM_CLIP_SYSTEM, payload, images, imageTimesMs, ANALYZE.ai.clip, "formClip");
+}
+
+/** "Ask about this frame": the paused frame + one either side, MEDIUM resolution. */
+export function callFormFrame(payload: FramePayload, images: string[], imageTimesMs: number[]): Promise<FormCallOutcome> {
+  return callForm("form_frame", FORM_FRAME_SYSTEM, payload, images, imageTimesMs, ANALYZE.ai.frame, "formFrame");
 }
 
 // --- response parsing -------------------------------------------------------

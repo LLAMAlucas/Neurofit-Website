@@ -29,6 +29,8 @@ import { refract } from "@/lib/liquidGlass";
 const FLOW = stopIndex("flow");
 
 const TRY_URL = "https://try.neurofit-training.com";
+/** The app opens straight on its Analyze page from this link (App.tsx reads the hash). */
+const ANALYZE_URL = `${TRY_URL}/#analyze`;
 /** The hint to touch the body shows once it has formed. */
 const HINT_AFTER_S = 2.6;
 
@@ -182,6 +184,27 @@ export function Journey({ live }: { live: boolean }) {
         <Compare />
       </Stop>
 
+      <Stop id="analyze" labelledBy="h-analyze">
+        <div className="copy copy--left">
+          <h2 className="h2" id="h-analyze">
+            Already filmed it? Take it apart.
+          </h2>
+          <p>
+            Open a clip from your camera roll and go through it frame by frame, slowed right down. Draw angles, lines
+            and rulers on it — pin them to your joints and they follow you through the rep. Watch the path of the bar,
+            and put two sets side by side.
+          </p>
+          <p>
+            Then ask the AI coach: it picks out the form errors worth fixing and how to fix each one — across the whole
+            set, or on the exact frame you paused. The video stays on your device; only the still frames you choose are
+            sent.
+          </p>
+          <a className="lg-btn copy__cta" href={ANALYZE_URL} data-focus-only>
+            Analyze a video
+          </a>
+        </div>
+      </Stop>
+
       <Stop id="finale" labelledBy="h-finale">
         <div className="finale">
           <h2 className="h2" id="h-finale">
@@ -192,7 +215,8 @@ export function Journey({ live }: { live: boolean }) {
           </a>
           <p className="price">
             Everything the camera does is free and runs on your device. The written reads after a set and after a
-            workout use your own Gemini API key, pasted into Settings. No account, no card.
+            workout, and the AI coach in video analysis, use your own Gemini API key, pasted into Settings. No
+            account, no card.
           </p>
           <Foot />
         </div>
