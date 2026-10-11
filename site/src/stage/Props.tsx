@@ -29,7 +29,7 @@ import {
 import { mulberry32 } from "@/lib/sampleSkinned";
 import { store } from "./store";
 
-const FOG_GLSL = /* glsl */ `
+export const FOG_GLSL = /* glsl */ `
   uniform vec3 uFogColor;
   uniform float uFogDensity;
   vec3 applyFog(vec3 col, float depth) {
@@ -37,14 +37,14 @@ const FOG_GLSL = /* glsl */ `
   }
 `;
 
-const fogUniforms = () => ({ uFogColor: { value: new Color() }, uFogDensity: { value: 0.07 } });
-function syncFog(m: ShaderMaterial) {
+export const fogUniforms = () => ({ uFogColor: { value: new Color() }, uFogDensity: { value: 0.07 } });
+export function syncFog(m: ShaderMaterial) {
   (m.uniforms.uFogColor.value as Color).set(store.settings.fogColor);
   m.uniforms.uFogDensity.value = store.settings.fog;
 }
 
 /** Round grains, sized in metres like the body's, for the props made of them. */
-function grainMaterial(color: string, glow: number) {
+export function grainMaterial(color: string, glow: number) {
   return new ShaderMaterial({
     transparent: true,
     depthWrite: false,
@@ -88,7 +88,7 @@ function grainMaterial(color: string, glow: number) {
   });
 }
 
-function useGrainSync(material: ShaderMaterial, amount: () => number, obj: RefObject<Points | Group | null>) {
+export function useGrainSync(material: ShaderMaterial, amount: () => number, obj: RefObject<Points | Group | null>) {
   const buf = useMemo(() => new Vector2(), []);
   useFrame((state) => {
     const a = amount();
@@ -273,7 +273,7 @@ export function Phone() {
 /* ── the pull-up bar ───────────────────────────────────────────────────── */
 
 /** Grains along a line, with a little thickness: a rod. */
-function rodGrains(from: Vector3, to: Vector3, radius: number, perMetre: number, seedBase: number): BufferGeometry {
+export function rodGrains(from: Vector3, to: Vector3, radius: number, perMetre: number, seedBase: number): BufferGeometry {
   const rand = mulberry32(seedBase);
   const length = from.distanceTo(to);
   const N = Math.max(40, Math.round(length * perMetre));

@@ -6,6 +6,7 @@
  */
 import { newPose, type Pose } from "@/lib/poseFrames";
 import type { ExerciseId } from "@/lib/exercises";
+import { newBarFrame, type BarFrame } from "@/lib/barbellScript";
 import { DEFAULTS, type Settings } from "./look";
 
 export { DEFAULTS, type Settings };
@@ -104,6 +105,22 @@ export type StageStore = {
   phone: { x: number; y: number };
   /** Bumped each time a fault first lights up (for the sound and the flash). */
   faultFlash: number;
+
+  /* ── the barbell stop (lib/barbellScript) ────────────────────────────── */
+  /** 0…1: the barbell on the body's back, and the hands on it. */
+  barbell: number;
+  /** Where the stop's script is: the step, the set's clock, the ring, the
+   *  trail, the reps done… — scrubbed by the scroll. */
+  barFrame: BarFrame;
+  /** The bar's centre, in our pose's space (it lies along X). */
+  barY: number;
+  barZ: number;
+  /** What the feet anchor adds to a point of our pose to put it on the
+   *  model — written by the body each frame, so what's drawn from the pose
+   *  (the bar, its path) lands on the body as posed. */
+  bodyOffset: [number, number, number];
+  /** Where the tag over the bar goes, CSS px. */
+  barTag: { x: number; y: number };
 };
 
 export const store: StageStore = {
@@ -152,4 +169,10 @@ export const store: StageStore = {
   labelY: 1.62,
   phone: { x: 0, y: 0 },
   faultFlash: 0,
+  barbell: 0,
+  barFrame: newBarFrame(),
+  barY: 0,
+  barZ: 0,
+  bodyOffset: [0, 0, 0],
+  barTag: { x: 0, y: 0 },
 };

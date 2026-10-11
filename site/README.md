@@ -1,6 +1,7 @@
 # Neuro-Fit — marketing site
 
-The landing page for Neuro-Fit, a camera form coach for squats, push-ups and pull-ups.
+The landing page for Neuro-Fit, a camera form coach for squats, push-ups and pull-ups —
+and the barbell, on loaded squats.
 A single-page React site: prop your phone up, do your set, find out what your form
 actually did.
 
@@ -41,7 +42,9 @@ drives the same pure modules the scene uses and asserts on the result: that ever
 keeps its length through every rep of every exercise, that contacts (feet, hands, the
 bar) never slide, that each fault crosses the line the app itself would flag while a
 clean rep stays inside it, that each set counts and lights the right line, and that
-the debrief quotes only numbers the poses actually produce.
+the debrief quotes only numbers the poses actually produce. The "Load the bar." stop is
+held to the same rules: its loaded set keeps the hands on the bar and the feet still,
+and every bar speed it shows is measured off the bar's path.
 [`scripts/check_body.ts`](scripts/check_body.ts) does the same for the particle
 sampler and the retargeter (standing, in a plank, and hanging).
 
@@ -54,7 +57,8 @@ src/
   sections/    the page's stops (Journey) and the footer
   stage/       the WebGL scene: particle body, props, driver
   lib/         pure modules — poses (squat, push-up, pull-up), the scripted
-               loop, the camera path, the debrief
+               loop, the camera path, the debrief, the barbell stop's
+               loaded set (barbellScript)
   hooks/       scroll/ticker/motion
   lab/         a dev-only page for tuning the body (/lab/)
   styles/      site.css (hand-written) + globals.css (Tailwind layer)

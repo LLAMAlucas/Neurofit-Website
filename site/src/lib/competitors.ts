@@ -65,7 +65,7 @@ export const US: Product = {
     runs: "In the browser — nothing to install",
     price: "Free. The written reads use your own Gemini key",
     video: "Stays on your device; asking for a read sends a few still frames",
-    covers: "Squats, push-ups and pull-ups",
+    covers: "Squats (and the bar, when loaded), push-ups and pull-ups",
   },
   sources: [],
 };
