@@ -49,7 +49,10 @@ export type RigMap = {
  * Where the model is put once it is posed.
  *
  * `feet` — the squat's rule: the feet keep their bind orientation and position,
- * flat on the floor where the model stands.
+ * flat on the floor where the model stands. With `grip` (0…1) the hands also
+ * go onto a bar on the back — the loaded squat: each arm reaches exactly for
+ * our wrist, carried along with the feet, and the hands wrap over the bar in
+ * the pull-up's grip. Fractional while the bar is arriving or leaving.
  *
  * `joints` — these model bones land (on average) on these joints of ours: the
  * hands and the balls of the feet on the floor for a push-up, the hands on the
@@ -59,7 +62,7 @@ export type RigMap = {
  * one fixed overhand grip, so the hands never twist through the rep.
  */
 export type Anchor =
-  | { kind: "feet" }
+  | { kind: "feet"; grip?: number }
   | { kind: "joints"; bones: readonly string[]; joints: readonly JointName[]; handsFlat?: boolean; handsGrip?: boolean };
 
 export const FEET_ANCHOR: Anchor = { kind: "feet" };
@@ -171,6 +174,13 @@ const _pq = new Quaternion();
 const _id = new Quaternion();
 const _m4 = new Matrix4();
 const _m3 = new Matrix3();
+const _s = new Vector3();
+const _e = new Vector3();
+const _w = new Vector3();
+const _t = new Vector3();
+const _u = new Vector3();
+const _n = new Vector3();
+const _off = new Vector3();
 
 /** Read one of our joints (or a midpoint) out of a flat pose. */
 export function poseOut(p: Pose, name: Point, out: Vector3): Vector3 {
@@ -215,6 +225,9 @@ export class Retargeter {
   private readonly bind = new Map<string, { p: Vector3; q: Quaternion; s: Vector3 }>();
   private readonly bindWorldQ = new Map<string, Quaternion>();
   private readonly bindFeet = new Vector3();
+  /** Each arm's upper and lower bone, and the wrist of ours it reaches for —
+   *  in the order of `map.hands`. */
+  private readonly arms: { upper: string; lower: string; wrist: JointName }[];
 
   constructor(
     all: Object3D[],
@@ -233,6 +246,16 @@ export class Retargeter {
     for (const n of [...map.lockWorld, ...map.hands])
       this.bindWorldQ.set(n, this.get(n).getWorldQuaternion(new Quaternion()));
     this.feet(this.bindFeet);
+    const aimFrom = (from: Point) => {
+      const a = map.aims.find((x) => x.from === from);
+      if (!a) throw new Error(`rig map has no aim from ${from}`);
+      return a.bone;
+    };
+    this.arms = (["L", "R"] as const).map((side) => ({
+      upper: aimFrom(`shoulder${side}`),
+      lower: aimFrom(`elbow${side}`),
+      wrist: `wrist${side}` as JointName,
+    }));
   }
 
   /** Aim one bone at our pose. */
@@ -259,14 +282,62 @@ export class Retargeter {
    *  axis (world X), parent first so the curl accumulates down the chain.
    *  Fingers go over the top and down the far side; the tips end pointing at
    *  the body. Rigs without finger bones just keep the flat hand. */
-  private gripCurl(hand: string): void {
+  private gripCurl(hand: string, amount = 1): void {
     const side = hand.endsWith("_r") ? "_r" : "_l";
     for (const [finger, segments] of FINGER_CURL) {
       segments.forEach((deg, i) => {
         const bone = this.bones.get(`${finger}_0${i + 1}${side}`);
-        if (bone) rotateWorld(bone, _q.setFromAxisAngle(X_AXIS, (deg * Math.PI) / 180));
+        if (bone) rotateWorld(bone, _q.setFromAxisAngle(X_AXIS, (deg * amount * Math.PI) / 180));
       });
     }
+  }
+
+  /** Where the feet anchor puts our pose on the model: add this to a point of
+   *  ours to find it on the posed body. */
+  feetOffset(pose: Pose, out: Vector3): Vector3 {
+    poseOut(pose, "ankleL", _a);
+    poseOut(pose, "ankleR", _b);
+    return out.copy(this.bindFeet).sub(_a.add(_b).multiplyScalar(0.5));
+  }
+
+  /**
+   * Hands onto a bar on the back, `amount` of the way: each arm reaches for
+   * our wrist (carried along with the feet) in one two-bone solve at the
+   * model's own lengths, bending the way aiming already bent it — aiming alone
+   * lands the hands a few cm off, the model's arms and shoulders not being
+   * ours — then the hand turns into the grip and the fingers close.
+   */
+  private gripBar(pose: Pose, amount: number): void {
+    this.feetOffset(pose, _off);
+    this.arms.forEach((arm, i) => {
+      const upper = this.get(arm.upper);
+      const lower = this.get(arm.lower);
+      const hand = this.get(this.map.hands[i]);
+      upper.getWorldPosition(_s);
+      lower.getWorldPosition(_e);
+      hand.getWorldPosition(_w);
+      const la = _e.distanceTo(_s);
+      const lb = _w.distanceTo(_e);
+      poseOut(pose, arm.wrist, _t).add(_off).sub(_w).multiplyScalar(amount).add(_w);
+      _u.subVectors(_t, _s);
+      const d = Math.min(_u.length() || 1e-6, (la + lb) * 0.9999);
+      _u.normalize();
+      const along = (la * la - lb * lb + d * d) / (2 * d);
+      const h = Math.sqrt(Math.max(0, la * la - along * along));
+      // The bend, square to the reach: the way the elbow already points.
+      _n.subVectors(_e, _s);
+      _n.addScaledVector(_u, -_n.dot(_u));
+      if (_n.lengthSq() < 1e-10) _n.set(0, -1, 0);
+      _n.normalize();
+      _a.copy(_s).addScaledVector(_u, along).addScaledVector(_n, h);
+      rotateWorld(upper, _q.setFromUnitVectors(_b.subVectors(_e, _s).normalize(), _d.subVectors(_a, _s).normalize()));
+      lower.getWorldPosition(_e);
+      hand.getWorldPosition(_w);
+      rotateWorld(lower, _q.setFromUnitVectors(_b.subVectors(_w, _e).normalize(), _d.subVectors(_t, _e).normalize()));
+      hand.getWorldQuaternion(_wq);
+      this.setWorld(this.map.hands[i], _total.copy(HAND_GRIP[i]).multiply(this.bindWorldQ.get(this.map.hands[i])!).slerp(_wq, 1 - amount));
+      this.gripCurl(this.map.hands[i], amount);
+    });
   }
 
   /** Slide the whole body by a world-space offset. */
@@ -329,6 +400,7 @@ export class Retargeter {
       // …and their bind position: slide the whole body so they land there.
       this.feet(_d);
       this.shift(_d.subVectors(this.bindFeet, _d));
+      if (anchor.grip) this.gripBar(pose, anchor.grip);
       return;
     }
 

@@ -9,26 +9,30 @@
  * steps, the read writing itself out — is written from one ticker, straight to
  * the DOM.
  *
- * Copy rules carried over from the app: the only numbers on screen are degrees
- * and rep/set numbers, computed from the pose, never typed; no cause-and-effect
- * claims; a rep that doesn't count is not called a fault.
+ * Copy rules carried over from the app: the only numbers on screen are degrees,
+ * bar speeds (m/s) and rep/set numbers, computed from the pose, never typed; no
+ * cause-and-effect claims; a rep that doesn't count is not called a fault.
  */
 import { useEffect, useRef, type CSSProperties, type ReactNode } from "react";
 
 import { cardBlockAmount } from "@/lib/postSet";
 import { FLOW_STEPS, PHONE_SAYS, readAt } from "@/lib/flowScript";
+import { BAR_READ_BLOCKS, barTagAt } from "@/lib/barbellScript";
 import { STOPS, holdAt, stopIndex, type StopId } from "@/lib/story";
 import { store } from "@/stage/store";
 import { onTick } from "@/hooks/ticker";
 import { Scrambler } from "@/hooks/scramble";
 import { Compare } from "./Compare";
 import { Flow, READ_BLOCKS } from "./Flow";
+import { Barbell } from "./Barbell";
 import { Foot } from "./Foot";
 import { refract } from "@/lib/liquidGlass";
 
 const FLOW = stopIndex("flow");
 
 const TRY_URL = "https://try.neurofit-training.com";
+/** The app opens straight on its Analyze page from this link (App.tsx reads the hash). */
+const ANALYZE_URL = `${TRY_URL}/#analyze`;
 /** The hint to touch the body shows once it has formed. */
 const HINT_AFTER_S = 2.6;
 
@@ -60,19 +64,27 @@ export function Journey({ live }: { live: boolean }) {
     const q = <T extends HTMLElement = HTMLElement>(sel: string) => el.querySelector<T>(sel);
     const hint = q(".hint");
     // The phone's own readout, over the phone: in the setup stop, and in the
-    // flow, where it says what the phone is doing at each step.
+    // flow, where it says what the phone is doing at each step; and over the
+    // bar in the barbell stop, where it says what the app reads off the bar.
     const tags = Array.from(el.querySelectorAll<HTMLElement>(".phone-tag")).map((node) => ({
       node,
-      flow: node.dataset.tag === "flow",
+      tag: node.dataset.tag,
       text: new Scrambler(node),
     }));
-    const typed = Array.from(el.querySelectorAll<HTMLElement>("[data-typed]"));
-    const flowParts = Array.from(el.querySelectorAll<HTMLElement>("[data-flow] [data-step]"));
-    const streamDots = Array.from(el.querySelectorAll<HTMLElement>(".flow__stream i"));
+    const all = (sel: string) => Array.from(el.querySelectorAll<HTMLElement>(sel));
+    // The two scripted stops: their steps, lit from the scene's step, and the
+    // read each ends on, written out by the scroll.
+    const scripts = [
+      { parts: all("[data-flow] [data-step]"), shown: -2, typed: all("[data-flow] [data-typed]"), blocks: READ_BLOCKS },
+      { parts: all("[data-barbell] [data-step]"), shown: -2, typed: all("[data-barbell] [data-typed]"), blocks: BAR_READ_BLOCKS },
+    ].map((x) => ({ ...x, typedLen: x.typed.map(() => -1) }));
+    const [flow, bar] = scripts;
+    const barReps = all(".barset__rep");
+    const barRead = q("[data-barbell] [data-read]");
+    let barDone = -1;
+    const streamDots = all(".flow__stream i");
     let streamShown = -1;
-    let flowShown = -2;
     let readyAt = 0;
-    const typedLen = typed.map(() => -1);
 
     const off = onTick((now) => {
       const s = store;
@@ -84,23 +96,34 @@ export function Journey({ live }: { live: boolean }) {
       // says what the scene's step has the phone doing.
       const flowSays = s.flowStep >= 0 ? PHONE_SAYS[FLOW_STEPS[s.flowStep].id] : PHONE_SAYS.camera;
       for (const tag of tags) {
-        tag.text.set(tag.flow ? flowSays : "Front view · locked", now);
-        // Centred over the phone, but kept on screen: near an edge — the flow
+        tag.text.set(tag.tag === "flow" ? flowSays : tag.tag === "bar" ? barTagAt(s.barFrame) : "Front view · locked", now);
+        // Centred over its point, but kept on screen: near an edge — the flow
         // puts the phone close to a phone's right edge — it slides in.
-        const half = tag.node.offsetWidth / 2 + 8;
-        const x = Math.min(window.innerWidth - half, Math.max(half, s.phone.x));
-        tag.node.style.transform = `translate(${x}px, ${s.phone.y}px)`;
+        const at = tag.tag === "bar" ? s.barTag : s.phone;
+        const w = tag.node.offsetWidth;
+        // The bar's tag starts at its point and runs right; the others centre.
+        const x = tag.tag === "bar" ? Math.min(window.innerWidth - w - 8, at.x) : Math.min(window.innerWidth - w / 2 - 8, Math.max(w / 2 + 8, at.x));
+        tag.node.style.transform = `translate(${x}px, ${at.y}px)`;
       }
 
-      // What happens to it: the step the scene is on is open, the ones before
+      // The scripted stops: the step the scene is on is open, the ones before
       // it done — forward and back as the reader scrolls.
-      if (s.flowStep !== flowShown) {
-        flowShown = s.flowStep;
-        for (const part of flowParts) {
+      for (const [sc, step] of [
+        [flow, s.flowStep],
+        [bar, s.barFrame.step],
+      ] as const) {
+        if (step === sc.shown) continue;
+        sc.shown = step;
+        for (const part of sc.parts) {
           const k = Number(part.dataset.step);
-          part.classList.toggle("is-on", k === flowShown || (part.tagName !== "LI" && k <= flowShown));
-          part.classList.toggle("is-done", part.tagName === "LI" && k < flowShown);
+          part.classList.toggle("is-on", k === step || (part.tagName !== "LI" && k <= step));
+          part.classList.toggle("is-done", part.tagName === "LI" && k < step);
         }
+      }
+      // Each rep's speed shows as it locks out.
+      if (s.barFrame.done !== barDone) {
+        barDone = s.barFrame.done;
+        barReps.forEach((rep, k) => rep.classList.toggle("is-on", k < barDone));
       }
 
       // The dots going out across the border, scrubbed by the scroll like the
@@ -114,18 +137,23 @@ export function Journey({ live }: { live: boolean }) {
         });
       }
 
-      // The read coming back writes itself out as the reader scrolls through
-      // the end of the flow, and un-writes on the way back up.
-      const cardT = readAt(holdAt(s.progress, FLOW));
-      typed.forEach((span, i) => {
-        const full = READ_BLOCKS[i];
-        const n = Math.round(full.length * cardBlockAmount(cardT, i));
-        if (n !== typedLen[i]) {
-          typedLen[i] = n;
-          span.textContent = full.slice(0, n);
-          span.classList.toggle("is-typing", n > 0 && n < full.length);
-        }
-      });
+      // The reads coming back write themselves out as the reader scrolls
+      // through the end of each stop, and un-write on the way back up.
+      barRead?.classList.toggle("is-on", s.barFrame.read > 0);
+      for (const [sc, cardT] of [
+        [flow, readAt(holdAt(s.progress, FLOW))],
+        [bar, s.barFrame.read],
+      ] as const) {
+        sc.typed.forEach((span, i) => {
+          const full = sc.blocks[i];
+          const n = Math.round(full.length * cardBlockAmount(cardT, i));
+          if (n !== sc.typedLen[i]) {
+            sc.typedLen[i] = n;
+            span.textContent = full.slice(0, n);
+            span.classList.toggle("is-typing", n > 0 && n < full.length);
+          }
+        });
+      }
     });
     return off;
   }, [live]);
@@ -138,9 +166,9 @@ export function Journey({ live }: { live: boolean }) {
             Every rep, seen from outside.
           </h1>
           <p className="lede">
-            Neuro-Fit watches your squats, push-ups and pull-ups through your phone camera and tells you what your
-            form actually did. Prop the phone up, do your set, and get a plain read on it — after the set, and again
-            at the end of the workout.
+            Neuro-Fit watches your squats, push-ups and pull-ups through your phone camera — and the bar, when you
+            squat loaded — and tells you what your form actually did. Prop the phone up, do your set, and get a plain
+            read on it — after the set, and again at the end of the workout.
           </p>
           <p className="hint" aria-hidden="true" data-live-only>
             <span className="hint__mouse">Drag across the body</span>
@@ -178,8 +206,34 @@ export function Journey({ live }: { live: boolean }) {
         <div className="phone-tag" data-tag="flow" aria-hidden="true" data-live-only />
       </Stop>
 
+      <Stop id="barbell" labelledBy="h-barbell">
+        <Barbell live={live} />
+        <div className="phone-tag phone-tag--bar" data-tag="bar" aria-hidden="true" data-live-only />
+      </Stop>
+
       <Stop id="compare" labelledBy="h-compare">
         <Compare />
+      </Stop>
+
+      <Stop id="analyze" labelledBy="h-analyze">
+        <div className="copy copy--left">
+          <h2 className="h2" id="h-analyze">
+            Already filmed it? Take it apart.
+          </h2>
+          <p>
+            Open a clip from your camera roll and go through it frame by frame, slowed right down. Draw angles, lines
+            and rulers on it — pin them to your joints and they follow you through the rep. Watch the path of the bar,
+            and put two sets side by side.
+          </p>
+          <p>
+            Then ask the AI coach: it picks out the form errors worth fixing and how to fix each one — across the whole
+            set, or on the exact frame you paused. The video stays on your device; only the still frames you choose are
+            sent.
+          </p>
+          <a className="lg-btn copy__cta" href={ANALYZE_URL} data-focus-only>
+            Analyze a video
+          </a>
+        </div>
       </Stop>
 
       <Stop id="finale" labelledBy="h-finale">
@@ -192,7 +246,8 @@ export function Journey({ live }: { live: boolean }) {
           </a>
           <p className="price">
             Everything the camera does is free and runs on your device. The written reads after a set and after a
-            workout use your own Gemini API key, pasted into Settings. No account, no card.
+            workout, and the AI coach in video analysis, use your own Gemini API key, pasted into Settings. No
+            account, no card.
           </p>
           <Foot />
         </div>

@@ -300,7 +300,9 @@ export const GEMINI = {
   // Mid-set cues were removed (latency made them unusable), so there is no mid-set tier.
   // post-set is now the ONLY visual+numeric synthesis tier → keeps "medium". post-workout is
   // text-only (no images, summarizing the per-set debriefs + numeric trends) → dropped to "low".
-  thinking: { postSet: "medium", postWorkout: "low" },
+  // Analyze (video form analysis): the whole-clip call reads up to 12 frames + a rep table →
+  // "medium", like post-set; the single-frame question is one frame and one question → "low".
+  thinking: { postSet: "medium", postWorkout: "low", formClip: "medium", formFrame: "low" },
   sendThinking: true,
   image: {
     /** Capture one buffered frame at most this often (ms). */

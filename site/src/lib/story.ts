@@ -19,7 +19,7 @@
 
 import type { ExerciseId } from "./exercises";
 
-export type StopId = "form" | "frame" | "flow" | "compare" | "finale";
+export type StopId = "form" | "frame" | "flow" | "barbell" | "compare" | "analyze" | "finale";
 
 /** Where the camera is for one stop. */
 export type Shot = {
@@ -116,6 +116,31 @@ export const STOPS: readonly Stop[] = [
     }),
   },
   {
+    id: "barbell",
+    label: "THE BAR",
+    // Its hold is four steps the scene plays as the reader scrolls through it
+    // (lib/barbellScript) — the ring finding the plate, the bar's path, its
+    // speed rep by rep, the rep that drifts and stalls and the read after it —
+    // scrubbed by the scroll like the flow. 0.6–1.1 screens a step.
+    span: 4,
+    hold: [0.1, 0.9],
+    // Side-on, where the phone stands for a loaded squat: the body keeps the
+    // flow's quarter turn, so it faces the words on the left and the near
+    // plate faces the camera — its path is seen nearly flat, the way the app
+    // sees it. A third of the way round toward its front, so the plate (45 cm
+    // across, at the bar's end) sits off the body rather than over its head.
+    // Closer than the flow: no phone to fit.
+    shot: shot({
+      azimuth: -0.5,
+      elevation: 0.1,
+      distance: 4.5,
+      target: [0, 0.95, 0],
+      shift: [0.2, 0],
+      narrowShift: [0, 0.3],
+      narrowFov: 44,
+    }),
+  },
+  {
     id: "compare",
     label: "HOW IT COMPARES",
     span: 1.8,
@@ -125,6 +150,22 @@ export const STOPS: readonly Stop[] = [
       azimuth: 0.25,
       elevation: 0.08,
       distance: 5,
+      target: [0, 0.95, 0],
+      shift: [0.24, 0],
+      narrowShift: [0, 0.28],
+    }),
+  },
+  {
+    // The second product (2026-10-10): video analysis of a clip already filmed. Swung round to
+    // the body's side — the view a filmed set is mostly judged from — with the words on the left.
+    id: "analyze",
+    label: "ANALYZE A VIDEO",
+    span: 1.6,
+    hold: [0.25, 0.8],
+    shot: shot({
+      azimuth: 1.15,
+      elevation: 0.08,
+      distance: 4.8,
       target: [0, 0.95, 0],
       shift: [0.24, 0],
       narrowShift: [0, 0.28],
@@ -144,14 +185,17 @@ export const STOPS: readonly Stop[] = [
 
 /**
  * What the body is doing at each stop: squatting, all the way down — it stands
- * for the opening and the setup, squats on cue in the flow, and stands on the
- * pedestal in the finale, reached through the iris.
+ * for the opening and the setup, squats on cue in the flow and with a bar on
+ * its back after it, and stands on the pedestal in the finale, reached through
+ * the iris.
  */
 export const EXERCISE_AT: Record<StopId, ExerciseId> = {
   form: "squat",
   frame: "squat",
   flow: "squat",
+  barbell: "squat",
   compare: "squat",
+  analyze: "squat",
   finale: "squat",
 };
 

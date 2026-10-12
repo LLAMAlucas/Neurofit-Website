@@ -1,7 +1,8 @@
 /**
  * Offscreen checks for the site: the three exercises' poses and their fault
  * timing, the scripted set each exercise stop plays, the sample debrief's
- * wording against the app's own rules, and the page's camera path. Pure modules
+ * wording against the app's own rules, the barbell stop's loaded set and what
+ * it measures off the bar, and the page's camera path. Pure modules
  * only, run in Node — no renderer, no DOM.
  */
 import { BONES, J, type JointName } from "../src/lib/pose";
@@ -32,6 +33,30 @@ import {
   scanAt,
 } from "../src/lib/flowScript";
 import { CHECKED, COMPETITORS, FACTS, MOMENTS, US } from "../src/lib/competitors";
+import {
+  BAR_PATHS,
+  BAR_READ,
+  BAR_READ_FROM,
+  BAR_READ_TO,
+  BAR_REPS,
+  BAR_STEPS,
+  BSTEP,
+  DRIFT_FLAG_M,
+  DRIFT_REP,
+  GRIP_X,
+  LOCKOUT_T,
+  REP_END,
+  SET_REPS,
+  SET_S,
+  SLOWDOWN_PCT,
+  WRIST_BEHIND,
+  WRIST_BELOW,
+  barStepAt,
+  barTagAt,
+  barbellAt,
+  barbellPose,
+  speedText,
+} from "../src/lib/barbellScript";
 import {
   END,
   EXERCISE_AT,
@@ -474,6 +499,127 @@ console.log("\n4e. the flow script");
   ok("every point is joined to something", Array.from({ length: 33 }, (_, i) => i).every((i) => LANDMARK_LINKS.some(([a, b]) => a === i || b === i)));
 }
 
+/* ── 4f. the barbell stop ─────────────────────────────────────────────────
+   The loaded set the stop plays, scrubbed by scroll like the flow, and every
+   number it shows measured off the bar's path. */
+console.log("\n4f. the barbell stop");
+{
+  ok(
+    "the steps start in order, the first at the start of the hold",
+    BAR_STEPS[0].from === 0 && BAR_STEPS.every((s, i) => i === 0 || s.from > BAR_STEPS[i - 1].from) && BAR_STEPS.at(-1)!.from < 1,
+  );
+  let back = 0;
+  let prevStep = barStepAt(-0.1);
+  for (let u = -0.1; u <= 1.1; u += 0.001) {
+    const k = barStepAt(u);
+    if (k < prevStep) back++;
+    prevStep = k;
+  }
+  ok("scrolling on only ever moves the step on", back === 0 && barStepAt(-0.01) === -1 && barStepAt(1.2) === BAR_STEPS.length - 1);
+
+  // The body: bones keep their length, the feet stay put, the hands stay on
+  // the bar, through the whole set.
+  const p = newPose();
+  const bar = { y: 0, z: 0 };
+  let stretch = 0;
+  let arms = 0;
+  let feet = 0;
+  let grip = 0;
+  const FEET_J = ["ankleL", "ankleR", "toeL", "toeR"] as JointName[];
+  const ARM_BONES = BONES.map(([a, b], i) => [a, b, i] as const).filter(([, b]) => b.startsWith("elbow") || b.startsWith("wrist"));
+  for (let t = 0; t <= SET_S; t += 0.01) {
+    barbellPose(t, p, bar);
+    BONES.forEach(([a, b], i) => (stretch = Math.max(stretch, Math.abs(len(p, J[a], J[b]) - REST[i]) / REST[i])));
+    for (const [a, b, i] of ARM_BONES) arms = Math.max(arms, Math.abs(len(p, J[a], J[b]) - REST[i]) / REST[i]);
+    for (const j of FEET_J) for (let d = 0; d < 3; d++) feet = Math.max(feet, Math.abs(p[J[j] * 3 + d] - STAND[J[j] * 3 + d]));
+    for (const [w, sx] of [["wristL", -1], ["wristR", 1]] as const)
+      grip = Math.max(
+        grip,
+        Math.abs(p[J[w] * 3] - sx * GRIP_X),
+        Math.abs(p[J[w] * 3 + 1] - (bar.y - WRIST_BELOW)),
+        Math.abs(p[J[w] * 3 + 2] - (bar.z - WRIST_BEHIND)),
+      );
+  }
+  ok("no bone drifts more than 8% through the loaded set", stretch < 0.08, `${(stretch * 100).toFixed(2)}%`);
+  ok("the arms hold their length exactly, solved onto the bar", arms < 1e-4, `${(arms * 100).toFixed(4)}%`);
+  ok("the feet never move", feet < 1e-6, `${feet.toExponential(1)} m`);
+  ok("the hands never leave the bar", grip < 1e-6, `${grip.toExponential(1)} m`);
+
+  // What it measures: real squat speeds, two warm-ups, then slowing.
+  const v = BAR_REPS.map((r) => r.mcv);
+  ok("bar speeds are a real squat's: 0.3–1.0 m/s", v.every((x) => x >= 0.3 && x <= 1), v.map((x) => x.toFixed(2)).join(" "));
+  ok("the two warm-up reps move at the same pace", Math.abs(v[0] - v[1]) / v[0] < 0.03);
+  ok("after them, every rep is slower than the last", v.slice(1).every((x, k) => x < v[k]));
+  ok("the slowest rep is the one that drifts", v.indexOf(Math.min(...v)) === DRIFT_REP);
+  const fwd = BAR_REPS.map((r) => r.forward);
+  ok(
+    "the clean reps keep the bar over mid-foot; only the drifting rep goes past the line",
+    fwd.every((f, k) => (k === DRIFT_REP ? f > DRIFT_FLAG_M * 1.5 : Math.abs(f) < DRIFT_FLAG_M * 0.6)),
+    fwd.map((f) => (f * 100).toFixed(1) + " cm").join(" "),
+  );
+  ok("every rep is a full squat: the bar travels 45–75 cm", BAR_REPS.every((r) => r.rom > 0.45 && r.rom < 0.75), BAR_REPS.map((r) => r.rom.toFixed(2)).join(" "));
+  const stall = BAR_REPS[DRIFT_REP].stick;
+  ok("only the drifting rep stalls on the way up", BAR_REPS.every((r, k) => (k === DRIFT_REP) === (r.stick !== null)));
+  ok(
+    "…in the lower half of its way up",
+    !!stall && stall.t > BAR_REPS[DRIFT_REP].bottomT && stall.y < BAR_PATHS[DRIFT_REP].y[0] - BAR_REPS[DRIFT_REP].rom / 2,
+  );
+
+  // The scrub: a pure function of the scroll, and nothing jumps.
+  const at = (u: number) => barbellAt(u);
+  ok("the same scroll always shows the same scene (stopped = frozen)", JSON.stringify(at(0.57)) === JSON.stringify(at(0.57)));
+  const before = at(-0.01);
+  ok("nothing plays before the hold", before.step === -1 && before.ring === 0 && before.trail === 0 && before.setT === 0);
+  {
+    let blinks = 0;
+    let wasOn = true;
+    for (let u = 0; u < BAR_STEPS[BSTEP.path].from; u += 0.0005) {
+      const f = at(u);
+      const on = !(f.ringScale === 1 && Math.abs(f.ring - 0.15) < 1e-9);
+      if (wasOn && !on) blinks++;
+      wasOn = on;
+    }
+    const end = at(BAR_STEPS[BSTEP.path].from - 1e-6);
+    ok("the ring closes onto the plate and blinks twice as you scroll", blinks === 2 && end.ringScale === 1 && end.ring > 0.5, `${blinks} blinks`);
+  }
+  const endOf = (i: number) => at((BAR_STEPS[i + 1]?.from ?? 1) - 1e-6);
+  ok("the path step plays reps 1 and 2", Math.abs(endOf(BSTEP.path).setT - REP_END[1]) < 1e-3 && at(BAR_STEPS[BSTEP.path].from).setT < 1e-3);
+  ok("the speed step plays reps 3 and 4", Math.abs(endOf(BSTEP.speed).setT - REP_END[3]) < 1e-3);
+  ok("the drift step plays rep 5", Math.abs(endOf(BSTEP.drift).setT - SET_S) < 1e-3);
+  ok("the mid-foot line only rises in the drift step", endOf(BSTEP.speed).midfoot === 0 && endOf(BSTEP.drift).midfoot === 1);
+  {
+    let firstRead = -1;
+    let lastLock = -1;
+    let worst = 0;
+    let prev = at(0);
+    for (let u = 0; u <= 1; u += 0.0005) {
+      const f = at(u);
+      if (f.read > 0 && firstRead < 0) firstRead = u;
+      if (f.setT < LOCKOUT_T[SET_REPS - 1]) lastLock = u;
+      worst = Math.max(worst, Math.abs(f.setT - prev.setT));
+      prev = f;
+    }
+    ok("the read only starts once rep 5 has locked out", firstRead > lastLock, `read ${firstRead.toFixed(3)}, lockout ${lastLock.toFixed(3)}`);
+    ok("a little scroll only ever moves the set a little", worst < 0.05, `worst ${worst.toFixed(3)} s`);
+  }
+
+  // The words: the tag and the read quote only numbers measured off the path.
+  const speeds = BAR_REPS.map((_, k) => speedText(k));
+  const tagNumbers = new Set<string>();
+  for (let u = -0.05; u <= 1.05; u += 0.0005) for (const m of barTagAt(at(u)).matchAll(/\d+\.\d+/g)) tagNumbers.add(m[0]);
+  ok("the tag only quotes measured speeds", [...tagNumbers].every((n) => speeds.includes(n)) && tagNumbers.size >= 3, [...tagNumbers].join(" "));
+  const all = Object.values(BAR_READ).join(" ");
+  ok("no markdown in the bar's read", !/[*_`#]|<[a-z]/i.test(all));
+  const decimals = all.match(/\d+\.\d+/g) ?? [];
+  ok("the read's only decimal is the slowest rep's measured speed", decimals.length === 1 && decimals[0] === speedText(DRIFT_REP), decimals.join(", "));
+  const slow = Math.round((1 - Math.min(...v) / Math.max(...v)) * 100);
+  ok("the slowdown it quotes is the one measured", SLOWDOWN_PCT === slow && BAR_READ.para.includes(`${slow}%`), `${SLOWDOWN_PCT}%`);
+  const CAUSAL = /\b(caused|causing|because|due to|led to|leading to|result(ed|ing) (in|from)|which is why|hence|therefore|so the|meaning)\b/i;
+  ok("the read claims no causation", !CAUSAL.test(BAR_READ.para) && !CAUSAL.test(BAR_READ.cue));
+  ok("it names the rep it's about", /\bRep 5\b/.test(BAR_READ.para) && DRIFT_REP === 4);
+  ok("the count matches the set", BAR_READ.para.startsWith("Five reps, five counted.") && SET_REPS === 5);
+}
+
 /* ── 4d. the comparison ───────────────────────────────────────────────────
    Public claims about other companies' products. Each one in the product's
    own words from its own pages, dated; what they don't say stays unsaid. */
@@ -510,8 +656,8 @@ console.log("\n5. the camera path");
     HOLDS.every(([a, b], i) => a < b && a >= STARTS[i] - 1e-9 && b <= STARTS[i] + STOPS[i].span + 1e-9 && (i === 0 || HOLDS[i - 1][1] < a)),
   );
   ok(
-    "the stops run in order: opening, in frame, what happens to it, how it compares, try it",
-    STOPS.map((s) => s.id).join(" ") === "form frame flow compare finale",
+    "the stops run in order: opening, in frame, what happens to it, the bar, how it compares, analyze a video, try it",
+    STOPS.map((s) => s.id).join(" ") === "form frame flow barbell compare analyze finale",
   );
   // Scrubbed by the scroll, slowly enough to follow: every step of the flow
   // takes most of a screen of scroll, none more than one.
@@ -524,6 +670,30 @@ console.log("\n5. the camera path");
   );
   const readScroll = (READ_TO - READ_FROM) * flowHold;
   ok("the read gets half a screen or more to write itself out", readScroll >= 0.5, `${readScroll.toFixed(2)} screens`);
+  // The barbell stop, the same way: most of a screen a step. Its last step
+  // also holds the read, which is a third the length of the flow's.
+  const barHold = HOLDS[stopIndex("barbell")][1] - HOLDS[stopIndex("barbell")][0];
+  const barPerStep = BAR_STEPS.map((st, i) => ((BAR_STEPS[i + 1]?.from ?? 1) - st.from) * barHold);
+  ok(
+    "each barbell step takes 0.6–1.1 screens of scroll",
+    barPerStep.every((x) => x >= 0.6 && x <= 1.1),
+    barPerStep.map((x) => x.toFixed(2)).join(" "),
+  );
+  const barReadScroll = (BAR_READ_TO - BAR_READ_FROM) * barHold;
+  ok("the bar's read gets 0.4 screens or more to write itself out", barReadScroll >= 0.4, `${barReadScroll.toFixed(2)} screens`);
+  {
+    // Off its own stretch of the page the bar is nowhere: nothing of it is on
+    // stage until the move into the stop, and it's gone by the next hold.
+    const B = stopIndex("barbell");
+    const smp = newSample();
+    let outside = 0;
+    for (let p = 0; p <= END; p += 0.01) {
+      storyAt(p, smp);
+      const near = p > HOLDS[B - 1][1] && p < HOLDS[B + 1][0];
+      if (!near && smp.presence[B] > 0) outside++;
+    }
+    ok("the bar is only on stage around its own stop", outside === 0, `${outside} sample(s) outside`);
+  }
 
   const s = newSample();
   const cam = (smp: ReturnType<typeof storyAt>) => {

@@ -16,6 +16,8 @@ import { MONTH_MS, type CallTier } from "../usage/ledger";
 const TIER_LABEL: Record<CallTier, string> = {
   post_set: "Post-set debrief",
   post_workout: "Post-workout summary",
+  form_clip: "Video analysis (whole clip)",
+  form_frame: "Video analysis (one frame)",
   deep_analysis: "Deep analysis (removed)",
   mid_set: "Mid-set (removed)",
 };

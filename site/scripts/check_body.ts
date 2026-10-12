@@ -1,6 +1,7 @@
 /**
  * Offscreen checks for the particle body: the surface sampler, the retargeter
- * (standing, in a plank, and hanging) and the HUD's readouts. Same contract as
+ * (standing, with a bar on its back, in a plank, and hanging) and the HUD's
+ * readouts. Same contract as
  * check_site.ts — pure modules only, run in Node, no renderer.
  *
  * The retargeter is exercised on a SYNTHETIC rig with the Unreal-mannequin bone
@@ -11,6 +12,7 @@
 import { Object3D, Quaternion, Vector3 } from "three";
 import { mulberry32, sampleSkinned } from "../src/lib/sampleSkinned";
 import {
+  FEET_ANCHOR,
   PELVIS_SHARE,
   PULLUP_ANCHOR,
   PUSHUP_ANCHOR,
@@ -25,6 +27,7 @@ import { BOTTOM, STAND, newPose } from "../src/lib/poseFrames";
 import { JOINT_BONE, SKELETON_LINES, TRUNK_CHAIN, sampleSkeleton } from "../src/lib/sampleSkeleton";
 import { nearestK } from "../src/lib/nearest";
 import { EXERCISES, kneeAngleDeg, trunkLeanDeg, type ExerciseId } from "../src/lib/exercises";
+import { SET_S, barbellPose } from "../src/lib/barbellScript";
 
 let failures = 0;
 const ok = (name: string, cond: boolean, detail = "") => {
@@ -300,6 +303,55 @@ console.log("\n2. retarget");
       });
     }
     ok(`squat, ${c.label}: no foot slides more than 1.5 cm through the rep`, slide < 0.015, `${(slide * 1000).toFixed(1)} mm`);
+  }
+
+  /* The loaded squat (the barbell stop): feet planted, and the hands reach
+     onto the bar on its back — exactly onto our wrists, carried along with the
+     feet, since the bar the page draws hangs off those same wrists. While the
+     bar is arriving they're part of the way there. */
+  {
+    const p = newPose();
+    const bar = { y: 0, z: 0 };
+    const off = new Vector3();
+    const want = new Vector3();
+    const WRISTS = ["wristL", "wristR"] as const;
+    const start = FEET.map(() => new Vector3());
+    let reach = 0, slide = 0, flat = 0, limbs = 0;
+    for (let t = 0; t <= SET_S + 1e-9; t += 0.05) {
+      barbellPose(t, p, bar);
+      rt.apply(p, { kind: "feet", grip: 1 });
+      rt.feetOffset(p, off);
+      WRISTS.forEach((w, k) => {
+        reach = Math.max(reach, bones[UE_RIG.hands[k]].getWorldPosition(u).distanceTo(poseOut(p, w, want).add(off)));
+      });
+      FEET.forEach((n, i) => {
+        const w = bones[n].getWorldPosition(u);
+        if (t === 0) start[i].copy(w);
+        else slide = Math.max(slide, w.distanceTo(start[i]));
+        flat = Math.max(flat, bones[n].getWorldQuaternion(new Quaternion()).angleTo(bindFootQ[i]) / DEG);
+      });
+      // Everything but the arms is still aimed at our pose.
+      for (const a of UE_RIG.aims) {
+        if (/arm/.test(a.bone)) continue;
+        limbs = Math.max(limbs, worldDir(bones[a.bone], bones[a.tip], u).angleTo(poseDir(p, a.from, a.to, v)) / DEG);
+      }
+    }
+    ok("loaded squat: the hands land on our wrists, on the bar", reach < 1e-3, `${(reach * 1000).toFixed(2)} mm`);
+    ok("loaded squat: the legs, trunk and head still point where ours do", limbs < 1, `${limbs.toFixed(2)}°`);
+    ok("loaded squat: no foot slides more than 1.5 cm through the set", slide < 0.015, `${(slide * 1000).toFixed(1)} mm`);
+    ok("loaded squat: feet stay flat", flat < 0.5, `${flat.toFixed(2)}°`);
+
+    barbellPose(0, p, bar);
+    rt.apply(p, FEET_ANCHOR);
+    const aimed = UE_RIG.hands.map((n) => bones[n].getWorldPosition(new Vector3()));
+    rt.apply(p, { kind: "feet", grip: 0.5 });
+    rt.feetOffset(p, off);
+    const halfway = Math.max(
+      ...WRISTS.map((w, k) =>
+        bones[UE_RIG.hands[k]].getWorldPosition(u).distanceTo(poseOut(p, w, want).add(off).add(aimed[k]).multiplyScalar(0.5)),
+      ),
+    );
+    ok("loaded squat: half-arrived, the hands are halfway to the bar", halfway < 1e-3, `${(halfway * 1000).toFixed(2)} mm`);
   }
 
   // The pelvis takes a real share of the bend, not all of it and not none.

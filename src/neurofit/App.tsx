@@ -9,7 +9,7 @@
  * No accounts/backend/multi-exercise/persistence — out of scope. StakeFit source
  * remains on disk as reference but isn't rendered.
  */
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { Suspense, lazy, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { CoachCamera, type CaptureFn } from "./components/CoachCamera";
 import { SetBar } from "./components/SetBar";
 import { SynthesisReport } from "./components/SynthesisReport";
@@ -34,7 +34,14 @@ import {
 import type { ExerciseId } from "./session/types";
 import type { ExposureDecision } from "./vision/exposure";
 
-type Tab = "coach" | "settings";
+// Analyze is its own product; the live coach never downloads it.
+const AnalyzeView = lazy(() => import("./components/analyze/AnalyzeView").then((m) => ({ default: m.AnalyzeView })));
+
+type Tab = "coach" | "settings" | "analyze";
+
+/** Analyze is linkable (the marketing site points at try.neurofit-training.com/#analyze). */
+const ANALYZE_HASH = "#analyze";
+const tabFromHash = (): Tab => (typeof location !== "undefined" && location.hash === ANALYZE_HASH ? "analyze" : "coach");
 
 /** The marketing site — its own origin, so the camera permission stays scoped to this app. */
 const SITE_URL = "https://neurofit-training.com";
@@ -100,16 +107,29 @@ export default function App() {
   const pullup = exercise === "pullup";
   const squat = exercise === "squat";
 
-  const [tab, setTab] = useState<Tab>("coach");
+  const [tab, setTab] = useState<Tab>(tabFromHash);
+  // Settings opens from the coach or from Analyze, and its X goes back to whichever it came from.
+  const [settingsFrom, setSettingsFrom] = useState<Exclude<Tab, "settings">>("coach");
+  const openSettings = (from: Exclude<Tab, "settings">) => {
+    setSettingsFrom(from);
+    setTab("settings");
+  };
   useEffect(() => installGlassPointer(), []);
   // Esc closes Settings, same as its X.
   useEffect(() => {
     if (tab !== "settings") return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setTab("coach");
+      if (e.key === "Escape") setTab(settingsFrom);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
+  }, [tab, settingsFrom]);
+  // Keep #analyze in the address bar while on Analyze (so it can be bookmarked and shared), and
+  // follow the hash when it changes (back button, a pasted link).
+  useEffect(() => {
+    if (tab === "settings") return;
+    const want = tab === "analyze" ? ANALYZE_HASH : "";
+    if (location.hash !== want) history.replaceState(null, "", want || location.pathname + location.search);
   }, [tab]);
   // The hand signal ended a set: chime so the lifter, metres away, knows it registered.
   const cuedRef = useRef(false);
@@ -122,12 +142,19 @@ export default function App() {
     cuedRef.current = true;
     setEndedCue();
   }, [workout.phase, workout.lastSetEndedBy]);
+  useEffect(() => {
+    const onHash = () => setTab(tabFromHash());
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
   // Exposure correction stays on; the EnvPanel that used to toggle/display it is hidden.
   const [corrected] = useState(true);
   const [, setExposure] = useState<ExposureDecision | null>(null);
 
   const kneeWarn = squat && workout.liveMetrics?.kneeValgus.status === "warn";
   const finished = workout.phase === "finished";
+  // Leaving for Analyze unmounts the camera (like Settings), so not in the middle of a set.
+  const midSet = workout.phase === "countdown" || workout.phase === "active";
   // Switching exercise resets the workout, so only offer it before any set is done (or after finishing).
   const canSwitchExercise =
     workout.phase === "finished" ||
@@ -164,7 +191,11 @@ export default function App() {
 
   return (
     <div ref={shellRef} className={"nf" + (live ? " nf--live" : "")}>
-      {tab === "settings" ? (
+      {tab === "analyze" ? (
+        <Suspense fallback={<p className="ai-msg ai-msg--loading">Opening Analyze</p>}>
+          <AnalyzeView onClose={() => setTab("coach")} onOpenSettings={() => openSettings("analyze")} />
+        </Suspense>
+      ) : tab === "settings" ? (
         <>
           <header className="nf-settings-head">
             <a className="nf-brand__home" href={SITE_URL} aria-label="Neuro-Fit — about the app">
@@ -175,7 +206,7 @@ export default function App() {
               Neuro-Fit
             </a>
             <h1 className="nf-settings-head__title">Settings</h1>
-            <button type="button" className="lg-btn lg-btn--icon" onClick={() => setTab("coach")} aria-label="Close settings" title="Back to coaching (Esc)">
+            <button type="button" className="lg-btn lg-btn--icon" onClick={() => setTab(settingsFrom)} aria-label="Close settings" title={settingsFrom === "analyze" ? "Back to Analyze (Esc)" : "Back to coaching (Esc)"}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
                 <path d="M6 6l12 12M18 6 6 18" />
               </svg>
@@ -210,10 +241,24 @@ export default function App() {
         <>
           <div ref={hudTopRef} className="nf-hud nf-hud--top">
             <header className="nf-head">
-              <button type="button" className="lg-btn lg-btn--icon nf-settings-btn" onClick={() => setTab("settings")} aria-label="Settings" title="Settings">
+              <button type="button" className="lg-btn lg-btn--icon nf-settings-btn" onClick={() => openSettings("coach")} aria-label="Settings" title="Settings">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <circle cx="12" cy="12" r="3" />
                   <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                className="lg-btn lg-btn--icon nf-analyze-btn"
+                onClick={() => setTab("analyze")}
+                disabled={midSet}
+                aria-label="Analyze a video"
+                title={midSet ? "Finish the set first" : "Analyze a video you already filmed"}
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <rect x="3" y="5" width="13" height="14" rx="2" />
+                  <path d="M16 10l5-3v10l-5-3" />
+                  <path d="M6.5 15.5l3-5 2.5 3" />
                 </svg>
               </button>
 
