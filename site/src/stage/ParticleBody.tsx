@@ -41,6 +41,7 @@ import type { ExerciseId } from "@/lib/exercises";
 import { J } from "@/lib/pose";
 import { ParticleSim, type Cursor } from "./particleSim";
 import { Landmarks, writeLandmarks } from "./Landmarks";
+import { Barbell } from "./Barbell";
 import { PHONE_LENS } from "./Props";
 import { store } from "./store";
 import vertexShader from "./shaders/particleBody.vert.glsl?raw";
@@ -104,6 +105,9 @@ const CAPSULES: Record<ExerciseId, Record<string, Capsule[]>> = {
 
 /** How the model is placed in each exercise (lib/retarget). */
 const ANCHORS: Record<ExerciseId, Anchor> = { squat: FEET_ANCHOR, pushup: PUSHUP_ANCHOR, pullup: PULLUP_ANCHOR };
+/** The squat with a bar on its back (the barbell stop): feet planted, hands
+ *  on the bar — as far as the bar has arrived. */
+const LOADED: Anchor & { kind: "feet"; grip: number } = { kind: "feet", grip: 0 };
 
 /**
  * The burst between exercises: how hard the body is blown apart, and how fast
@@ -472,7 +476,14 @@ export function ParticleBody({
     g.position.y = 0;
     g.rotation.y = 0;
     g.updateMatrixWorld();
-    rig.retarget.apply(s.pose, ANCHORS[s.exercise]);
+    const loaded = s.exercise === "squat" && s.barbell > 0;
+    if (loaded) LOADED.grip = s.barbell;
+    rig.retarget.apply(s.pose, loaded ? LOADED : ANCHORS[s.exercise]);
+    // Where that put our pose on the model, for what's drawn from the pose.
+    rig.retarget.feetOffset(s.pose, scratch.a);
+    s.bodyOffset[0] = scratch.a.x;
+    s.bodyOffset[1] = scratch.a.y;
+    s.bodyOffset[2] = scratch.a.z;
     g.position.y = s.lift;
     // The finale's slow turn, and the flow's quarter turn to the phone.
     g.rotation.y = s.spin + s.turn;
@@ -623,6 +634,7 @@ export function ParticleBody({
       {/* After the body, so the body's depth hides every grain it still covers. */}
       <points geometry={body.skeleton} material={skeletonMaterial} frustumCulled={false} renderOrder={1} />
       <Landmarks />
+      <Barbell />
     </group>
   );
 }

@@ -15,6 +15,7 @@ import { HalfFloatType, Vector3, type PerspectiveCamera } from "three";
 
 import { EXERCISES, restPose, type ExerciseId, type ExerciseSpec } from "@/lib/exercises";
 import { FLOW_REP, FLOW_REP_S, STEP, TURN as FLOW_TURN, flowAt, newFlowFrame } from "@/lib/flowScript";
+import { barbellAt, barbellPose, newBarFrame, type BarPoint } from "@/lib/barbellScript";
 import { loopAt, newLoopSample } from "@/lib/loop";
 import { BAR_HALF, BAR_Y } from "@/lib/pullup";
 import { newPose, type Pose } from "@/lib/poseFrames";
@@ -31,6 +32,9 @@ const FLOW = stopIndex("flow");
 /** The flow's scene with the reader off the stop: everything at rest. */
 const FLOW_REST = newFlowFrame();
 const FINALE = stopIndex("finale");
+const BARBELL = stopIndex("barbell");
+/** The barbell stop's scene with the reader off it: everything at rest. */
+const BAR_REST = newBarFrame();
 
 /** The flow's squat: the lean rep, over and over (lib/flowScript). */
 const FLOW_SPEC: ExerciseSpec = { ...EXERCISES.squat, script: [FLOW_REP], repS: FLOW_REP_S };
@@ -83,6 +87,10 @@ function Driver({ dof }: { dof: MutableRefObject<DepthOfFieldEffect | null> }) {
   const flowFrame = useMemo(newFlowFrame, []);
   /** The flow step shown last frame — for the flash as the squat starts. */
   const flowStep = useRef(-1);
+  const barPose = useMemo(newPose, []);
+  const barPt = useMemo<BarPoint>(() => ({ y: 0, z: 0 }), []);
+  /** Last frame's barbell script — for the flash as the bar first drifts. */
+  const barWas = useRef({ drifting: false, setT: 0 });
   const parallax = useRef({ x: 0, y: 0 });
   const lit = useRef(0);
   const lastStop = useRef(0);
@@ -149,6 +157,30 @@ function Driver({ dof }: { dof: MutableRefObject<DepthOfFieldEffect | null> }) {
       s.envelope = ff.flash;
     }
     s.flowStream = ff.stream;
+
+    // ── the barbell stop (lib/barbellScript) ──────────────────────────────
+    // Scrubbed like the flow: the bar's ring, path, speeds and drift are a
+    // function of how far through the stop the reader is. The body keeps the
+    // flow's quarter turn and stands up into the bar as it gathers on its
+    // back; leaving, it puts the bar down and turns back.
+    const bp = sample.presence[BARBELL];
+    const bf = s.barFrame;
+    if (bp > 0) barbellAt(holdAt(s.progress, BARBELL), bf);
+    else Object.assign(bf, BAR_REST);
+    if (bp > 0) {
+      barbellPose(bf.setT, barPose, barPt);
+      lerpPose(s.pose, barPose, bp);
+      // The flag here is on the bar's path, not on the body.
+      s.envelope *= 1 - bp;
+    }
+    s.barbell = bp;
+    s.barY = barPt.y;
+    s.barZ = barPt.z;
+    s.turn = FLOW_TURN * Math.max(ff.turn, bp);
+    // The drift lights with an exposure flash, on the way down the page.
+    if (bf.drifting && !barWas.current.drifting && bf.setT > barWas.current.setT) s.faultFlash++;
+    barWas.current.drifting = bf.drifting;
+    barWas.current.setT = bf.setT;
     s.readA = spec.readouts[0].read(s.pose);
     s.readB = spec.readouts[1].read(s.pose);
     let top = 0;

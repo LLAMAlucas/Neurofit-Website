@@ -30,7 +30,7 @@ const FAQ: { q: string; a: string }[] = [
   },
   {
     q: "Which exercises?",
-    a: "Squats, push-ups and pull-ups — pick one at the top of the app. You choose how deep a squat or a push-up has to go, and how high a pull-up has to reach, to count.",
+    a: "Squats, push-ups and pull-ups — pick one at the top of the app. You choose how deep a squat or a push-up has to go, and how high a pull-up has to reach, to count. Squatting with a barbell? It tracks the bar too: its path and its speed, rep by rep.",
   },
   {
     q: "Where do I put the phone?",
