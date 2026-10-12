@@ -1,0 +1,62 @@
+/* ============================================================================
+   Neuro-Fit design tokens — black, after dragonfly.xyz.
+
+   ⚠️ Mirrored byte-for-byte at src/neurofit/chrome/ and site/src/chrome/ (the two apps build
+   from separate Vercel roots, so they can't share an import). `npm run check:mirror` fails on
+   any drift — change both.
+
+   Contrast on black: --fg 21:1 · --fg-2 6.3:1 · --accent 5.2:1 (4.4:1 on --chip, so accent is
+   TEXT only on --bg / --panel; on a chip it's a fill or a mark) · --fault-text 6.9:1 ·
+   --warn 9.7:1. Black on --accent is 5.2:1 (primary buttons); white on it only for ≥19px/600.
+   --fg-dim (1.9:1) is never the resting state of text — it's "not yet revealed" / disabled.
+   ========================================================================= */
+
+:root {
+  color-scheme: dark;
+  accent-color: #5581b3;
+
+  --bg: #000;
+  --panel: rgba(15, 15, 15, 0.78);
+  --panel-solid: #0f0f0f;
+  --panel-blur: 20px;
+  --chip: #181818;
+  --chip-hover: #222;
+  --chip-active: #2a2a2a;
+  --rule: #1a1a1a;
+  --rule-2: #121212;
+  --edge: #616161;
+  --scrim: rgba(0, 0, 0, 0.72);
+
+  --fg: #fff;
+  --fg-2: #8d8d8d;
+  --fg-dim: #3a3a3a;
+
+  /* The site's old fog blue, darkened to the reference orange's luminance (≈0.21). */
+  --accent: #5581b3;
+  --accent-2: #3e6390;
+  --accent-3: #2a4466;
+  --accent-hi: #7aa2d2;
+  --on-accent: #000;
+
+  --fault: #ff2b2b;
+  --fault-text: #ff5c5c;
+  --fault-bg: rgba(255, 43, 43, 0.12);
+  --warn: #e8a33a;
+  --low: #c9b23c;
+  /* Light drawn ON a camera feed / the scene (skeletons, joints) — not a UI colour. */
+  --hot: #e6f2fb;
+
+  --sans: "Inter Tight", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --serif: "Newsreader", "Iowan Old Style", Georgia, serif;
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+
+  --gut: clamp(16px, 3.4vw, 44px);
+  --bar-w: 572px;
+  --bar-h: 60px;
+}
+@media (max-width: 600px) {
+  :root {
+    --bar-h: 52px;
+  }
+}

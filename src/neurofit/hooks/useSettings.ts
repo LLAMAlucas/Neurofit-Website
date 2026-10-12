@@ -30,6 +30,7 @@ import {
   type PullupTopPreset,
 } from "../pullup/config";
 import type { ExerciseId } from "../session/types";
+import { exerciseFromSearch } from "../session/exerciseParam";
 import {
   apiCallsDisabled,
   apiKeyIsUserSupplied,
@@ -93,9 +94,17 @@ export function useMode(): [SquatMode, (m: SquatMode) => void] {
   return [mode, setMode];
 }
 
-/** A localStorage-backed enum setting; bad or missing data falls back to the default. */
-function usePersisted<T extends string>(key: string, fallback: T, valid: (v: unknown) => v is T): [T, (v: T) => void] {
+/** A localStorage-backed enum setting; bad or missing data falls back to the default. `initial`, when
+ *  it returns a value, wins over what's stored (a link that opens the app on a choice). */
+function usePersisted<T extends string>(
+  key: string,
+  fallback: T,
+  valid: (v: unknown) => v is T,
+  initial?: () => T | null,
+): [T, (v: T) => void] {
   const [value, setValue] = useState<T>(() => {
+    const forced = initial?.();
+    if (forced) return forced;
     try {
       const v = localStorage.getItem(key);
       return valid(v) ? v : fallback;
@@ -113,9 +122,15 @@ function usePersisted<T extends string>(key: string, fallback: T, valid: (v: unk
   return [value, setValue];
 }
 
-/** [exercise, setter] — squat | pushup | pullup. Switching resets the workout (see useWorkout). */
+/** [exercise, setter] — squat | pushup | pullup. Switching resets the workout (see useWorkout). A
+ *  `?exercise=` link from the marketing site's menu opens on that exercise (App strips it after). */
 export function useExercise(): [ExerciseId, (e: ExerciseId) => void] {
-  return usePersisted<ExerciseId>("neurofit.exercise", "squat", (v): v is ExerciseId => v === "squat" || v === "pushup" || v === "pullup");
+  return usePersisted<ExerciseId>(
+    "neurofit.exercise",
+    "squat",
+    (v): v is ExerciseId => v === "squat" || v === "pushup" || v === "pullup",
+    () => (typeof location !== "undefined" ? exerciseFromSearch(location.search) : null),
+  );
 }
 
 /** [pull-up top target, setter] — chest | chin | nose. */

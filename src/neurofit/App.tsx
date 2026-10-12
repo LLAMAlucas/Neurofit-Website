@@ -15,8 +15,14 @@ import { SetBar } from "./components/SetBar";
 import { SynthesisReport } from "./components/SynthesisReport";
 import { PostSetReview } from "./components/PostSetReview";
 import { SettingsView } from "./components/SettingsView";
-import { GlassSegmented } from "./components/glass/GlassSegmented";
-import { installGlassPointer } from "./components/glass/liquidGlass";
+import { Segmented } from "./components/Segmented";
+import { cameraFeed } from "./components/cameraFeed";
+import { useAiBusy } from "./components/aiActivity";
+import { TopBar } from "./chrome/TopBar";
+import { Menu, type MenuRow } from "./chrome/Menu";
+import { Sheet } from "./chrome/Sheet";
+import { PrivacyNote } from "./chrome/privacy";
+import { canvasSource } from "./chrome/AsciiField";
 import { useWorkout } from "./hooks/useWorkout";
 import {
   useDepthPreset,
@@ -32,6 +38,7 @@ import {
   usePushupVariant,
 } from "./hooks/useSettings";
 import type { ExerciseId } from "./session/types";
+import { exerciseFromSearch, withoutExerciseParam } from "./session/exerciseParam";
 import type { ExposureDecision } from "./vision/exposure";
 
 // Analyze is its own product; the live coach never downloads it.
@@ -47,6 +54,9 @@ const tabFromHash = (): Tab => (typeof location !== "undefined" && location.hash
 const SITE_URL = "https://neurofit-training.com";
 
 const EXERCISE_LABEL: Record<ExerciseId, string> = { squat: "Squat", pushup: "Push-ups", pullup: "Pull-ups" };
+/** The menu's three blocks (one per exercise), in the reference's single-word style. */
+const BLOCK_LABEL: Record<ExerciseId, string> = { squat: "Squat", pushup: "Push-up", pullup: "Pull-up" };
+const EXERCISES = ["squat", "pushup", "pullup"] as const;
 
 /** Best-effort "set ended" cue for a lifter standing metres from the screen: a short two-note
  *  chime + a buzz on phones. Silently does nothing where audio is locked or unsupported. */
@@ -114,16 +124,27 @@ export default function App() {
     setSettingsFrom(from);
     setTab("settings");
   };
-  useEffect(() => installGlassPointer(), []);
-  // Esc closes Settings, same as its X.
+  // The top bar's menu (Settings, Analyze and the site link live there) and the privacy sheet.
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [privacyOpen, setPrivacyOpen] = useState(false);
+  // Bumped by the menu's USAGE button: Settings scrolls to usage & limits.
+  const [usageNonce, setUsageNonce] = useState(0);
+  useEffect(() => setMenuOpen(false), [tab]);
+  // Esc closes Settings, same as its X — unless the menu or a sheet is what Esc is closing.
   useEffect(() => {
-    if (tab !== "settings") return;
+    if (tab !== "settings" || menuOpen || privacyOpen) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setTab(settingsFrom);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [tab, settingsFrom]);
+  }, [tab, settingsFrom, menuOpen, privacyOpen]);
+  // A ?exercise= link from the marketing site already chose the exercise (useExercise); drop it from
+  // the address bar so a reload doesn't keep overriding what the lifter picks next.
+  useEffect(() => {
+    if (!exerciseFromSearch(location.search)) return;
+    history.replaceState(history.state, "", location.pathname + withoutExerciseParam(location.search) + location.hash);
+  }, []);
   // Keep #analyze in the address bar while on Analyze (so it can be bookmarked and shared), and
   // follow the hash when it changes (back button, a pasted link).
   useEffect(() => {
@@ -189,8 +210,85 @@ export default function App() {
     return () => ro.disconnect();
   }, [live]);
 
+  // The five pixels run as a loader while any AI read is being written: a set's debrief, the
+  // workout synthesis, or Analyze's clip / frame questions.
+  const analyzeBusy = useAiBusy();
+  const aiBusy =
+    analyzeBusy ||
+    workout.analysis.status === "loading" ||
+    Object.values(workout.postSetReviews).some((r) => r.status === "loading");
+  // The menu's ASCII panel mirrors the lifter from the live feed (drifting noise off the coach tab).
+  const cameraAscii = useMemo(() => canvasSource(cameraFeed, { mirror: true, gain: 1.2 }), []);
+
+  const menuRows: MenuRow[] = [
+    { id: "coach", title: "Coach" },
+    {
+      id: "analyze",
+      title: "Analyze a video",
+      disabled: tab === "coach" && midSet,
+      hint: tab === "coach" && midSet ? "Finish the set first" : undefined,
+    },
+    { id: "settings", title: "Settings" },
+    { id: "site", title: "Neuro-Fit.com", href: SITE_URL, external: true },
+  ];
+  const onMenuRow = (row: MenuRow) => {
+    if (row.id === "coach") setTab("coach");
+    else if (row.id === "analyze") setTab("analyze");
+    else if (row.id === "settings" && tab !== "settings") openSettings(tab);
+  };
+  const bar = (
+    <TopBar
+      home={{ label: "Neuro-Fit — back to coaching", onClick: () => setTab("coach") }}
+      pixels={{ mode: aiBusy ? "loader" : "static" }}
+      menuOpen={menuOpen}
+      onToggleMenu={() => setMenuOpen((o) => !o)}
+      menuId="nf-menu"
+      status={aiBusy ? "Writing your AI read" : undefined}
+    >
+      {menuOpen && (
+        <Menu
+          id="nf-menu"
+          label="Neuro-Fit"
+          rows={menuRows}
+          activeId={tab}
+          onRow={onMenuRow}
+          ascii={cameraAscii}
+          footer={[
+            { id: "privacy", label: "Privacy", onClick: () => setPrivacyOpen(true) },
+            {
+              id: "usage",
+              label: "Usage",
+              onClick: () => {
+                setUsageNonce((n) => n + 1);
+                if (tab !== "settings") openSettings(tab);
+              },
+            },
+          ]}
+          blocks={EXERCISES.map((id) => ({
+            id,
+            label: BLOCK_LABEL[id],
+            current: exercise === id,
+            disabled: exercise !== id && !canSwitchExercise,
+            title: exercise !== id && !canSwitchExercise ? "Finish or reset the workout to switch exercise" : undefined,
+            onPick: () => {
+              setExercise(id);
+              setTab("coach");
+            },
+          }))}
+          onClose={() => setMenuOpen(false)}
+        />
+      )}
+    </TopBar>
+  );
+
   return (
     <div ref={shellRef} className={"nf" + (live ? " nf--live" : "")}>
+      {tab !== "coach" && <div className="nf-barslot">{bar}</div>}
+      {privacyOpen && (
+        <Sheet id="nf-privacy" title="Privacy" onClose={() => setPrivacyOpen(false)}>
+          <PrivacyNote />
+        </Sheet>
+      )}
       {tab === "analyze" ? (
         <Suspense fallback={<p className="ai-msg ai-msg--loading">Opening Analyze</p>}>
           <AnalyzeView onClose={() => setTab("coach")} onOpenSettings={() => openSettings("analyze")} />
@@ -198,16 +296,9 @@ export default function App() {
       ) : tab === "settings" ? (
         <>
           <header className="nf-settings-head">
-            <a className="nf-brand__home" href={SITE_URL} aria-label="Neuro-Fit — about the app">
-              <svg className="nf-brand__mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
-                <circle cx="12" cy="4.4" r="2.2" fill="currentColor" stroke="none" />
-                <path d="M12 7v6.2M12 13.2 8.2 18.8M12 13.2l3.8 5.6M7.6 9.6h8.8" />
-              </svg>
-              Neuro-Fit
-            </a>
             <h1 className="nf-settings-head__title">Settings</h1>
-            <button type="button" className="lg-btn lg-btn--icon" onClick={() => setTab(settingsFrom)} aria-label="Close settings" title={settingsFrom === "analyze" ? "Back to Analyze (Esc)" : "Back to coaching (Esc)"}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+            <button type="button" className="btn btn--icon" onClick={() => setTab(settingsFrom)} aria-label="Close settings" title={settingsFrom === "analyze" ? "Back to Analyze (Esc)" : "Back to coaching (Esc)"}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="square" aria-hidden="true">
                 <path d="M6 6l12 12M18 6 6 18" />
               </svg>
             </button>
@@ -234,6 +325,7 @@ export default function App() {
               onPullupPlanChange={setPullupPlan}
               handSignal={handSignal}
               onHandSignalChange={setHandSignal}
+              focusUsage={usageNonce}
             />
           </main>
         </>
@@ -241,27 +333,6 @@ export default function App() {
         <>
           <div ref={hudTopRef} className="nf-hud nf-hud--top">
             <header className="nf-head">
-              <button type="button" className="lg-btn lg-btn--icon nf-settings-btn" onClick={() => openSettings("coach")} aria-label="Settings" title="Settings">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <circle cx="12" cy="12" r="3" />
-                  <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-                </svg>
-              </button>
-              <button
-                type="button"
-                className="lg-btn lg-btn--icon nf-analyze-btn"
-                onClick={() => setTab("analyze")}
-                disabled={midSet}
-                aria-label="Analyze a video"
-                title={midSet ? "Finish the set first" : "Analyze a video you already filmed"}
-              >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <rect x="3" y="5" width="13" height="14" rx="2" />
-                  <path d="M16 10l5-3v10l-5-3" />
-                  <path d="M6.5 15.5l3-5 2.5 3" />
-                </svg>
-              </button>
-
               <div className="nf-stats" aria-live="off">
                 <div className="stat stat--hero">
                   <span className="stat__label">Reps</span>
@@ -269,27 +340,28 @@ export default function App() {
                 </div>
               </div>
 
+              <div className="nf-barslot">{bar}</div>
+
               <div className="nf-controls">
-                <GlassSegmented
+                <Segmented
                   className="nf-exercise"
                   label="Exercise"
                   value={exercise}
                   onChange={setExercise}
-                  options={(["squat", "pushup", "pullup"] as const).map((id) => ({
+                  options={EXERCISES.map((id) => ({
                     value: id,
                     label: EXERCISE_LABEL[id],
                     disabled: exercise !== id && !canSwitchExercise,
                     title: canSwitchExercise ? undefined : "Finish or reset the workout to switch exercise",
                   }))}
                 />
-                <button type="button" className="lg-btn nf-reset" onClick={workout.reset}>
+                <button type="button" className="btn nf-reset" onClick={workout.reset}>
                   Reset
                 </button>
+                <button type="button" className="btn nf-finish" onClick={workout.finishWorkout} disabled={finished}>
+                  Finish workout
+                </button>
               </div>
-
-              <button type="button" className="lg-btn nf-finish" onClick={workout.finishWorkout} disabled={finished}>
-                Finish workout
-              </button>
             </header>
           </div>
 
@@ -299,7 +371,7 @@ export default function App() {
           {finished ? (
             <main className="nf-body nf-body--report">
               {workout.devEvalLog && (
-                <button className="lg-btn nf-evallog-btn" onClick={workout.downloadEvalLog} title="Export the dev workout evaluation log (JSON + Markdown)">
+                <button className="btn nf-evallog-btn" onClick={workout.downloadEvalLog} title="Export the dev workout evaluation log (JSON + Markdown)">
                   ⬇ Download eval log (JSON + MD)
                 </button>
               )}

@@ -9,7 +9,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { COLORS } from "../../analyze/annotations";
 import { useClipSession, type ClipSession } from "../../hooks/useClipSession";
 import { savedClips } from "../../hooks/useClipRecord";
-import { GlassSegmented } from "../glass/GlassSegmented";
+import { Segmented } from "../Segmented";
 import { AiPanel } from "./AiPanel";
 import { ClipStage, filterCss, type ToolState, type ViewOptions } from "./ClipStage";
 import { Timeline, fmtTime, type Marker } from "./Timeline";
@@ -50,7 +50,7 @@ function DropZone({ onFile, compact = false, title }: { onFile: (f: File) => voi
     >
       <p className="az-drop__title">{title}</p>
       <p className="az-drop__sub">Drop a video here, or</p>
-      <button type="button" className="lg-btn lg-btn--tint" onClick={() => input.current?.click()}>
+      <button type="button" className="btn btn--primary" onClick={() => input.current?.click()}>
         Choose a video
       </button>
       <input
@@ -297,12 +297,12 @@ export function AnalyzeView({ onClose, onOpenSettings }: { onClose: () => void; 
   return (
     <div className="az">
       <header className="nf-settings-head az-head">
-        <button type="button" className="lg-btn btn--sm az-back" onClick={onClose} title="Back to the live coach">
+        <button type="button" className="btn btn--sm az-back" onClick={onClose} title="Back to the live coach">
           ← Live coach
         </button>
         <h1 className="nf-settings-head__title">Analyze a video</h1>
         {hasA && (
-          <GlassSegmented
+          <Segmented
             className="az-mode"
             label="Layout"
             value={compare ? "compare" : "single"}
@@ -313,12 +313,6 @@ export function AnalyzeView({ onClose, onOpenSettings }: { onClose: () => void; 
             ]}
           />
         )}
-        <button type="button" className="lg-btn lg-btn--icon" onClick={onOpenSettings} aria-label="Settings" title="Settings (API key, usage)">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <circle cx="12" cy="12" r="3" />
-            <path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1" />
-          </svg>
-        </button>
       </header>
 
       {!hasA ? (
@@ -332,7 +326,7 @@ export function AnalyzeView({ onClose, onOpenSettings }: { onClose: () => void; 
           <section className="az-main" aria-label="Clip">
             {compare && (
               <div className="az-compare-bar">
-                <GlassSegmented
+                <Segmented
                   label="Controls drive"
                   value={activeKey}
                   onChange={(v) => setActiveKey(v)}
@@ -347,7 +341,7 @@ export function AnalyzeView({ onClose, onOpenSettings }: { onClose: () => void; 
                 </label>
                 <button
                   type="button"
-                  className="lg-btn btn--sm"
+                  className="btn btn--sm"
                   disabled={!hasB || !b.player.meta}
                   onClick={() => setOffsetMs(b.player.tMs - a.player.tMs)}
                   title="Line the two clips up: put both on the same moment (e.g. the bottom of a rep), then press this"
@@ -402,7 +396,7 @@ export function AnalyzeView({ onClose, onOpenSettings }: { onClose: () => void; 
           </section>
 
           <aside className="az-side" aria-label="Tools">
-            <GlassSegmented
+            <Segmented
               className="az-side__tabs"
               label="Panel"
               value={side}

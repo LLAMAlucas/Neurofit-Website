@@ -27,6 +27,8 @@ import { POSE_LANDMARK_INDEX } from "../pose/landmarks";
 import { decideExposure, lumaStats, type ExposureDecision } from "../vision/exposure";
 import { setShoulderHipFrameSize } from "../debug/shoulderHipLog";
 import { GEMINI } from "../squat/config";
+import { AsciiField } from "../chrome/AsciiField";
+import { setCameraFeed } from "./cameraFeed";
 
 type CameraState =
   | { status: "idle" }
@@ -163,6 +165,7 @@ export function CoachCamera({
         if (video) {
           video.srcObject = stream;
           await video.play().catch(() => {});
+          setCameraFeed(video);
         }
         setCamera({ status: "live" });
       } catch (err) {
@@ -172,6 +175,7 @@ export function CoachCamera({
     void start();
     return () => {
       cancelled = true;
+      setCameraFeed(null);
       streamRef.current?.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
     };
@@ -288,14 +292,18 @@ export function CoachCamera({
       <canvas ref={overlayRef} className="coach-cam__layer" style={{ transform: "scaleX(-1)" }} />
 
       {overlayMessage && (
-        <div className="coach-cam__overlay">
+        <div className={"coach-cam__overlay" + (overlayMessage.kind === "error" ? " coach-cam__overlay--error" : "")}>
           {overlayMessage.kind === "error" ? (
             <div className="coach-cam__error">
               <p className="coach-cam__error-title">{overlayMessage.title}</p>
               <p>{overlayMessage.body}</p>
             </div>
           ) : (
-            <p>{overlayMessage.body}</p>
+            <>
+              {/* Waiting on the camera / the pose model: the lens booting, in characters. */}
+              <AsciiField className="coach-cam__ascii" fps={12} />
+              <p className="coach-cam__wait">{overlayMessage.body}</p>
+            </>
           )}
         </div>
       )}
@@ -398,7 +406,7 @@ function drawTag(ctx: CanvasRenderingContext2D, text: string, px: number, py: nu
   ctx.save();
   ctx.translate(px, py);
   ctx.scale(-1, 1);
-  ctx.font = '500 18px "DM Mono", ui-monospace, monospace';
+  ctx.font = '500 18px "JetBrains Mono", ui-monospace, monospace';
   ctx.textBaseline = "middle";
   ctx.textAlign = "left";
   ctx.lineJoin = "round";

@@ -5,7 +5,8 @@
  * (the user's own Gemini key pays). Answers render field by field as plain text — no markdown
  * parser, same as the live coach — and every issue can jump the player to the frame it is about.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { setAiBusy } from "../aiActivity";
 import { ANALYZE } from "../../analyze/config";
 import type { FormIssue, FormResult } from "../../analyze/aiResult";
 import type { AiStatus, ClipSession } from "../../hooks/useClipSession";
@@ -56,7 +57,7 @@ export function FormResultCard({ result, frameTimesMs, onJump, compact = false }
                   <span className={`az-sev az-sev--${i.severity}`}>{SEVERITY_LABEL[i.severity]}</span>
                   <span className="az-issue__title">{i.title}</span>
                   {t !== null && (
-                    <button type="button" className="lg-btn btn--sm az-issue__jump" onClick={() => onJump(t)} title="Show this frame">
+                    <button type="button" className="btn btn--sm az-issue__jump" onClick={() => onJump(t)} title="Show this frame">
                       {fmtTime(t)}
                     </button>
                   )}
@@ -121,6 +122,11 @@ export function AiPanel({ session, filter, onOpenSettings }: { session: ClipSess
   const clipAi = rec.record.clipAi;
   const busyClip = session.clipAi.kind === "working";
   const busyFrame = session.frameAi.kind === "working";
+  // The top bar's pixels run as a loader while either read is being written.
+  useEffect(() => {
+    setAiBusy("analyze", busyClip || busyFrame);
+    return () => setAiBusy("analyze", false);
+  }, [busyClip, busyFrame]);
   const jump = (t: number) => {
     player.pause();
     player.seek(t);
@@ -149,7 +155,7 @@ export function AiPanel({ session, filter, onOpenSettings }: { session: ClipSess
         <p className="panel__empty">
           Finds the form errors worth fixing and how to fix each one. Sends up to {ANALYZE.ai.clip.maxFrames} still frames (first, middle and last rep) — never the video.
         </p>
-        <button type="button" className="lg-btn lg-btn--tint az-ai__go" onClick={() => void session.runClip(filter)} disabled={busyClip || session.tooLong || !player.meta}>
+        <button type="button" className="btn btn--primary az-ai__go" onClick={() => void session.runClip(filter)} disabled={busyClip || session.tooLong || !player.meta}>
           {clipAi ? "Analyze again" : "Find my form errors"} · {session.clipCost}
         </button>
         {session.tooLong && <p className="panel__empty">This clip is long: set in and out marks around the set first.</p>}
@@ -179,7 +185,7 @@ export function AiPanel({ session, filter, onOpenSettings }: { session: ClipSess
             onChange={(e) => setQuestion(e.target.value)}
           />
         </label>
-        <button type="button" className="lg-btn lg-btn--tint az-ai__go" onClick={() => void session.askFrame(question, filter)} disabled={busyFrame || !player.meta}>
+        <button type="button" className="btn btn--primary az-ai__go" onClick={() => void session.askFrame(question, filter)} disabled={busyFrame || !player.meta}>
           Ask about this frame · {session.frameCost}
         </button>
         <StatusLine status={session.frameAi} onOpenSettings={onOpenSettings} />
@@ -197,7 +203,7 @@ export function AiPanel({ session, filter, onOpenSettings }: { session: ClipSess
             <p className="panel__title">Other frames you asked about</p>
             <div className="az-chips">
               {elsewhere.map((f) => (
-                <button key={`${f.tMs}-${f.createdAtMs}`} type="button" className="lg-btn btn--sm" onClick={() => jump(f.tMs)} title={f.question || f.result.summary}>
+                <button key={`${f.tMs}-${f.createdAtMs}`} type="button" className="btn btn--sm" onClick={() => jump(f.tMs)} title={f.question || f.result.summary}>
                   {fmtTime(f.tMs)}
                 </button>
               ))}

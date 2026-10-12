@@ -48,6 +48,7 @@ import type { VelocitySample } from "../src/neurofit/squat/velocity";
 import { POSTSET_SYSTEM, POSTWORKOUT_SYSTEM, PULLUP_POSTSET_SYSTEM, PULLUP_POSTWORKOUT_SYSTEM, PUSHUP_POSTSET_SYSTEM, PUSHUP_POSTWORKOUT_SYSTEM } from "../src/neurofit/ai/prompts";
 import { EndSetSignal, HAND_SIGNAL, signalShape } from "../src/neurofit/vision/handSignal";
 import { buildPostSetRest, buildRestBySet, formatRest, type RestEntry } from "../src/neurofit/session/rest";
+import { exerciseFromSearch, withoutExerciseParam } from "../src/neurofit/session/exerciseParam";
 import {
   MONTH_MS,
   appendCall,
@@ -950,6 +951,11 @@ check("usage upsert: abandoned session stays incomplete", abandoned.workouts.com
     [POSTWORKOUT_SYSTEM, PUSHUP_POSTWORKOUT_SYSTEM, PULLUP_POSTWORKOUT_SYSTEM].every((pr) => pr.includes(rule5c)));
   check("prompt 4a/5c: rest is never a cause", /never state or imply that the rest length caused/.test(rule4a) && /never state or imply that the rest length caused/.test(rule5c));
 }
+
+// ── ?exercise= — the marketing site's menu opens the tracker on an exercise ──────────────
+check("exercise link: reads each exercise", exerciseFromSearch("?exercise=squat") === "squat" && exerciseFromSearch("?exercise=pushup") === "pushup" && exerciseFromSearch("?a=1&exercise=pullup") === "pullup");
+check("exercise link: anything else is ignored", exerciseFromSearch("") === null && exerciseFromSearch("?exercise=deadlift") === null && exerciseFromSearch("?exercise=") === null);
+check("exercise link: stripping keeps the other params", withoutExerciseParam("?exercise=pushup") === "" && withoutExerciseParam("?a=1&exercise=pushup&b=2") === "?a=1&b=2" && withoutExerciseParam("?a=1") === "?a=1");
 
 console.log(failures === 0 ? "\nALL PASSED" : `\n${failures} FAILED`);
 process.exit(failures === 0 ? 0 : 1);

@@ -61,10 +61,10 @@ export function PostSetReview({
         <p className="postset-review__title">Coach debrief</p>
         <div className="postset-review__body">{body(review)}</div>
         <div className="postset-review__actions">
-          <button className="lg-btn btn btn--primary" onClick={onStartNextSet}>
+          <button className="btn btn--primary" onClick={onStartNextSet}>
             Start set {setIndex != null ? setIndex + 1 : ""} →
           </button>
-          <button className="lg-btn btn" onClick={onEndWorkout}>
+          <button className="btn" onClick={onEndWorkout}>
             End workout
           </button>
         </div>

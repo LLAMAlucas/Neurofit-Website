@@ -7,13 +7,14 @@
  * glance. The selected card is highlighted; persistence is handled by the parent
  * (localStorage via useDepthPreset). Wired to the depth check's target in config.
  */
+import { useEffect, useRef } from "react";
 import type { DepthPreset, SquatMode } from "../squat/config";
 import { PUSHUP_DEPTH_PRESETS, type PushupDepthPreset, type PushupVariant } from "../pushup/config";
 import type { PullupCameraPlan, PullupGrip, PullupTopPreset } from "../pullup/config";
 import type { ExerciseId } from "../session/types";
 import type { ApiKeyControl } from "../hooks/useSettings";
 import { UsagePanel } from "./UsagePanel";
-import { GlassSegmented } from "./glass/GlassSegmented";
+import { Segmented } from "./Segmented";
 
 interface PresetCard {
   id: DepthPreset;
@@ -163,7 +164,10 @@ export function SettingsView({
   onPullupPlanChange = () => {},
   handSignal = true,
   onHandSignalChange = () => {},
+  focusUsage = 0,
 }: {
+  /** Bumped by the menu's USAGE button: scroll straight to usage & limits (0 = don't). */
+  focusUsage?: number;
   handSignal?: boolean;
   onHandSignalChange?: (on: boolean) => void;
   exercise?: ExerciseId;
@@ -186,6 +190,10 @@ export function SettingsView({
   apiKey: ApiKeyControl;
 }) {
   const apiKeyPresent = apiKey.present;
+  const usageRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (focusUsage) usageRef.current?.scrollIntoView({ block: "start" });
+  }, [focusUsage]);
   return (
     <section className="settings">
       <div className="panel settings-block">
@@ -212,7 +220,7 @@ export function SettingsView({
             autoComplete="off"
             spellCheck={false}
           />
-          <button type="submit" className="lg-btn apikey__save" disabled={!apiKey.dirty}>
+          <button type="submit" className="btn apikey__save" disabled={!apiKey.dirty}>
             Save
           </button>
         </form>
@@ -294,10 +302,9 @@ export function SettingsView({
               Which grip you're using. It doesn't change the counting — it tells the coach whether this is a pull-up
               or a chin-up. Switching exercise lives in the header.
             </p>
-            <GlassSegmented
-              className="mode-toggle mode-toggle--3 lg-seg--cards"
+            <Segmented
+              className="mode-toggle mode-toggle--3 seg--cards"
               label="Pull-up grip"
-              draggable={false}
               value={pullupGrip}
               onChange={onPullupGripChange}
               options={PULLUP_GRIPS.map((g) => ({
@@ -323,10 +330,9 @@ export function SettingsView({
               coach reads your chin against the bar; with the camera behind you it falls back to how far your
               shoulders rose. Changes apply from the next set.
             </p>
-            <GlassSegmented
-              className="depth-presets lg-seg--cards"
+            <Segmented
+              className="depth-presets seg--cards"
               label="Pull-up top target"
-              draggable={false}
               value={pullupPreset}
               onChange={onPullupPresetChange}
               options={PULLUP_PRESETS.map((p) => ({
@@ -353,10 +359,9 @@ export function SettingsView({
               Pull-up sets start head-on — the view that sees your chin against the bar. Changes apply from the next
               set.
             </p>
-            <GlassSegmented
-              className="mode-toggle lg-seg--cards"
+            <Segmented
+              className="mode-toggle seg--cards"
               label="Pull-up camera views"
-              draggable={false}
               value={pullupPlan}
               onChange={onPullupPlanChange}
               options={PULLUP_PLANS.map((p) => ({
@@ -383,10 +388,9 @@ export function SettingsView({
               Which push-up you're doing. It changes the straight-line reference the body-line check uses. Switching
               exercise lives in the header.
             </p>
-            <GlassSegmented
-              className="mode-toggle lg-seg--cards"
+            <Segmented
+              className="mode-toggle seg--cards"
               label="Push-up variant"
-              draggable={false}
               value={pushupVariant}
               onChange={onPushupVariantChange}
               options={PUSHUP_VARIANTS.map((v) => ({
@@ -411,10 +415,9 @@ export function SettingsView({
               How low a rep must go to count. Every rep must also press back up to straight arms. Side sets judge the
               upper-arm angle; head-on sets judge how far the shoulders drop. Changes apply from the next set.
             </p>
-            <GlassSegmented
-              className="depth-presets lg-seg--cards"
+            <Segmented
+              className="depth-presets seg--cards"
               label="Push-up depth target"
-              draggable={false}
               value={pushupPreset}
               onChange={onPushupPresetChange}
               options={PUSHUP_PRESETS.map((p) => ({
@@ -442,10 +445,9 @@ export function SettingsView({
         <p className="settings-block__hint">
           Whether you're lifting under load. This changes how cautiously the coach reads depth, butt wink and valgus.
         </p>
-        <GlassSegmented
-          className="mode-toggle lg-seg--cards"
+        <Segmented
+          className="mode-toggle seg--cards"
           label="Training mode"
-          draggable={false}
           value={mode}
           onChange={onModeChange}
           options={MODES.map((m) => ({
@@ -469,10 +471,9 @@ export function SettingsView({
         <p className="settings-block__hint">
           How deep a rep must go to count as good depth. Side-view depth checks score against this target.
         </p>
-        <GlassSegmented
-          className="depth-presets lg-seg--cards"
+        <Segmented
+          className="depth-presets seg--cards"
           label="Squat depth target"
-          draggable={false}
           value={preset}
           onChange={onChange}
           options={PRESETS.map((p) => ({
@@ -496,7 +497,9 @@ export function SettingsView({
         </>
       )}
 
-      <UsagePanel />
+      <div id="usage" ref={usageRef} className="settings-usage">
+        <UsagePanel />
+      </div>
     </section>
   );
 }

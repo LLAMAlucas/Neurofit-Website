@@ -458,14 +458,14 @@ export function ClipStage({
       {loupe && <Loupe video={player.videoRef.current} at={loupe} unit={unit} mirrored={view.mirrored} width={W} height={H} filter={filterCss(view)} boxW={boxW} />}
       {interactive && meta && (
         <div className="az-zoom" role="group" aria-label="Zoom">
-          <button type="button" className="lg-btn lg-btn--icon az-zoom__btn" onClick={() => zoomAt(zoom * 1.5)} aria-label="Zoom in" title="Zoom in (or scroll / pinch)">
+          <button type="button" className="btn btn--icon az-zoom__btn" onClick={() => zoomAt(zoom * 1.5)} aria-label="Zoom in" title="Zoom in (or scroll / pinch)">
             +
           </button>
-          <button type="button" className="lg-btn lg-btn--icon az-zoom__btn" onClick={() => zoomAt(zoom / 1.5)} aria-label="Zoom out" disabled={zoom <= 1}>
+          <button type="button" className="btn btn--icon az-zoom__btn" onClick={() => zoomAt(zoom / 1.5)} aria-label="Zoom out" disabled={zoom <= 1}>
             −
           </button>
           {zoom > 1 && (
-            <button type="button" className="lg-btn btn--sm az-zoom__fit" onClick={() => (setZoom(1), setPan({ x: 0, y: 0 }))} title="Fit the whole frame">
+            <button type="button" className="btn btn--sm az-zoom__fit" onClick={() => (setZoom(1), setPan({ x: 0, y: 0 }))} title="Fit the whole frame">
               Fit
             </button>
           )}

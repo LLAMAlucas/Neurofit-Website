@@ -169,11 +169,11 @@ export function UsagePanel() {
         </p>
 
         <div className="usage-actions">
-          <button className="lg-btn btn btn--sm" onClick={download}>
+          <button className="btn btn--sm" onClick={download}>
             Export usage JSON
           </button>
           <button
-            className="lg-btn btn btn--sm"
+            className="btn btn--sm"
             onClick={() => {
               if (confirm("Delete all recorded usage history? This cannot be undone.")) clear();
             }}

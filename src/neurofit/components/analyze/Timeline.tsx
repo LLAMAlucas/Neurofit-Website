@@ -6,7 +6,7 @@
 import { useRef } from "react";
 import type { ClipSession } from "../../hooks/useClipSession";
 import { RATES } from "../../hooks/useClip";
-import { GlassSegmented } from "../glass/GlassSegmented";
+import { Segmented } from "../Segmented";
 
 export function fmtTime(ms: number): string {
   const s = Math.max(0, ms) / 1000;
@@ -93,29 +93,29 @@ export function Timeline({ session, markers }: { session: ClipSession; markers: 
           </span>
         </div>
         <div className="az-transport__keys" role="group" aria-label="Playback">
-          <button type="button" className="lg-btn lg-btn--icon az-key" onClick={() => player.seek(range.inMs)} title="Go to start (Home)" aria-label="Go to start">
+          <button type="button" className="btn btn--icon az-key" onClick={() => player.seek(range.inMs)} title="Go to start (Home)" aria-label="Go to start">
             <Icon d="M6 5v14M18 6l-9 6 9 6z" />
           </button>
-          <button type="button" className="lg-btn lg-btn--icon az-key" onClick={() => player.step(-10)} title="Back 10 frames (Shift + ←)" aria-label="Back 10 frames">
+          <button type="button" className="btn btn--icon az-key" onClick={() => player.step(-10)} title="Back 10 frames (Shift + ←)" aria-label="Back 10 frames">
             <Icon d="M11 6 3 12l8 6zM21 6l-8 6 8 6z" />
           </button>
-          <button type="button" className="lg-btn lg-btn--icon az-key" onClick={() => player.step(-1)} title="Back 1 frame (←)" aria-label="Back 1 frame">
+          <button type="button" className="btn btn--icon az-key" onClick={() => player.step(-1)} title="Back 1 frame (←)" aria-label="Back 1 frame">
             <Icon d="M15 6l-8 6 8 6z" />
           </button>
-          <button type="button" className="lg-btn lg-btn--icon lg-btn--tint az-key az-key--play" onClick={player.toggle} title="Play / pause (Space)" aria-label={player.playing ? "Pause" : "Play"}>
+          <button type="button" className="btn btn--icon btn--primary az-key az-key--play" onClick={player.toggle} title="Play / pause (Space)" aria-label={player.playing ? "Pause" : "Play"}>
             {player.playing ? <Icon d="M8 5h3v14H8zM13 5h3v14h-3z" fill /> : <Icon d="M8 5l11 7-11 7z" fill />}
           </button>
-          <button type="button" className="lg-btn lg-btn--icon az-key" onClick={() => player.step(1)} title="Forward 1 frame (→)" aria-label="Forward 1 frame">
+          <button type="button" className="btn btn--icon az-key" onClick={() => player.step(1)} title="Forward 1 frame (→)" aria-label="Forward 1 frame">
             <Icon d="M9 6l8 6-8 6z" />
           </button>
-          <button type="button" className="lg-btn lg-btn--icon az-key" onClick={() => player.step(10)} title="Forward 10 frames (Shift + →)" aria-label="Forward 10 frames">
+          <button type="button" className="btn btn--icon az-key" onClick={() => player.step(10)} title="Forward 10 frames (Shift + →)" aria-label="Forward 10 frames">
             <Icon d="M3 6l8 6-8 6zM13 6l8 6-8 6z" />
           </button>
-          <button type="button" className="lg-btn lg-btn--icon az-key" onClick={() => player.seek(range.outMs - 1)} title="Go to end (End)" aria-label="Go to end">
+          <button type="button" className="btn btn--icon az-key" onClick={() => player.seek(range.outMs - 1)} title="Go to end (End)" aria-label="Go to end">
             <Icon d="M18 5v14M6 6l9 6-9 6z" />
           </button>
         </div>
-        <GlassSegmented
+        <Segmented
           className="az-speed"
           label="Playback speed"
           value={String(player.rate)}
@@ -123,20 +123,20 @@ export function Timeline({ session, markers }: { session: ClipSession; markers: 
           options={RATES.map((r) => ({ value: String(r), label: `${r}×` }))}
         />
         <div className="az-transport__marks">
-          <button type="button" className="lg-btn btn--sm" onClick={() => rec.edit((r) => ({ ...r, inMs: Math.min(player.tMs, (r.outMs ?? dur) - 50) }))} title="Set the start of the part to analyse ([)">
+          <button type="button" className="btn btn--sm" onClick={() => rec.edit((r) => ({ ...r, inMs: Math.min(player.tMs, (r.outMs ?? dur) - 50) }))} title="Set the start of the part to analyse ([)">
             Set in
           </button>
-          <button type="button" className="lg-btn btn--sm" onClick={() => rec.edit((r) => ({ ...r, outMs: Math.max(player.tMs, (r.inMs ?? 0) + 50) }))} title="Set the end of the part to analyse (])">
+          <button type="button" className="btn btn--sm" onClick={() => rec.edit((r) => ({ ...r, outMs: Math.max(player.tMs, (r.inMs ?? 0) + 50) }))} title="Set the end of the part to analyse (])">
             Set out
           </button>
           {hasRange && (
-            <button type="button" className="lg-btn btn--sm" onClick={() => rec.edit((r) => ({ ...r, inMs: null, outMs: null }))} title="Use the whole clip">
+            <button type="button" className="btn btn--sm" onClick={() => rec.edit((r) => ({ ...r, inMs: null, outMs: null }))} title="Use the whole clip">
               Clear
             </button>
           )}
           <button
             type="button"
-            className="lg-btn btn--sm"
+            className="btn btn--sm"
             onClick={() => rec.edit((r) => ({ ...r, bookmarks: [...r.bookmarks, { tMs: player.tMs, label: `Mark ${r.bookmarks.length + 1}` }].sort((a, b) => a.tMs - b.tMs) }))}
             title="Bookmark this frame (B)"
           >

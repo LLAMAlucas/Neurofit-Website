@@ -7,7 +7,7 @@ import { COLORS, measure, resolvePoints, type Drawing } from "../../analyze/anno
 import { makeCalibration } from "../../analyze/geometry";
 import { ANALYZE_JOINTS, ANGLE_LABEL } from "../../analyze/jointAngles";
 import type { ClipSession } from "../../hooks/useClipSession";
-import { GlassSegmented } from "../glass/GlassSegmented";
+import { Segmented } from "../Segmented";
 import { AngleChart, chartOptions } from "./AngleChart";
 import type { ToolId, ToolState, ViewOptions } from "./ClipStage";
 
@@ -70,7 +70,7 @@ export function DrawPanel({
           <button
             key={t.id}
             type="button"
-            className="lg-btn az-tool"
+            className="btn az-tool"
             aria-pressed={tool.tool === t.id}
             onClick={() => setTool({ ...tool, tool: t.id })}
             title={t.hint}
@@ -102,7 +102,7 @@ export function DrawPanel({
         </div>
       </div>
       <div className="az-row">
-        <GlassSegmented
+        <Segmented
           label="New drawings stay on"
           value={tool.scope}
           onChange={(v) => setTool({ ...tool, scope: v })}
@@ -114,15 +114,15 @@ export function DrawPanel({
         <Toggle on={tool.snap} onChange={(v) => setTool({ ...tool, snap: v })} label="Snap to joints" />
       </div>
       <div className="az-row">
-        <button type="button" className="lg-btn btn--sm" onClick={rec.undo} disabled={!rec.canUndo} title="Undo (Ctrl/Cmd + Z)">
+        <button type="button" className="btn btn--sm" onClick={rec.undo} disabled={!rec.canUndo} title="Undo (Ctrl/Cmd + Z)">
           Undo
         </button>
-        <button type="button" className="lg-btn btn--sm" onClick={rec.redo} disabled={!rec.canRedo} title="Redo (Ctrl/Cmd + Shift + Z)">
+        <button type="button" className="btn btn--sm" onClick={rec.redo} disabled={!rec.canRedo} title="Redo (Ctrl/Cmd + Shift + Z)">
           Redo
         </button>
         <button
           type="button"
-          className="lg-btn btn--sm"
+          className="btn btn--sm"
           disabled={rec.record.drawings.length === 0}
           onClick={() => {
             setSelectedId(null);
@@ -141,7 +141,7 @@ export function DrawPanel({
             <input className="az-input" type="text" maxLength={80} value={sel.text ?? ""} placeholder={sel.type === "text" ? "Note" : "e.g. hip line"} onChange={(e) => editSel((d) => ({ ...d, text: e.target.value }))} />
           </label>
           <div className="az-row">
-            <GlassSegmented
+            <Segmented
               label="Shown on"
               value={sel.scope}
               onChange={(v) => editSel((d) => ({ ...d, scope: v }))}
@@ -151,7 +151,7 @@ export function DrawPanel({
               ]}
             />
             {sel.type === "plumb" && (
-              <GlassSegmented
+              <Segmented
                 label="Direction"
                 value={sel.orientation ?? "vertical"}
                 onChange={(v) => editSel((d) => ({ ...d, orientation: v }))}
@@ -179,7 +179,7 @@ export function DrawPanel({
                 </select>
                 <button
                   type="button"
-                  className="lg-btn btn--sm"
+                  className="btn btn--sm"
                   onClick={() => {
                     const c = makeCalibration(selPx, Number(refLen), refUnit);
                     if (c) rec.edit((r) => ({ ...r, calibration: { ...c, refId: sel.id } }));
@@ -192,7 +192,7 @@ export function DrawPanel({
           )}
           <button
             type="button"
-            className="lg-btn btn--sm az-danger"
+            className="btn btn--sm az-danger"
             onClick={() => {
               setSelectedId(null);
               rec.edit((r) => ({ ...r, drawings: r.drawings.filter((d) => d.id !== sel.id), calibration: r.calibration?.refId === sel.id ? null : r.calibration }));
@@ -250,13 +250,13 @@ export function MotionPanel({ session, view, setView, series, setSeries }: { ses
       <p className="panel__title">Trails</p>
       <div className="az-chips" role="group" aria-label="Joint trails">
         {TRAIL_JOINTS.map((i) => (
-          <button key={i} type="button" className="lg-btn btn--sm az-chip" aria-pressed={view.trailJoints.includes(i)} onClick={() => toggleJoint(i)}>
+          <button key={i} type="button" className="btn btn--sm az-chip" aria-pressed={view.trailJoints.includes(i)} onClick={() => toggleJoint(i)}>
             {ANALYZE_JOINTS.find((j) => j.index === i)?.label}
           </button>
         ))}
       </div>
       <div className="az-row">
-        <GlassSegmented
+        <Segmented
           label="Trail length"
           value={view.trailSpanMs === null ? "all" : String(view.trailSpanMs)}
           onChange={(v) => setView({ ...view, trailSpanMs: v === "all" ? null : Number(v) })}
@@ -311,10 +311,10 @@ export function ViewPanel({ view, setView, onSnapshot, snapshotBusy }: { view: V
         <input type="range" min="0.5" max="2" step="0.05" value={view.contrast} onChange={(e) => setView({ ...view, contrast: Number(e.target.value) })} />
       </label>
       <div className="az-row">
-        <button type="button" className="lg-btn btn--sm" onClick={() => setView({ ...view, brightness: 1, contrast: 1 })} disabled={view.brightness === 1 && view.contrast === 1}>
+        <button type="button" className="btn btn--sm" onClick={() => setView({ ...view, brightness: 1, contrast: 1 })} disabled={view.brightness === 1 && view.contrast === 1}>
           Reset picture
         </button>
-        <button type="button" className="lg-btn btn--sm" onClick={onSnapshot} disabled={snapshotBusy} title="Save this frame with your drawings as a PNG">
+        <button type="button" className="btn btn--sm" onClick={onSnapshot} disabled={snapshotBusy} title="Save this frame with your drawings as a PNG">
           Save snapshot
         </button>
       </div>

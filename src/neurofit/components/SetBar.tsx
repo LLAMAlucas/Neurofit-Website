@@ -52,7 +52,7 @@ export function SetBar({ workout, handSignal }: { workout: Workout; handSignal: 
 
       {phase === "active" && (
         <div className="setbar__controls">
-          <button className="lg-btn btn btn--primary" onClick={workout.endSet}>
+          <button className="btn btn--primary" onClick={workout.endSet}>
             End set
           </button>
         </div>

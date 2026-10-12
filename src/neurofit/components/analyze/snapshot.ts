@@ -39,7 +39,9 @@ export async function saveSnapshot(args: {
   const ctx0 = canvas.getContext("2d");
   if (!ctx0) throw new Error("Canvas unavailable");
   const fontPx = Math.max(14, Math.round(w / 60));
-  ctx0.font = `${fontPx}px "Schibsted Grotesk", system-ui, sans-serif`;
+  // Canvas text doesn't wait for webfonts — measure and draw with the real face, not a fallback.
+  await document.fonts?.load(`${fontPx}px "Inter Tight"`).catch(() => undefined);
+  ctx0.font = `${fontPx}px "Inter Tight", system-ui, sans-serif`;
   const lines = args.caption ? wrap(ctx0, args.caption, w - fontPx * 2) : [];
   const band = lines.length ? Math.round(fontPx * 1.45 * lines.length + fontPx * 1.6) : 0;
   canvas.width = w;
@@ -76,10 +78,10 @@ export async function saveSnapshot(args: {
   ctx.restore();
 
   if (band) {
-    ctx.fillStyle = "#15191e";
+    ctx.fillStyle = "#000";
     ctx.fillRect(0, h, w, band);
     ctx.fillStyle = "#e6f2fb";
-    ctx.font = `${fontPx}px "Schibsted Grotesk", system-ui, sans-serif`;
+    ctx.font = `${fontPx}px "Inter Tight", system-ui, sans-serif`;
     ctx.textBaseline = "top";
     lines.forEach((l, i) => ctx.fillText(l, fontPx, h + fontPx * 0.8 + i * fontPx * 1.45));
   }

@@ -48,7 +48,7 @@ export interface OverlayProps {
   className?: string;
 }
 
-const FONT = "'DM Mono', ui-monospace, SFMono-Regular, Menlo, monospace";
+const FONT = "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace";
 
 function Label({ at, text, unit, mirrored, color = "#fff", anchor = "middle", size = 13 }: { at: Pt; text: string; unit: number; mirrored: boolean; color?: string; anchor?: "start" | "middle" | "end"; size?: number }) {
   if (!text) return null;
