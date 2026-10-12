@@ -5,7 +5,12 @@
  * design system silently override every utility class and Tailwind would appear
  * broken for no visible reason.
  *
- * Preflight is disabled (see tailwind.config.ts); site.css owns the reset. */
+ * Preflight is disabled (see tailwind.config.ts); site.css owns the reset.
+ *
+ * Before both: the shared tokens and chrome (mirrored byte-for-byte in the tracker —
+ * npm run check:mirror), so site.css can build on them. */
+@import "../chrome/tokens.css";
+@import "../chrome/chrome.css";
 @import "./site.css";
 
 @tailwind base;

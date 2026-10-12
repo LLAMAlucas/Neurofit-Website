@@ -216,6 +216,10 @@ export const HOLDS: readonly [number, number][] = STOPS.map((s, i) => [
   i === STOP_COUNT - 1 ? END : STARTS[i] + s.hold[1] * s.span,
 ]);
 
+/** Where the menu lands for stop `i`, in screens: the start of its hold, where its words are
+ *  fully in focus (the section itself starts mid-move, still blurred). hooks/scrollControl. */
+export const stopTarget = (i: number): number => HOLDS[i][0];
+
 const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
 const smooth = (a: number, b: number, v: number) => {
   const t = clamp01((v - a) / (b - a));

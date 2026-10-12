@@ -1,42 +1,25 @@
 /* ============================================================================
-   Neuro-Fit — the camera's eye.
+   Neuro-Fit — the camera's eye, in black (after dragonfly.xyz).
 
-   The whole page is what the phone camera sees: fog is what it can't see yet,
-   the particle body is what it has measured, the mono HUD is its readouts, and
-   red is what it caught. Text is dark ink on the fog — igloo's white-on-grey is
-   the one thing about its look this does not copy.
+   The whole page is what the phone camera sees: black is what it can't see, the
+   body's points of light are what it has measured, the mono labels are its
+   readouts, and red is what it caught. One blue accent (#5581B3, the old fog
+   blue darkened to the reference orange's brightness) marks what's chosen, lit
+   or in progress.
 
-   Contrast, measured on the fog (#abc0d8): --ink ≈ 9.5:1, --ink-2 ≈ 5.3:1.
-   Red TEXT is --fault-ink on glass (5.1:1), and --fault-ink-fog straight on
-   the fog — the lit line of an exercise's list — where --fault-ink measures
-   only 4.0:1 and this 5.2:1. (#b8322d, the old page's, measured 4.1:1 on the
-   glass.) The bright --fault is for particles only.
+   Tokens and the shared chrome (flat buttons, the N/F · pixels · MENU bar, the
+   menu, sheets, ASCII fields) are chrome/tokens.css + chrome/chrome.css,
+   imported first (globals.css) and mirrored byte-for-byte in the tracker.
+
+   Contrast on black: --fg 21:1, paragraph grey #e6e6e6 17:1, --fg-2 6.3:1,
+   --accent 5.2:1 (text only on black / panels), red text --fault-text 6.9:1.
+   The bright --fault is for the particles and for fills under black text.
 
    Two looks, set on <html> by App:
      .is-live   the scene behind, each stop's text fixed over it and racked in
                 and out of focus by --focus (hooks/useJourney)
      .is-still  reduced motion or no WebGL: ordinary scrolling text, no scene
    ========================================================================= */
-
-:root {
-  --fog: #abc0d8;
-  --fog-2: #c9d6e5;
-  --ink: #15191e;
-  --ink-2: #3d444c;
-  --hot: #e6f2fb;
-  --fault: #ff2b2b;
-  --fault-ink: #a0261f;
-  --fault-ink-fog: #861b16;
-  --rule: rgba(21, 25, 30, 0.2);
-  --glass: rgba(244, 246, 248, 0.42);
-  --glass-2: rgba(236, 241, 246, 0.74);
-
-  --sans: "Schibsted Grotesk", -apple-system, BlinkMacSystemFont, sans-serif;
-  --mono: "DM Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
-
-  --gut: clamp(16px, 3.4vw, 44px);
-}
 
 /* ── reset ─────────────────────────────────────────────────────────────── */
 /* Includes the border reset Tailwind's preflight would normally supply
@@ -56,8 +39,8 @@ html {
 }
 body {
   margin: 0;
-  background: var(--fog);
-  color: var(--ink);
+  background: var(--bg);
+  color: var(--fg);
   font-family: var(--sans);
   font-size: 17px;
   line-height: 1.55;
@@ -80,19 +63,8 @@ a {
   color: inherit;
 }
 :focus-visible {
-  outline: 2px solid var(--ink);
+  outline: 2px solid var(--accent);
   outline-offset: 3px;
-}
-
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
-  padding: 0;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
 }
 
 .skip {
@@ -101,8 +73,8 @@ a {
   left: 8px;
   z-index: 20;
   padding: 10px 14px;
-  background: var(--ink);
-  color: var(--fog-2);
+  background: var(--fg);
+  color: var(--bg);
   font-family: var(--mono);
   font-size: 12px;
   transform: translateY(-160%);
@@ -118,13 +90,14 @@ a {
   position: fixed;
   inset: 0;
   z-index: 0;
+  background: var(--bg);
 }
 .stage > div {
   position: absolute !important;
   inset: 0;
 }
 
-/* The glass box around the body, on screen: the one place a finger throws
+/* The invisible box around the body, on screen: the one place a finger throws
    particles instead of scrolling. Sized every frame by TouchZone. */
 .touchzone {
   position: fixed;
@@ -146,381 +119,174 @@ a {
   pointer-events: none;
 }
 
+/* A few dim characters blinking in the empty black (components/Twinkle). */
+.twinkle {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  overflow: hidden;
+}
+.twinkle span {
+  position: absolute;
+  left: 0;
+  top: 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1;
+  color: #8a8a8a;
+  opacity: 0;
+  animation: twinkle 3s steps(6, end) infinite;
+}
+@keyframes twinkle {
+  0%,
+  100% {
+    opacity: 0;
+  }
+  30%,
+  55% {
+    opacity: 0.55;
+  }
+}
+
 /* ── type ──────────────────────────────────────────────────────────────── */
 
 .h1 {
-  font-size: clamp(2.6rem, 5.6vw, 5.4rem);
-  line-height: 0.97;
-  letter-spacing: -0.035em;
-  font-weight: 600;
+  font-size: clamp(2.4rem, 4.8vw, 4.7rem);
+  line-height: 0.96;
+  letter-spacing: -0.025em;
+  font-weight: 500;
+  text-transform: uppercase;
 }
 .h2 {
-  font-size: clamp(2rem, 3.7vw, 3.5rem);
-  line-height: 1.02;
-  letter-spacing: -0.03em;
-  font-weight: 600;
+  font-size: clamp(1.9rem, 3.3vw, 3.2rem);
+  line-height: 1;
+  letter-spacing: -0.025em;
+  font-weight: 500;
+  text-transform: uppercase;
 }
 .copy p,
 .lede {
   margin-top: 18px;
-  max-width: 34rem;
-  font-size: clamp(1rem, 1.12vw, 1.12rem);
-  color: var(--ink-2);
+  max-width: 36rem;
+  font-family: var(--serif);
+  font-size: clamp(1.12rem, 1.3vw, 1.34rem);
+  line-height: 1.42;
+  color: #e6e6e6;
 }
 .copy .h1 + .lede {
   margin-top: 24px;
 }
-.fine {
-  font-size: 0.92rem !important;
+
+/* The scroll reveal (hooks/lineReveal): each word from dim to lit by its --b. */
+.is-live [data-reveal] .w {
+  color: rgb(calc(58 + var(--b, 0) * 172), calc(58 + var(--b, 0) * 172), calc(58 + var(--b, 0) * 172));
 }
 
-/* ── liquid glass (Apple's control material) ───────────────────────────────
-   ⚠️ Mirrored in src/neurofit/neurofit.css (same section) — keep the two in step.
-
-   Glass reads as glass from three things together: a frost of what's behind it
-   (backdrop blur + saturation), a rim that catches light — bright where the light
-   enters top-left and exits bottom-right — and a specular bloom that follows the
-   pointer. Pressed glass swells, like a drop under a fingertip; it never shrinks.
-   Switches carry one droplet that slides between options on a spring
-   (lib/liquidGlass.ts); on Chromium its rim also bends what's under it.
-   --lg-spring / --lg-spring-soft are sampled from damped springs (ζ 0.6, ζ 0.8). */
-
-:root {
-  --lg-fill: rgba(255, 255, 255, 0.22);
-  --lg-tint: rgba(21, 25, 30, 0.8);
-  --lg-edge:
-    inset 0 0 0 0.5px rgba(255, 255, 255, 0.5), inset 0 1px 1px rgba(255, 255, 255, 0.85),
-    inset 0 -1px 1px rgba(255, 255, 255, 0.28), inset 0 0 16px rgba(255, 255, 255, 0.16);
-  --lg-drop: 0 10px 26px -12px rgba(21, 25, 30, 0.38), 0 2px 5px -2px rgba(21, 25, 30, 0.14);
-  --lg-spring: linear(0, 0.083, 0.273, 0.494, 0.701, 0.868, 0.985, 1.056, 1.089, 1.094, 1.083, 1.064, 1.043, 1.024, 1.009, 0.999, 0.994, 0.991, 0.991, 0.993, 0.994, 0.996, 0.998, 0.999, 1);
-  --lg-spring-soft: linear(0, 0.103, 0.311, 0.526, 0.705, 0.836, 0.922, 0.974, 1.001, 1.012, 1.015, 1.014, 1.01, 1.007, 1.004, 1.002, 1.001, 1);
-}
-
-.lg-btn,
-.lg-seg {
-  position: relative;
-  isolation: isolate;
-  border: 0;
-  border-radius: 999px;
-  backdrop-filter: blur(12px) saturate(180%);
-  -webkit-backdrop-filter: blur(12px) saturate(180%);
-  box-shadow: var(--lg-edge), var(--lg-drop);
-  -webkit-tap-highlight-color: transparent;
-}
-
-/* The rim: a hairline gradient border cut out of a full-size layer. */
-.lg-btn::before,
-.lg-seg::before,
-.lg-seg__lens::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 3;
-  padding: 1px;
-  border-radius: inherit;
-  pointer-events: none;
-  background: linear-gradient(
-    135deg,
-    rgba(255, 255, 255, 0.95) 0%,
-    rgba(255, 255, 255, 0.25) 28%,
-    rgba(255, 255, 255, 0) 50%,
-    rgba(255, 255, 255, 0.2) 72%,
-    rgba(255, 255, 255, 0.75) 100%
-  );
-  -webkit-mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  mask-composite: exclude;
-}
-
-/* The specular bloom, parked wherever the pointer last was. */
-.lg-btn::after,
-.lg-seg::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 3;
-  border-radius: inherit;
-  pointer-events: none;
-  background: radial-gradient(
-    90px circle at var(--lg-x, 50%) var(--lg-y, 0%),
-    rgba(255, 255, 255, 0.6),
-    rgba(255, 255, 255, 0) 70%
-  );
-  opacity: 0;
-  transition: opacity 0.35s var(--ease-out);
-}
-.lg-btn:hover::after {
-  opacity: 0.55;
-}
-.lg-seg:hover::after {
-  opacity: 0.35;
-}
-.lg-btn:active::after {
-  opacity: 1;
-  transition-duration: 0.06s;
-}
-
-.lg-btn {
-  --lg-bg: var(--lg-fill);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 11px 18px 10px;
-  font-family: var(--mono);
-  font-size: 11.5px;
-  font-weight: 500;
-  line-height: 1.5;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  text-decoration: none;
-  white-space: nowrap;
-  color: var(--ink);
-  cursor: pointer;
-  background: var(--lg-bg);
-  touch-action: manipulation;
-  transition:
-    transform 0.7s var(--lg-spring),
-    background-color 0.3s var(--ease-out),
-    color 0.2s var(--ease-out),
-    box-shadow 0.3s var(--ease-out);
-}
-.lg-btn:hover:not(:disabled, [aria-disabled="true"]) {
-  transform: scale(1.03);
-}
-.lg-btn:active:not(:disabled, [aria-disabled="true"]) {
-  transform: scale(1.07);
-  transition-duration: 0.45s;
-  transition-timing-function: var(--lg-spring-soft);
-}
-.lg-btn:focus-visible {
-  outline: 2px solid var(--ink);
-  outline-offset: 3px;
-}
-.lg-btn:disabled,
-.lg-btn[aria-disabled="true"] {
-  color: var(--ink-2);
-  cursor: default;
-  opacity: 0.5;
-}
-/* Tinted glass for the primary action: the same material, dyed ink. */
-.lg-btn--tint {
-  --lg-bg: var(--lg-tint);
-  color: var(--fog-2);
-  box-shadow:
-    inset 0 0 0 0.5px rgba(255, 255, 255, 0.18),
-    inset 0 1px 1px rgba(255, 255, 255, 0.35),
-    inset 0 -1px 1px rgba(255, 255, 255, 0.08),
-    var(--lg-drop);
-}
-.lg-btn--tint::before {
-  opacity: 0.45;
-}
-.lg-btn--tint::after {
-  mix-blend-mode: soft-light;
-}
-.lg-btn--big {
-  padding: 18px 34px 17px;
-  font-size: 14px;
-  letter-spacing: 0.12em;
-}
-
-/* Switch: a glass track, labels, and one droplet (thumb under, lens over). */
-.lg-seg {
-  display: inline-flex;
-  align-items: stretch;
-  gap: 2px;
-  padding: 4px;
-  background: rgba(255, 255, 255, 0.16);
-  touch-action: pan-y;
-}
-.lg-seg__item {
-  position: relative;
-  z-index: 1;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  margin: 0;
-  padding: 7px 16px 6px;
-  border: 0;
-  border-radius: 999px;
-  background: none;
-  font-family: var(--mono);
-  font-size: 11.5px;
-  font-weight: 500;
-  line-height: 1.5;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  white-space: nowrap;
-  color: var(--ink-2);
-  cursor: pointer;
-  user-select: none;
-  -webkit-tap-highlight-color: transparent;
-  transition: color 0.3s var(--ease-out);
-}
-.lg-seg__item:hover:not(:disabled) {
-  color: var(--ink);
-}
-.lg-seg__item[aria-pressed="true"],
-.lg-seg__item[aria-current="page"] {
-  color: var(--ink);
-}
-.lg-seg__item:disabled,
-.lg-seg__item[aria-disabled="true"]:not([aria-pressed="true"]) {
-  cursor: default;
-  opacity: 0.42;
-}
-.lg-seg__item:focus-visible {
-  outline: 2px solid var(--ink);
-  outline-offset: -3px;
-}
-.lg-seg__thumb,
-.lg-seg__lens {
-  position: absolute;
-  left: 0;
-  top: 0;
-  border-radius: 999px;
-  pointer-events: none;
-  opacity: 0;
-  transform-origin: 50% 50%;
-  will-change: transform, opacity;
-}
-/* The droplet's body. Pressed, it clears (less milk, more glass) as it swells. */
-.lg-seg__thumb {
-  z-index: 0;
-  background: rgba(255, 255, 255, calc(0.62 - 0.34 * var(--lg-lift, 0)));
-  backdrop-filter: blur(4px) saturate(160%);
-  -webkit-backdrop-filter: blur(4px) saturate(160%);
-  box-shadow:
-    0 6px 16px -8px rgba(21, 25, 30, 0.42),
-    0 1px 3px rgba(21, 25, 30, 0.12),
-    inset 0 1px 1px #fff,
-    inset 0 -1px 1px rgba(21, 25, 30, 0.06);
-}
-/* Its rim, drawn over the labels so the edge catches light above them. */
-.lg-seg__lens {
-  z-index: 2;
-  box-shadow:
-    inset 0 0 0 0.5px rgba(255, 255, 255, 0.6),
-    inset 0 0 calc(10px + 14px * var(--lg-lift, 0)) rgba(255, 255, 255, calc(0.12 + 0.22 * var(--lg-lift, 0)));
-}
-
-/* A grid of cards: no track of its own (the panel is the surface); the droplet
-   is a glass slab sized to the chosen card. */
-.lg-seg--cards {
-  display: grid;
-  padding: 0;
-  gap: 10px;
-  border-radius: 0;
-  background: none;
-  box-shadow: none;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-  touch-action: auto;
-}
-.lg-seg--cards::before,
-.lg-seg--cards::after {
-  display: none;
-}
-.lg-seg--cards > .lg-seg__item {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  justify-content: flex-start;
-  gap: 0;
-  border-radius: 18px;
-  font-family: var(--sans);
-  font-weight: 400;
-  letter-spacing: normal;
-  text-transform: none;
-  white-space: normal;
-  color: var(--ink-2);
-}
-
-@media (prefers-reduced-transparency: reduce) {
-  .lg-btn,
-  .lg-seg,
-  .lg-seg__thumb {
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
-  }
-  .lg-btn {
-    --lg-bg: var(--fog-2);
-  }
-  .lg-seg {
-    background: var(--fog-2);
-  }
-  .lg-seg__thumb {
-    background: #fff;
-  }
-}
-
-/* ── HUD: the viewfinder's frame ───────────────────────────────────────── */
+/* ── the frame: bar, corner letters, edge bands, the lens booting ──────── */
 
 .hud {
   position: fixed;
   inset: 0;
   z-index: 5;
   pointer-events: none;
-  font-family: var(--mono);
-  font-size: 11px;
-  line-height: 1.55;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--ink);
 }
+.hud .topbar,
 .hud a,
 .hud button {
   pointer-events: auto;
 }
-.hud__brand {
+.hud__bar {
   position: absolute;
-  top: 20px;
-  left: var(--gut);
+  top: max(12px, env(safe-area-inset-top));
+  left: 0;
+  right: 0;
+  z-index: 4;
   display: flex;
-  align-items: center;
-  gap: 8px;
-  font-family: var(--sans);
-  font-size: 19px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-  text-transform: none;
-  text-decoration: none;
+  justify-content: center;
+  pointer-events: none;
 }
-.hud__mark svg {
-  width: 20px;
-  height: 20px;
-}
-.hud__try {
+/* The corner letters: N top-left, F bottom-left, in the serif. */
+.hud__corner {
   position: absolute;
+  left: 18px;
+  z-index: 3;
+  font-family: var(--serif);
+  font-size: 60px;
+  font-weight: 400;
+  line-height: 0.8;
+  color: var(--fg);
+}
+.hud__corner--n {
   top: 16px;
-  right: var(--gut);
 }
-.hud__boot {
+.hud__corner--f {
+  bottom: 16px;
+}
+/* The top and bottom ~100px: what passes through them blurs and fades to black. */
+.edge {
   position: absolute;
-  left: 50%;
-  bottom: 22px;
-  transform: translateX(-50%);
-  color: var(--ink-2);
+  left: 0;
+  right: 0;
+  z-index: 1;
+  height: 104px;
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+.edge--top {
+  top: 0;
+  background: linear-gradient(rgba(0, 0, 0, 0.9), rgba(0, 0, 0, 0));
+  -webkit-mask-image: linear-gradient(#000 35%, transparent);
+  mask-image: linear-gradient(#000 35%, transparent);
+}
+.edge--bottom {
+  bottom: 0;
+  background: linear-gradient(rgba(0, 0, 0, 0), rgba(0, 0, 0, 0.9));
+  -webkit-mask-image: linear-gradient(transparent, #000 65%);
+  mask-image: linear-gradient(transparent, #000 65%);
+}
+.tier-phone .edge {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+.boot {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  background: var(--bg);
   transition: opacity 0.9s var(--ease-out);
 }
-.hud__boot span::after {
+.boot__field {
+  position: absolute;
+  inset: 0;
+  font-size: 11px;
+  line-height: 12px;
+  color: #4d4d4d;
+}
+.boot__label {
+  position: relative;
+  padding: 11px 16px 10px;
+  border: 1px solid var(--rule);
+  background: var(--panel-solid);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--fg);
+}
+.boot__label::after {
   content: "";
   display: inline-block;
   width: 0.6em;
   height: 1em;
-  margin-left: 0.4em;
+  margin-left: 0.5em;
   vertical-align: -0.15em;
-  background: currentColor;
+  background: var(--accent);
   animation: blink 0.9s steps(1) infinite;
 }
-.hud__boot.is-done {
+.boot.is-done {
   opacity: 0;
 }
 @keyframes blink {
@@ -546,39 +312,29 @@ a {
 .is-live .stop[data-off] .stop__frame,
 .is-live .stop[data-sharp] .stop__frame {
   /* No filter at all when fully off or fully sharp — blur(0) is still a filter,
-     and any filter makes the frame a backdrop root, which would hide the scene
-     from the glass buttons inside it. */
+     and any filter makes the frame its own compositing layer and a backdrop
+     root (the panels' blur would stop seeing the scene). */
   filter: none;
 }
-.is-live .stop[data-live] .stop__frame :is(a, button, .copy, .debrief, .finale, .faq__body, .panel) {
+.is-live .stop[data-live] .stop__frame :is(a, button, .copy, .finale, .panel) {
   pointer-events: auto;
 }
 
 .copy {
   position: absolute;
   top: 50%;
-  width: min(33rem, 40vw);
+  width: min(34rem, 40vw);
   transform: translateY(-50%);
 }
 .copy--left {
   left: var(--gut);
 }
-.copy--right {
-  right: var(--gut);
-}
 .copy--hero {
-  width: min(40rem, 46vw);
-}
-.copy--narrow {
-  width: min(26rem, 30vw);
-}
-.copy--top {
-  top: 17%;
-  transform: none;
+  width: min(42rem, 46vw);
 }
 /* A call to action inside a stop's words (the Analyze stop). */
 .copy__cta {
-  margin-top: 22px;
+  margin-top: 24px;
 }
 
 /* The hint to touch the body, once it has formed. */
@@ -587,11 +343,11 @@ a {
   align-items: center;
   gap: 10px;
   margin-top: 30px !important;
-  font-family: var(--mono);
+  font-family: var(--mono) !important;
   font-size: 11.5px !important;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--ink) !important;
+  color: var(--fg-2) !important;
   opacity: 0;
   transition: opacity 0.8s var(--ease-out);
 }
@@ -599,7 +355,7 @@ a {
   content: "";
   width: 28px;
   height: 1px;
-  background: currentColor;
+  background: var(--accent);
   animation: reach 2.4s var(--ease-out) infinite;
   transform-origin: left;
 }
@@ -629,30 +385,24 @@ a {
   }
 }
 
-.phone-tag,
-.set-label {
+/* The phone's readout, pinned over a point in the scene: centred on it, a little above. */
+.phone-tag {
   position: absolute;
   left: 0;
   top: 0;
-  padding: 6px 10px 5px;
+  margin-top: -2.6em;
+  translate: -50% 0;
+  padding: 7px 10px 6px;
   white-space: nowrap;
-  background: var(--glass);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  background: var(--panel);
+  -webkit-backdrop-filter: blur(var(--panel-blur));
+  backdrop-filter: blur(var(--panel-blur));
   font-family: var(--mono);
   font-size: 11px;
   font-weight: 500;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-}
-/* Pinned over a point in the scene: centred on it, a little above. */
-.phone-tag {
-  margin-top: -2.6em;
-  /* Centred on the point Journey places it at (kept on screen there). */
-  translate: -50% 0;
-}
-.set-label {
-  margin: -2.4em 0 0 -2.3em;
+  color: var(--fg);
 }
 /* Beside the bar's plate rather than over it: its path runs through there. */
 .phone-tag--bar {
@@ -668,7 +418,7 @@ a {
   transform: translateY(-50%);
 }
 .panel .h2 {
-  font-size: clamp(1.8rem, 2.8vw, 2.7rem);
+  font-size: clamp(1.7rem, 2.6vw, 2.5rem);
 }
 
 /* What happens to what it sees: the steps the scene plays, as a list. On the
@@ -688,7 +438,7 @@ a {
   font-size: 10.5px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--ink-2);
+  color: var(--fg-2);
 }
 .flow__zone-label {
   margin: 0 0 8px;
@@ -703,29 +453,28 @@ a {
 .flow__steps::before {
   content: "";
   position: absolute;
-  left: 5px;
+  left: 4px;
   top: 12px;
   bottom: 12px;
   width: 1px;
-  background: var(--rule);
+  background: #2a2a2a;
 }
 .flow__step {
   position: relative;
   padding: 5px 0 5px 24px;
   transition: opacity 0.35s var(--ease-out);
 }
-/* Its marker: an open ring, filled once done, ringed in ink while on. */
+/* Its marker: an open square, filled once done, accent while on. */
 .flow__step::before {
   content: "";
   position: absolute;
   left: 0;
   top: 10px;
-  width: 11px;
-  height: 11px;
+  width: 9px;
+  height: 9px;
   box-sizing: border-box;
-  border: 1px solid var(--ink-2);
-  border-radius: 50%;
-  background: var(--fog-2);
+  border: 1px solid var(--edge);
+  background: var(--bg);
   transition:
     background-color 0.3s var(--ease-out),
     transform 0.3s var(--ease-out);
@@ -739,9 +488,10 @@ a {
 .flow__text {
   display: block;
   margin-top: 2px;
-  font-size: 0.84rem;
-  line-height: 1.45;
-  color: var(--ink-2);
+  font-family: var(--serif);
+  font-size: 0.98rem;
+  line-height: 1.4;
+  color: #c8c8c8;
 }
 /* Live: only the step the scene is on shows its words. */
 .is-live .flow__step {
@@ -766,13 +516,14 @@ a {
   opacity: 0.75;
 }
 .flow__step.is-on::before {
-  background: var(--ink);
-  border-color: var(--ink);
-  transform: scale(1.2);
-  box-shadow: 0 0 0 4px rgba(21, 25, 30, 0.12);
+  background: var(--accent);
+  border-color: var(--accent);
+  transform: scale(1.25);
+  box-shadow: 0 0 10px rgba(85, 129, 179, 0.6);
 }
 .flow__step.is-done::before {
-  background: var(--ink-2);
+  background: var(--fg-2);
+  border-color: var(--fg-2);
 }
 
 /* The border: what's above stays on the device. While the read goes out, a
@@ -789,11 +540,11 @@ a {
   content: "";
   flex: 1;
   height: 1px;
-  background: var(--ink);
+  background: var(--accent);
 }
 .flow__stream {
   position: absolute;
-  left: 3px;
+  left: 2px;
   top: -40px;
   width: 5px;
   height: 80px;
@@ -807,8 +558,7 @@ a {
   top: 0;
   width: 5px;
   height: 5px;
-  border-radius: 50%;
-  background: var(--ink);
+  background: var(--accent-hi);
   opacity: 0;
 }
 .flow__border.is-on .flow__stream {
@@ -819,10 +569,10 @@ a {
 .flow__read {
   margin-top: 10px;
   padding: 16px 18px 18px;
-  background: var(--glass-2);
-  border: 1px solid rgba(255, 255, 255, 0.55);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--rule);
+  background: var(--panel);
+  -webkit-backdrop-filter: blur(var(--panel-blur));
+  backdrop-filter: blur(var(--panel-blur));
   transition: opacity 0.4s var(--ease-out);
 }
 .is-live .flow__read:not(.is-on) {
@@ -831,20 +581,21 @@ a {
 .flow__read .debrief__p,
 .flow__read .debrief__cues {
   margin-top: 8px;
-  font-size: 0.9rem;
-  line-height: 1.5;
+  font-size: 1rem;
+  line-height: 1.45;
 }
 .flow__read .debrief__cues {
-  font-size: 0.86rem;
+  font-size: 0.95rem;
 }
 
 /* Load the bar: the flow's panel, with each rep's bar speed as a row of
    bars that fill in as the reps lock out, getting shorter as the set slows. */
 .barbell__lede {
   margin: -6px 0 14px;
-  font-size: 0.93rem;
-  line-height: 1.45;
-  color: var(--ink-2);
+  font-family: var(--serif);
+  font-size: 1.06rem;
+  line-height: 1.4;
+  color: #c8c8c8;
 }
 .barset {
   display: flex;
@@ -868,7 +619,7 @@ a {
   display: block;
   width: 10px;
   height: calc(var(--v) * 46px);
-  background: var(--ink);
+  background: var(--accent);
   transform-origin: bottom;
   transform: scaleY(0);
   transition: transform 0.45s var(--ease-out);
@@ -878,7 +629,7 @@ a {
   font-size: 10.5px;
   font-weight: 500;
   letter-spacing: 0.04em;
-  color: var(--ink-2);
+  color: var(--fg-2);
   opacity: 0;
   transition: opacity 0.3s var(--ease-out);
 }
@@ -895,7 +646,7 @@ a {
   font-size: 10.5px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--ink-2);
+  color: var(--fg-2);
 }
 
 /* How it compares: when each product tells you about a set, as a chart, and
@@ -904,15 +655,16 @@ a {
   left: var(--gut);
   width: min(40rem, 47vw);
   padding: 22px 24px 18px;
-  background: var(--glass-2);
-  border: 1px solid rgba(255, 255, 255, 0.55);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--rule);
+  background: var(--panel);
+  -webkit-backdrop-filter: blur(var(--panel-blur));
+  backdrop-filter: blur(var(--panel-blur));
 }
 .compare__intro {
   margin-top: 8px;
-  font-size: 0.93rem;
-  color: var(--ink-2);
+  font-family: var(--serif);
+  font-size: 1.06rem;
+  color: #c8c8c8;
 }
 .chart {
   margin-top: 16px;
@@ -932,12 +684,11 @@ a {
   font-size: 10px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--ink-2);
+  color: var(--fg-2);
 }
 .chart__row--us {
-  background: var(--ink);
-  color: var(--fog-2);
-  border-radius: 12px;
+  background: var(--accent);
+  color: var(--on-accent);
 }
 .chart__name {
   font-size: 0.88rem;
@@ -951,50 +702,51 @@ a {
   min-width: 0;
   font-size: 0.76rem;
   line-height: 1.35;
-  color: var(--ink-2);
+  color: var(--fg-2);
 }
 .chart__row--us .chart__cell {
-  color: rgba(201, 214, 229, 0.9);
+  color: rgba(0, 0, 0, 0.82);
 }
 .chart__dot {
   flex: none;
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
   margin-top: 4px;
   border: 1px solid currentColor;
-  border-radius: 50%;
-  opacity: 0.3;
+  opacity: 0.4;
 }
 .chart__cell.has .chart__dot {
   background: currentColor;
   opacity: 1;
 }
-.chart__row--us .chart__cell.has .chart__dot {
-  background: var(--hot);
-  border-color: var(--hot);
-}
-/* The others: a glass track of rows, the droplet on the one picked. */
+/* The others: a stack of rows to pick from, the picked one edged in accent. */
 .chart__others {
   display: grid;
   gap: 2px;
   margin-top: 4px;
 }
-.chart__others > .lg-seg__item.chart__row {
-  display: grid;
-  align-items: start;
-  justify-content: stretch;
-  gap: 0 10px;
-  padding: 7px 12px;
-  border-radius: 12px;
-  font-family: var(--sans);
-  font-size: inherit;
-  font-weight: 400;
-  letter-spacing: normal;
-  text-transform: none;
-  white-space: normal;
+.chart__pick {
+  width: 100%;
+  margin: 0;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+  transition: background-color 0.2s var(--ease-out);
 }
-.chart__others > .chart__row[aria-pressed="true"] .chart__cell {
-  color: var(--ink);
+.chart__pick:hover:not([aria-pressed="true"]) {
+  background: rgba(255, 255, 255, 0.04);
+}
+.chart__pick[aria-pressed="true"] {
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.chart__pick[aria-pressed="true"] .chart__cell {
+  color: var(--fg);
+}
+.chart__pick:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 .versus {
@@ -1026,7 +778,7 @@ a {
 }
 .versus td {
   width: calc((100% - 7.2rem) / 2);
-  color: var(--ink-2);
+  color: var(--fg-2);
 }
 .versus td.is-unstated {
   font-style: italic;
@@ -1036,22 +788,22 @@ a {
   margin-top: 10px;
   font-size: 0.72rem;
   line-height: 1.45;
-  color: var(--ink-2);
+  color: var(--fg-2);
 }
 .compare__src a {
   text-decoration: underline;
+  text-decoration-color: var(--accent);
   text-underline-offset: 2px;
 }
 
 /* A short laptop screen (720–820px tall): the flow and the comparison run up
-   under the brand at full size — 686px and 650px tall at 1280×720 — so they
-   tighten until each fits under it. */
+   under the bar at full size, so they tighten until each fits under it. */
 @media (min-width: 821px) and (min-aspect-ratio: 1/1) and (max-height: 820px) {
   .panel .h2 {
-    font-size: clamp(1.6rem, 2.3vw, 2.1rem);
+    font-size: clamp(1.5rem, 2.1vw, 2rem);
   }
   .flow {
-    top: calc(50% + 22px);
+    top: calc(50% + 30px);
   }
   .flow .h2 {
     margin-bottom: 10px;
@@ -1066,7 +818,7 @@ a {
     font-size: 0.88rem;
   }
   .flow__text {
-    font-size: 0.78rem;
+    font-size: 0.86rem;
   }
   .flow__border {
     margin: 8px 0;
@@ -1077,11 +829,11 @@ a {
   .flow__read .debrief__p,
   .flow__read .debrief__cues {
     margin-top: 6px;
-    font-size: 0.8rem;
+    font-size: 0.86rem;
   }
   .barbell__lede {
     margin-bottom: 8px;
-    font-size: 0.84rem;
+    font-size: 0.92rem;
   }
   .barset {
     margin: 8px 0 2px;
@@ -1090,18 +842,17 @@ a {
     height: calc(var(--v) * 34px);
   }
   .compare {
-    top: calc(50% + 22px);
+    top: calc(50% + 30px);
     padding: 16px 20px 14px;
   }
   .compare__intro {
     margin-top: 4px;
-    font-size: 0.86rem;
+    font-size: 0.95rem;
   }
   .chart {
     margin-top: 10px;
   }
-  .chart__row,
-  .chart__others > .lg-seg__item.chart__row {
+  .chart__row {
     padding: 5px 10px;
   }
   .chart__cell {
@@ -1121,28 +872,17 @@ a {
   }
 }
 
-/* ── after the set: the debrief, writing itself out ────────────────────── */
+/* ── the post-set read, inside the flow and the barbell panels ─────────── */
 
-.debrief {
-  position: absolute;
-  top: 50%;
-  right: var(--gut);
-  width: min(31rem, 38vw);
-  padding: 26px 30px 28px;
-  transform: translateY(-50%);
-  background: var(--glass-2);
-  border: 1px solid rgba(255, 255, 255, 0.55);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-}
 .debrief__kind {
   display: inline-block;
   margin-bottom: 10px;
-  padding: 2px 7px;
-  background: var(--ink);
-  color: var(--fog-2);
+  padding: 3px 8px 2px;
+  background: var(--accent);
+  color: var(--on-accent);
   font-family: var(--mono);
   font-size: 10.5px;
+  font-weight: 500;
   letter-spacing: 0.1em;
   text-transform: uppercase;
 }
@@ -1151,20 +891,21 @@ a {
   font-size: 11.5px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--ink-2);
+  color: var(--fg-2);
   min-height: 1.5em;
 }
 .debrief__p,
 .debrief__cues {
   margin-top: 12px;
-  font-size: 1rem;
-  line-height: 1.6;
-  min-height: 1.6em;
+  font-family: var(--serif);
+  font-size: 1.05rem;
+  line-height: 1.5;
+  min-height: 1.5em;
 }
 .debrief__cues {
   padding-left: 14px;
-  border-left: 2px solid var(--ink);
-  font-size: 0.95rem;
+  border-left: 2px solid var(--accent);
+  font-size: 1rem;
 }
 [data-typed].is-typing::after {
   content: "";
@@ -1173,7 +914,7 @@ a {
   height: 1em;
   margin-left: 2px;
   vertical-align: -0.12em;
-  background: var(--ink);
+  background: var(--accent);
   animation: blink 0.8s steps(1) infinite;
 }
 
@@ -1192,13 +933,17 @@ a {
 .price {
   margin-top: 26px;
   max-width: 34rem;
-  font-size: 0.95rem;
-  color: var(--ink-2);
+  font-family: var(--serif);
+  font-size: 1.08rem;
+  line-height: 1.45;
+  color: #e6e6e6;
 }
 .foot {
   margin-top: 26px;
+  padding-top: 14px;
+  border-top: 1px solid var(--rule);
   font-size: 12.5px;
-  color: var(--ink-2);
+  color: var(--fg-2);
 }
 .foot__in {
   display: flex;
@@ -1206,18 +951,16 @@ a {
   gap: 4px 14px;
 }
 .foot__mark {
+  font-family: var(--mono);
   font-weight: 700;
-  color: var(--ink);
+  color: var(--fg);
 }
-
-/* The questions, folded into the footer. On the live page they open as a
-   panel of their own over the scene, like the debrief — opening them inside
-   the finale grew it until its heading ran up under the brand. */
-.faq__toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
+.foot__links {
+  display: flex;
+  gap: 18px;
   margin-top: 12px;
+}
+.foot__link {
   padding: 0;
   background: none;
   cursor: pointer;
@@ -1225,73 +968,25 @@ a {
   font-size: 11.5px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--ink);
-}
-.faq__toggle::after {
-  content: "+";
-  font-size: 14px;
-  line-height: 1;
-  transition: transform 0.25s var(--ease-out);
-}
-.faq__toggle[aria-expanded="true"]::after {
-  transform: rotate(45deg);
-}
-.faq__body {
-  margin: 12px 0 0;
-  padding: 4px 16px 4px 0;
-}
-.faq__body[hidden] {
-  display: none;
-}
-.is-live .faq__body {
-  position: fixed;
-  top: 50%;
-  right: var(--gut);
-  width: min(31rem, 38vw);
-  max-height: min(72vh, 40rem);
-  margin: 0;
-  padding: 24px 28px 26px;
-  transform: translateY(-50%);
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  background: var(--glass-2);
-  border: 1px solid rgba(255, 255, 255, 0.55);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  font-size: 0.95rem;
-}
-.faq__item + .faq__item {
-  margin-top: 12px;
-}
-.faq__item dt {
-  font-weight: 600;
-  color: var(--ink);
-}
-.faq__item dd {
-  margin: 2px 0 0;
-  line-height: 1.5;
+  color: var(--fg);
+  text-decoration: underline;
+  text-decoration-color: var(--accent);
+  text-underline-offset: 4px;
 }
 
 /* ── narrow screens: the body above, the words below ───────────────────── */
 
 @media (max-width: 820px), (max-aspect-ratio: 1/1) {
-  .hud__brand {
-    top: 14px;
-    font-size: 17px;
+  .hud__corner {
+    display: none;
   }
-  .hud__try {
-    top: 10px;
-    padding: 9px 14px 8px;
-  }
-  .hud__boot {
-    bottom: 14px;
+  .edge {
+    height: 80px;
   }
 
   .copy,
   .copy--left,
-  .copy--right,
-  .copy--hero,
-  .copy--narrow {
+  .copy--hero {
     left: 12px;
     right: 12px;
     top: auto;
@@ -1299,56 +994,20 @@ a {
     width: auto;
     transform: none;
     padding: 16px 16px 18px;
-    background: var(--glass-2);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-  }
-  .stop--afterSet .copy {
-    top: 60px;
-    bottom: auto;
+    background: var(--panel);
+    -webkit-backdrop-filter: blur(var(--panel-blur));
+    backdrop-filter: blur(var(--panel-blur));
   }
   .copy p,
   .lede {
     margin-top: 10px;
-    font-size: 0.95rem;
+    font-size: 1.02rem;
   }
   .h1 {
-    font-size: clamp(2.1rem, 9vw, 3rem);
+    font-size: clamp(2rem, 8.6vw, 2.8rem);
   }
   .h2 {
-    font-size: clamp(1.6rem, 7vw, 2.2rem);
-  }
-  /* Room is short: the explanation beside the debrief stays for screen
-     readers, and the debrief says it. */
-  .stop--afterSet .copy p:not(.fine) {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip: rect(0 0 0 0);
-  }
-  /* The debrief is this stop's whole point on a phone: it is set small enough
-     to fit whole under the heading, rather than cut off at a max-height. */
-  .debrief {
-    left: 12px;
-    right: 12px;
-    top: auto;
-    bottom: 42px;
-    width: auto;
-    padding: 14px 16px 16px;
-    transform: none;
-  }
-  .debrief__p,
-  .debrief__cues {
-    margin-top: 8px;
-    font-size: 0.8rem;
-    line-height: 1.5;
-  }
-  .stop--afterSet .h2 {
-    font-size: 1.5rem;
-  }
-  .stop--afterSet .copy .fine {
-    font-size: 0.82rem !important;
+    font-size: clamp(1.5rem, 6.6vw, 2.1rem);
   }
   .finale {
     left: 12px;
@@ -1358,23 +1017,13 @@ a {
     width: auto;
     transform: none;
     padding: 16px 16px 18px;
-    background: var(--glass-2);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
+    background: var(--panel);
+    -webkit-backdrop-filter: blur(var(--panel-blur));
+    backdrop-filter: blur(var(--panel-blur));
   }
   .price,
   .foot {
     margin-top: 14px;
-  }
-  .is-live .faq__body {
-    top: 60px;
-    left: 12px;
-    right: 12px;
-    width: auto;
-    max-height: calc(100% - 60px - 260px);
-    padding: 16px 18px 18px;
-    transform: none;
-    font-size: 0.85rem;
   }
   .finale .h2 {
     margin-bottom: 18px;
@@ -1389,13 +1038,13 @@ a {
     transform: none;
   }
   .panel .h2 {
-    font-size: 1.5rem;
+    font-size: 1.45rem;
   }
   .flow {
     padding: 14px 14px 16px;
-    background: var(--glass-2);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
+    background: var(--panel);
+    -webkit-backdrop-filter: blur(var(--panel-blur));
+    backdrop-filter: blur(var(--panel-blur));
   }
   .flow .h2 {
     margin-bottom: 8px;
@@ -1410,14 +1059,14 @@ a {
   }
   .flow__step::before {
     top: 6px;
-    width: 10px;
-    height: 10px;
+    width: 8px;
+    height: 8px;
   }
   .flow__title {
     font-size: 0.8rem;
   }
   .flow__text {
-    font-size: 0.72rem;
+    font-size: 0.82rem;
     line-height: 1.35;
   }
   .flow__border {
@@ -1431,13 +1080,13 @@ a {
     font-size: 10px;
   }
   /* Bottom-anchored here: an unwritten read would leave a block of empty
-     glass above the fold, so it takes no room until it starts to arrive. */
+     panel above the fold, so it takes no room until it starts to arrive. */
   .is-live .barbell__read:not(.is-on) {
     display: none;
   }
   .barbell__lede {
     margin: -4px 0 6px;
-    font-size: 0.74rem;
+    font-size: 0.84rem;
     line-height: 1.35;
   }
   .barset {
@@ -1460,20 +1109,19 @@ a {
   .flow__read .debrief__p,
   .flow__read .debrief__cues {
     margin-top: 5px;
-    font-size: 0.72rem;
+    font-size: 0.8rem;
     line-height: 1.4;
   }
   .compare {
     padding: 14px 12px 12px;
   }
   .compare__intro {
-    font-size: 0.8rem;
+    font-size: 0.9rem;
   }
   .chart {
     margin-top: 10px;
   }
-  .chart__row,
-  .chart__others > .lg-seg__item.chart__row {
+  .chart__row {
     grid-template-columns: 4.4rem repeat(3, minmax(0, 1fr));
     gap: 0 6px;
     padding: 5px 8px;
@@ -1490,8 +1138,8 @@ a {
     font-size: 0.64rem;
   }
   .chart__dot {
-    width: 7px;
-    height: 7px;
+    width: 6px;
+    height: 6px;
     margin-top: 3px;
   }
   .versus {
@@ -1524,7 +1172,6 @@ a {
   margin: 0 auto;
 }
 .is-still .copy,
-.is-still .debrief,
 .is-still .finale {
   position: static;
   width: auto;
@@ -1546,22 +1193,30 @@ a {
   align-items: center;
   grid-template-columns: minmax(0, 1fr) minmax(0, 26rem);
 }
+/* The still picture as a fine dot grid, fading out at the bottom — dragonfly.xyz's
+   dot-matrix images. One dot every 3px, its brightness the picture's. */
 .is-still .still {
   width: 100%;
   height: auto;
-}
-.is-still .stop--afterSet .stop__frame {
-  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
-  align-items: start;
+  filter: grayscale(1) contrast(1.15);
+  -webkit-mask-image:
+    radial-gradient(circle, #000 0.95px, transparent 1.35px),
+    linear-gradient(#000 72%, transparent);
+  -webkit-mask-size:
+    3px 3px,
+    100% 100%;
+  -webkit-mask-composite: source-in;
+  mask-image:
+    radial-gradient(circle, #000 0.95px, transparent 1.35px),
+    linear-gradient(#000 72%, transparent);
+  mask-size:
+    3px 3px,
+    100% 100%;
+  mask-composite: intersect;
 }
 .is-still .finale {
   margin: 0 auto;
   padding-bottom: 48px;
-}
-.is-still .faq__body {
-  width: 100%;
-  max-width: 42rem;
-  margin: -24px auto 48px;
 }
 @media (max-width: 820px) {
   .is-still .stop--form .stop__frame {

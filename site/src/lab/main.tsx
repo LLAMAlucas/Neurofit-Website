@@ -1,5 +1,7 @@
 import { createRoot } from "react-dom/client";
 
+import "../chrome/tokens.css";
+import "../chrome/chrome.css";
 import "./lab.css";
 import Lab from "./Lab";
 import { store } from "@/stage/store";

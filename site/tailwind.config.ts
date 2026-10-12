@@ -23,18 +23,22 @@ export default {
   corePlugins: { preflight: false },
   theme: {
     extend: {
-      // Mirrors of the :root custom properties in styles/site.css. The CSS vars
+      // Mirrors of the :root custom properties in chrome/tokens.css. The CSS vars
       // stay the single source of truth at runtime — these just make the same
       // values reachable as Tailwind utilities for new components.
       colors: {
-        fog: { DEFAULT: "var(--fog)", 2: "var(--fog-2)" },
-        ink: { DEFAULT: "var(--ink)", 2: "var(--ink-2)" },
+        bg: "var(--bg)",
+        panel: "var(--panel-solid)",
+        chip: "var(--chip)",
+        fg: { DEFAULT: "var(--fg)", 2: "var(--fg-2)" },
+        accent: { DEFAULT: "var(--accent)", 2: "var(--accent-2)", 3: "var(--accent-3)" },
         hot: "var(--hot)",
-        fault: { DEFAULT: "var(--fault)", ink: "var(--fault-ink)" },
+        fault: { DEFAULT: "var(--fault)", text: "var(--fault-text)" },
         rule: "var(--rule)",
       },
       fontFamily: {
         sans: "var(--sans)",
+        serif: "var(--serif)",
         mono: "var(--mono)",
       },
       transitionTimingFunction: {

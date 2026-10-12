@@ -26,7 +26,7 @@ import { Compare } from "./Compare";
 import { Flow, READ_BLOCKS } from "./Flow";
 import { Barbell } from "./Barbell";
 import { Foot } from "./Foot";
-import { refract } from "@/lib/liquidGlass";
+import { Words } from "./Words";
 
 const FLOW = stopIndex("flow");
 
@@ -53,10 +53,6 @@ function Stop({ id, children, labelledBy }: { id: StopId; children: ReactNode; l
 
 export function Journey({ live }: { live: boolean }) {
   const root = useRef<HTMLDivElement>(null);
-  const cta = useRef<HTMLAnchorElement>(null);
-
-  // The finale's button bends the scene through its rim (Chromium; elsewhere frosted).
-  useEffect(() => (cta.current ? refract(cta.current, { blur: 6, saturate: 1.8, strength: 1.2 }) : undefined), []);
 
   useEffect(() => {
     const el = root.current;
@@ -165,10 +161,8 @@ export function Journey({ live }: { live: boolean }) {
           <h1 className="h1" id="h-form">
             Every rep, seen from outside.
           </h1>
-          <p className="lede">
-            Neuro-Fit watches your squats, push-ups and pull-ups through your phone camera — and the bar, when you
-            squat loaded — and tells you what your form actually did. Prop the phone up, do your set, and get a plain
-            read on it — after the set, and again at the end of the workout.
+          <p className="lede" data-reveal="">
+            <Words text="Neuro-Fit watches your squats, push-ups and pull-ups through your phone camera — and the bar, when you squat loaded — and tells you what your form actually did. Prop the phone up, do your set, and get a plain read on it — after the set, and again at the end of the workout." />
           </p>
           <p className="hint" aria-hidden="true" data-live-only>
             <span className="hint__mouse">Drag across the body</span>
@@ -181,7 +175,7 @@ export function Journey({ live }: { live: boolean }) {
             src="/body-still.webp"
             width="960"
             height="1200"
-            alt="A human figure made of thousands of grey particles, standing in pale blue fog."
+            alt="A human figure made of thousands of points of light, standing on black, drawn as a fine dot grid."
           />
         )}
       </Stop>
@@ -191,11 +185,8 @@ export function Journey({ live }: { live: boolean }) {
           <h2 className="h2" id="h-frame">
             Get yourself in frame.
           </h2>
-          <p>
-            No wearable, nothing to strap on: a phone, something to lean it against, and room to move. Stand back
-            until all of you fits on screen. It works out whether it’s looking at you from the side or head-on,
-            settles on that while you hold still, and only judges what that view can actually see — anything it
-            can’t see is marked unknown, never passed.
+          <p data-reveal="">
+            <Words text="No wearable, nothing to strap on: a phone, something to lean it against, and room to move. Stand back until all of you fits on screen. It works out whether it’s looking at you from the side or head-on, settles on that while you hold still, and only judges what that view can actually see — anything it can’t see is marked unknown, never passed." />
           </p>
         </div>
         <div className="phone-tag" aria-hidden="true" data-live-only />
@@ -220,17 +211,13 @@ export function Journey({ live }: { live: boolean }) {
           <h2 className="h2" id="h-analyze">
             Already filmed it? Take it apart.
           </h2>
-          <p>
-            Open a clip from your camera roll and go through it frame by frame, slowed right down. Draw angles, lines
-            and rulers on it — pin them to your joints and they follow you through the rep. Watch the path of the bar,
-            and put two sets side by side.
+          <p data-reveal="">
+            <Words text="Open a clip from your camera roll and go through it frame by frame, slowed right down. Draw angles, lines and rulers on it — pin them to your joints and they follow you through the rep. Watch the path of the bar, and put two sets side by side." />
           </p>
-          <p>
-            Then ask the AI coach: it picks out the form errors worth fixing and how to fix each one — across the whole
-            set, or on the exact frame you paused. The video stays on your device; only the still frames you choose are
-            sent.
+          <p data-reveal="">
+            <Words text="Then ask the AI coach: it picks out the form errors worth fixing and how to fix each one — across the whole set, or on the exact frame you paused. The video stays on your device; only the still frames you choose are sent." />
           </p>
-          <a className="lg-btn copy__cta" href={ANALYZE_URL} data-focus-only>
+          <a className="btn btn--primary copy__cta" href={ANALYZE_URL} data-focus-only>
             Analyze a video
           </a>
         </div>
@@ -241,13 +228,11 @@ export function Journey({ live }: { live: boolean }) {
           <h2 className="h2" id="h-finale">
             Try it on your next set.
           </h2>
-          <a className="lg-btn lg-btn--big" href={TRY_URL} data-focus-only ref={cta}>
+          <a className="btn btn--primary btn--big" href={TRY_URL} data-focus-only>
             Try it out
           </a>
-          <p className="price">
-            Everything the camera does is free and runs on your device. The written reads after a set and after a
-            workout, and the AI coach in video analysis, use your own Gemini API key, pasted into Settings. No
-            account, no card.
+          <p className="price" data-reveal="">
+            <Words text="Everything the camera does is free and runs on your device. The written reads after a set and after a workout, and the AI coach in video analysis, use your own Gemini API key, pasted into Settings. No account, no card." />
           </p>
           <Foot />
         </div>

@@ -4,15 +4,14 @@
  * others below it. Pick one of the others and the facts under the chart put it
  * beside Neuro-Fit, row by row.
  *
- * The rows are real buttons in a liquid-glass track: the droplet slides to the
- * one that's picked. Everything said about another product is in its own
- * words, from its own pages (lib/competitors), and what they don't say is
- * printed as not stated rather than guessed.
+ * The rows are real buttons; the picked one is edged in the accent. Everything
+ * said about another product is in its own words, from its own pages
+ * (lib/competitors), and what they don't say is printed as not stated rather
+ * than guessed.
  */
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 
 import { CHECKED, COMPETITORS, FACTS, MOMENTS, NOT_STATED, US, type Product } from "@/lib/competitors";
-import { GlassSegment } from "@/lib/liquidGlass";
 
 function Timeline({ product }: { product: Product }) {
   return (
@@ -33,27 +32,6 @@ function Timeline({ product }: { product: Product }) {
 
 export function Compare() {
   const [them, setThem] = useState(COMPETITORS[0].id);
-  const track = useRef<HTMLDivElement>(null);
-  const glass = useRef<GlassSegment | null>(null);
-
-  useEffect(() => {
-    if (!track.current) return;
-    const g = new GlassSegment(track.current, {
-      draggable: false,
-      onPick: (item) => item.dataset.value && setThem(item.dataset.value),
-    });
-    glass.current = g;
-    return () => {
-      g.destroy();
-      glass.current = null;
-    };
-  }, []);
-
-  useEffect(() => {
-    const el = track.current?.querySelector<HTMLElement>(`[data-value="${them}"]`);
-    glass.current?.setActive(el ?? null);
-  }, [them]);
-
   const other = COMPETITORS.find((c) => c.id === them) ?? COMPETITORS[0];
 
   return (
@@ -75,14 +53,12 @@ export function Compare() {
         <div className="chart__row chart__row--us">
           <Timeline product={US} />
         </div>
-        <div className="lg-seg lg-seg--cards chart__others" ref={track} role="group" aria-label="Compare with">
-          <span className="lg-seg__thumb" aria-hidden="true" />
+        <div className="chart__others" role="group" aria-label="Compare with">
           {COMPETITORS.map((c) => (
             <button
               key={c.id}
               type="button"
-              className="lg-seg__item chart__row"
-              data-lg-item=""
+              className="chart__row chart__pick"
               data-value={c.id}
               aria-pressed={c.id === them}
               onClick={() => setThem(c.id)}
@@ -90,7 +66,6 @@ export function Compare() {
               <Timeline product={c} />
             </button>
           ))}
-          <span className="lg-seg__lens" aria-hidden="true" />
         </div>
       </div>
 

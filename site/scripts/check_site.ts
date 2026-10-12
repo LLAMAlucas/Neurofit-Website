@@ -68,6 +68,7 @@ import {
   mixShot,
   newSample,
   stopIndex,
+  stopTarget,
   storyAt,
   type Shot,
 } from "../src/lib/story";
@@ -659,6 +660,23 @@ console.log("\n5. the camera path");
     "the stops run in order: opening, in frame, what happens to it, the bar, how it compares, analyze a video, try it",
     STOPS.map((s) => s.id).join(" ") === "form frame flow barbell compare analyze finale",
   );
+  // The menu (hooks/scrollControl) lands each row at its stop's hold start: on that stop, its
+  // words fully in focus — not mid-move, half-blurred.
+  {
+    const s = newSample();
+    ok(
+      "every menu row lands on its own stop, in focus",
+      STOPS.every((_, i) => {
+        storyAt(stopTarget(i) + 1e-6, s);
+        return s.stop === i && s.focus[i] === 1;
+      }),
+    );
+    const labels = STOPS.map((st) => st.label);
+    ok(
+      "the menu's rows read as short, unique, upper-case titles",
+      new Set(labels).size === labels.length && labels.every((l) => l === l.toUpperCase() && l.length <= 22),
+    );
+  }
   // Scrubbed by the scroll, slowly enough to follow: every step of the flow
   // takes most of a screen of scroll, none more than one.
   const flowHold = HOLDS[stopIndex("flow")][1] - HOLDS[stopIndex("flow")][0];

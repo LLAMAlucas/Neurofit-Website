@@ -25,6 +25,7 @@ import { Environment } from "./Environment";
 import { GHOST_X, ParticleBody } from "./ParticleBody";
 import { Bar, Iris, Pedestal, Phone } from "./Props";
 import { store } from "./store";
+import { AsciiTap } from "./AsciiTap";
 import maleUrl from "./models/body-male.glb?url";
 
 const FRAME = stopIndex("frame");
@@ -199,7 +200,8 @@ function Driver({ dof }: { dof: MutableRefObject<DepthOfFieldEffect | null> }) {
     if (Math.abs(s.bar - (exercise === "pullup" ? 1 : 0)) < 0.002) s.bar = exercise === "pullup" ? 1 : 0;
     s.holo = sample.presence[FINALE];
     s.lift = LIFT * s.holo;
-    s.iris = sample.iris;
+    // The finale's iris, or a menu jump's — whichever is more closed.
+    s.iris = Math.max(sample.iris, s.jumpIris);
     if (s.holo > 0) s.spin += dt * TURN * s.holo;
     else {
       // Unwind to the nearest whole turn rather than spinning back.
@@ -325,6 +327,7 @@ export default function StageScene({ tier, onSlow }: { tier: Tier; onSlow: () =>
         <ParticleBody url={maleUrl} count={st.count} interior={st.interior} skelCount={st.skelCount} />
       </Suspense>
       <Iris />
+      <AsciiTap />
       {/* Two composers rather than one with a conditional child: the composer
           builds its passes from its children once, and a pass that comes and
           goes under it is not something it expects. */}

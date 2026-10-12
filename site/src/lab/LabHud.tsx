@@ -10,7 +10,6 @@
 import { useEffect, useRef } from "react";
 import { EXERCISES, EXERCISE_ORDER, type ExerciseId } from "@/lib/exercises";
 import { store } from "@/stage/store";
-import { GlassSegment, installGlassPointer } from "@/lib/liquidGlass";
 
 export function LabHud() {
   const reps = useRef<HTMLSpanElement>(null);
@@ -21,12 +20,9 @@ export function LabHud() {
   const list = useRef<HTMLUListElement>(null);
   const boot = useRef<HTMLDivElement>(null);
   const buttons = useRef<Partial<Record<ExerciseId, HTMLButtonElement>>>({});
-  const row = useRef<HTMLElement>(null);
 
   useEffect(() => {
     let raf = 0;
-    const glass = row.current ? new GlassSegment(row.current) : null;
-    const offPointer = installGlassPointer();
     let shownExercise: ExerciseId | null = null;
 
     const tick = () => {
@@ -34,10 +30,9 @@ export function LabHud() {
       if (boot.current && s.ready) boot.current.classList.add("is-done");
       const spec = EXERCISES[s.exercise];
 
-      // The exercise changed: its list, its angles, the droplet on its button.
+      // The exercise changed: its list, its angles, its button pressed.
       if (s.exercise !== shownExercise) {
         shownExercise = s.exercise;
-        glass?.setActive(buttons.current[s.exercise] ?? null);
         for (const id of EXERCISE_ORDER) buttons.current[id]?.setAttribute("aria-pressed", String(id === s.exercise));
         if (labelA.current) labelA.current.textContent = spec.readouts[0].label;
         if (labelB.current) labelB.current.textContent = spec.readouts[1].label;
@@ -65,11 +60,7 @@ export function LabHud() {
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
-    return () => {
-      cancelAnimationFrame(raf);
-      glass?.destroy();
-      offPointer();
-    };
+    return () => cancelAnimationFrame(raf);
   }, []);
 
   return (
@@ -98,14 +89,12 @@ export function LabHud() {
         </div>
       </div>
 
-      <nav className="lg-seg picker" aria-label="Pick an exercise" ref={row}>
-        <span className="lg-seg__thumb" aria-hidden="true" />
+      <nav className="seg picker" aria-label="Pick an exercise">
         {EXERCISE_ORDER.map((id) => (
           <button
             key={id}
             type="button"
-            className="lg-seg__item"
-            data-lg-item=""
+            className="seg__item"
             ref={(el) => {
               if (el) buttons.current[id] = el;
             }}
@@ -114,7 +103,6 @@ export function LabHud() {
             {EXERCISES[id].name}
           </button>
         ))}
-        <span className="lg-seg__lens" aria-hidden="true" />
       </nav>
 
       <div className="hud__br">Drag to orbit · ← →</div>

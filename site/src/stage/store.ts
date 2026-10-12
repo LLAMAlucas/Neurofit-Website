@@ -67,6 +67,11 @@ export type StageStore = {
   bar: number;
   /** 0 open → 1 closed: the iris the camera flies through into the finale. */
   iris: number;
+  /** 0 open → 1 closed: the iris a menu jump goes through (hooks/scrollControl). The scene shows
+   *  the more closed of the two. */
+  jumpIris: number;
+  /** The top bar's menu is open — the stage copies its frame for the menu's ASCII panel. */
+  menuOpen: boolean;
   /** 0…1: the body as a hologram (the finale). */
   holo: number;
   /** Metres the body is raised (onto the pedestal). */
@@ -148,6 +153,8 @@ export const store: StageStore = {
   cone: 0,
   bar: 0,
   iris: 0,
+  jumpIris: 0,
+  menuOpen: false,
   holo: 0,
   lift: 0,
   spin: 0,

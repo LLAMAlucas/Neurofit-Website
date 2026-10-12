@@ -13,6 +13,7 @@ import Lenis from "lenis";
 import { STOPS, STOP_COUNT, newSample, storyAt } from "@/lib/story";
 import { store } from "@/stage/store";
 import { onTick } from "./ticker";
+import { registerScroll } from "./scrollControl";
 
 export function useJourney(live: boolean) {
   useEffect(() => {
@@ -35,6 +36,8 @@ export function useJourney(live: boolean) {
     window.addEventListener("resize", onResize);
 
     const lenis = new Lenis({ autoRaf: false, lerp: 0.1, smoothWheel: true });
+    // The menu jumps through this one (hooks/scrollControl), in this page's own screen height.
+    const unregister = registerScroll(lenis, () => vh);
 
     const sample = newSample();
     // `section`, not just [data-stop]: the page also marks <body> with the stop
@@ -60,9 +63,9 @@ export function useJourney(live: boolean) {
           // Fully out of focus: no blur to composite for a layer nobody sees.
           el.toggleAttribute("data-off", f === 0);
         }
-        // Fully sharp: drop the focus filter too, so the liquid-glass controls in the
-        // stop can see — and bend — the scene behind them (site.css). Outside the
-        // change threshold above, which could otherwise stall it at 0.998.
+        // Fully sharp: drop the focus filter too — a filter, even blur(0), makes the frame
+        // a compositing layer and a backdrop root (site.css). Outside the change
+        // threshold above, which could otherwise stall it at 0.998.
         const sharp = f >= 0.999;
         if (sharp !== el.hasAttribute("data-sharp")) el.toggleAttribute("data-sharp", sharp);
         el.style.setProperty("--local", sample.local[i].toFixed(4));
@@ -83,6 +86,7 @@ export function useJourney(live: boolean) {
 
     return () => {
       off();
+      unregister();
       lenis.destroy();
       window.removeEventListener("resize", onResize);
       delete document.body.dataset.stop;

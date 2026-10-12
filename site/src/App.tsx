@@ -3,7 +3,9 @@ import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react
 import { Sfx } from "@/audio/sfx";
 import { Hud } from "@/components/Hud";
 import { TouchZone } from "@/components/TouchZone";
+import { Twinkle } from "@/components/Twinkle";
 import { useJourney } from "@/hooks/useJourney";
+import { useLineReveal } from "@/hooks/lineReveal";
 import { useReducedMotion } from "@/hooks/useReducedMotion";
 import { onTick } from "@/hooks/ticker";
 import { detectTier, stepDown, type Tier } from "@/lib/quality";
@@ -38,6 +40,7 @@ export default function App() {
   const sfx = useMemo(() => new Sfx(), []);
 
   useJourney(live);
+  useLineReveal(live);
 
   // The page's two looks: the live one is a stack of fixed layers over the
   // scene; the still one is ordinary, scrolling, normal-flow text.
@@ -45,6 +48,12 @@ export default function App() {
     document.documentElement.classList.toggle("is-live", live);
     document.documentElement.classList.toggle("is-still", !live);
   }, [live]);
+  // The device tier, for CSS that is cheap on a laptop and not on a phone (the edge bands' blur).
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.remove("tier-high", "tier-mid", "tier-phone");
+    root.classList.add(`tier-${tier.name}`);
+  }, [tier]);
 
   // Sound follows the scene: a tick per counted rep, a tone as a fault first
   // lights up in view. (Silent until the reader turns it on.)
@@ -53,6 +62,12 @@ export default function App() {
     let reps = store.reps;
     let flash = store.faultFlash;
     return onTick(() => {
+      // Behind a menu jump's closed iris the page cuts across stops: nothing it passes is heard.
+      if (store.jumpIris > 0) {
+        reps = store.reps;
+        flash = store.faultFlash;
+        return;
+      }
       // Only a rep counted ticks — not the count starting over for the next set.
       if (store.reps !== reps) {
         if (store.reps > reps) sfx.tick();
@@ -96,6 +111,7 @@ export default function App() {
         </Suspense>
       )}
       {live && <TouchZone onSwipe={onSwipe} />}
+      {live && <Twinkle />}
 
       <Hud live={live} />
 
