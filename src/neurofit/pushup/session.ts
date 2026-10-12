@@ -237,7 +237,10 @@ export class PushupSetSession {
     return knees > toes ? "knees" : "toes";
   }
 
-  toSetRecord(facingAngleDeg: number | null): PushupSetRecord {
+  /** `cutoffMs`: drop attempts that closed at/after it — the end-of-set hand signal's onset. An
+   *  attempt closing while the lifter gets up into the signal was made by the signal, not the set.
+   *  They are always the last records, so the remaining rep indices stay contiguous. */
+  toSetRecord(facingAngleDeg: number | null, cutoffMs: number | null = null): PushupSetRecord {
     return {
       exercise: "pushup",
       index: this.opts.setIndex,
@@ -245,7 +248,7 @@ export class PushupSetSession {
       facingAngleDeg,
       depthPreset: this.opts.depthPreset,
       variant: this.opts.variant,
-      reps: [...this.records],
+      reps: cutoffMs === null ? [...this.records] : this.records.filter((r) => r.timing.endMs < cutoffMs),
       baselines: this.baselineSnapshot(),
       variantObserved: this.opts.orientation === "side" ? this.variantObserved() : null,
     };

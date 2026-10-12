@@ -18,6 +18,7 @@ import { handWidthBand, pushupSeverityFor, type HandWidthBand, type PushupMissRe
 import { PUSHUP, PUSHUP_DEPTH_PRESETS, type PushupBasis, type PushupVariant } from "./config";
 import type { PushupMetricId } from "./metrics";
 import type { PushupFaultType, PushupRepRecord, PushupSetRecord } from "./session";
+import { NO_REST, buildRestBySet, type PostSetRest, type RestBySetEntry, type RestLog } from "../session/rest";
 
 export interface PushupPostSetData {
   exercise: "pushup";
@@ -90,6 +91,8 @@ export interface PushupPostSetData {
     counted: false;
     misses: { reason: PushupMissReason; basis: PushupBasis; measured: number | null; target: number; band: ShortfallBand | null }[];
   }[];
+  /** Rest before this set + the previous set's summary (session/rest.ts; prompt rule 4a). */
+  rest: PostSetRest;
   delivery: { tone: string; verbosity: string; user_name: string };
 }
 
@@ -125,6 +128,8 @@ export interface PushupPostWorkoutData {
     counted: false;
     misses: { reason: PushupMissReason; basis: PushupBasis; measured: number | null; target: number }[];
   }[];
+  /** Seconds rested before each set (prompt rule 5c). */
+  rest_by_set: RestBySetEntry[];
   delivery: { tone: string; verbosity: string; user_name: string };
 }
 
@@ -192,6 +197,8 @@ export function pushupTagMoreSevere(a: number, b: number): boolean {
 export interface PushupPostSetOptions {
   /** Baseline key frames actually attached (0–2). */
   baselineFramesIncluded: number;
+  /** Rest before this set (session/rest.ts buildPostSetRest). Omitted → all null. */
+  rest?: PostSetRest;
 }
 
 export function buildPushupPostSetData(set: PushupSetRecord, opts: PushupPostSetOptions): PushupPostSetData {
@@ -326,6 +333,7 @@ export function buildPushupPostSetData(set: PushupSetRecord, opts: PushupPostSet
           band: m.band,
         })),
       })),
+    rest: opts.rest ?? NO_REST,
     delivery: DELIVERY,
   };
 }
@@ -338,6 +346,7 @@ function consistency(misses: number, attempts: number): "good" | "variable" | "p
 export function buildPushupPostWorkoutData(
   sets: PushupSetRecord[],
   per_set_debriefs: PushupPostWorkoutData["per_set_debriefs"],
+  restLog: RestLog = new Map(),
 ): PushupPostWorkoutData {
   const scored = sets.filter((s) => s.reps.length > 0);
   const allReps = scored.flatMap((s) => s.reps);
@@ -395,6 +404,7 @@ export function buildPushupPostWorkoutData(
           misses: r.misses.map((m) => ({ reason: m.reason, basis: m.basis, measured: m.measured, target: m.target })),
         })),
     ),
+    rest_by_set: buildRestBySet(scored, restLog),
     delivery: DELIVERY,
   };
 }

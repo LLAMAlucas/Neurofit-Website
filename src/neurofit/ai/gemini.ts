@@ -31,6 +31,7 @@ import type { CheckStatus } from "../squat/metrics";
 import type { TriggerKind } from "../session/types";
 import type { RepContextV2 } from "../session/context";
 import { GEMINI, SEVERITY, type ShortfallBand, type VelocityBand } from "../squat/config";
+import type { PostSetRest, RestBySetEntry } from "../session/rest";
 import type { ImageFrame } from "./frameBuffer";
 import type { PushupPostSetData, PushupPostWorkoutData } from "../pushup/payload";
 import type { PullupPostSetData, PullupPostWorkoutData } from "../pullup/payload";
@@ -429,6 +430,9 @@ export interface PostSetData {
     /** How far short, in words. The only form the model may speak — see POSTSET_SYSTEM rule 6. */
     band: ShortfallBand | null;
   }[];
+  /** Rest before this set (seconds, quotable) + the previous set's summary — POSTSET_SYSTEM rule
+   *  4a. Built by session/rest.ts; null on set 1, never 0. */
+  rest: PostSetRest;
   load_mode: string;
   delivery: { tone: string; verbosity: string; user_name: string };
 }
@@ -438,8 +442,8 @@ export interface PostWorkoutData {
   session_summary: { total_sets: number; total_reps_counted: number; total_reps_attempted: number; orientations: string[] };
   /** Each set's post-set debrief text, in order — the primary input now that post-workout is
    *  text-only. Each is already view-constrained by its own tier, so post-workout synthesizes
-   *  over them without re-observing. The LAST set has no post-set (ends via End Workout), so it
-   *  is absent here and covered only by the numeric trends below. */
+   *  over them without re-observing. Every set ended by the hand signal or End set gets a debrief;
+   *  a set cut off by Finish workout mid-set has none and is covered only by the numeric trends. */
   per_set_debriefs: { set_number: number; orientation: string; text: string }[];
   /** Built by session/faultTrends.ts. `sets_observable` = the sets whose view could see the
    *  fault; `co_occurred_with_slowing` = it fired on a rep whose OWN velocity ratio was < 1.0
@@ -467,6 +471,8 @@ export interface PostWorkoutData {
     target: number;
     basis: "hip_knee_gap" | "depth_ratio";
   }[];
+  /** Seconds rested before each set (null for set 1 / unmeasured) — POSTWORKOUT_SYSTEM rule 5c. */
+  rest_by_set: RestBySetEntry[];
   load_mode: string;
   delivery: { tone: string; verbosity: string; user_name: string };
 }

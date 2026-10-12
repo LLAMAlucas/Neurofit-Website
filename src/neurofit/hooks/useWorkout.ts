@@ -56,6 +56,8 @@ import {
   type OrientationEstimate,
 } from "../vision/orientation";
 import { estimateCameraAngle, type CameraAngleEstimate } from "../vision/cameraAngle";
+import { EndSetSignal } from "../vision/handSignal";
+import { buildPostSetRest, buildRestBySet, type RestEntry, type SetEndedBy } from "../session/rest";
 import {
   geminiEnabled,
   callPostSet,
@@ -80,6 +82,7 @@ import {
   logGeminiObservation,
   logPushupRep,
   logPullupRep,
+  logSetEnd,
   downloadEvalLog,
 } from "../debug/evalLog";
 import { quota, recordWorkout, startUsageSession } from "../usage/usageStore";
@@ -100,11 +103,6 @@ import { buildPullupPostSetData, buildPullupPostWorkoutData } from "../pullup/pa
 import { synthesizePullup } from "../pullup/synthesis";
 
 export type WorkoutPhase = "positioning" | "countdown" | "active" | "set-review" | "finished";
-
-/** Sub-stage of phase "set-review". "choice" = the end-of-set screen (Next set / End workout,
- *  no analysis fired yet); "post-set" = Next set was clicked, so the post-set analysis was
- *  requested and is loading/shown. Post-set analysis fires ONLY on that Next-set click. */
-export type SetReviewStage = "choice" | "post-set";
 
 /** Per-set post-set analysis state for the between-set review screen + the finish-workout
  *  per-set review. Rendered from the response ALREADY fetched by callPostSet — never a new
@@ -217,8 +215,14 @@ export interface WorkoutLive {
   postSetReviews: Record<number, PostSetReview>;
   /** During phase "set-review", the set whose review is showing (else null). */
   reviewSetIndex: number | null;
-  /** During phase "set-review", which stage: end-of-set "choice" or requested "post-set". */
-  reviewStage: SetReviewStage;
+  /** 0..1 progress through the end-of-set hand signal hold (0 when not signalling). */
+  endSignalProgress: number;
+  /** How the set under review was ended (null outside set-review). */
+  lastSetEndedBy: SetEndedBy | null;
+  /** Seconds since the set ended — the live rest timer during set-review (else null). */
+  restElapsedSec: number | null;
+  /** The rest recorded before the CURRENT set (seconds), once Start next set was tapped. */
+  lastRestSec: number | null;
 
   /** The exercise this workout is for. */
   exercise: ExerciseId;
@@ -241,11 +245,11 @@ export interface WorkoutLive {
 export interface Workout extends WorkoutLive {
   /** `frameSize` = the image MediaPipe normalized against (push-up geometry is aspect-corrected). */
   onResult: (result: PoseLandmarkerResult, frameSize?: { width: number; height: number }) => void;
+  /** The End set button. Same as the hand signal: ends the set, fires the post-set analysis
+   *  immediately and starts the rest timer. */
   endSet: () => void;
-  /** "Next set" from the end-of-set choice: fire the post-set analysis (the ONLY path that
-   *  fires it) and move to the post-set stage. Does NOT start the next set — newSet() does. */
-  requestPostSet: () => void;
-  /** Leave the between-set review and start the next set (phase "set-review" → positioning). */
+  /** Leave the between-set review and start the next set (phase "set-review" → positioning).
+   *  Stops the rest timer — that number is the recorded rest before the next set. */
   newSet: () => void;
   finishWorkout: () => void;
   reset: () => void;
@@ -270,6 +274,8 @@ export interface ExerciseSettings {
   pullupTopPreset: PullupTopPreset;
   pullupGrip: PullupGrip;
   pullupCameraPlan: PullupCameraPlan;
+  /** End a set by raising one hand overhead (vision/handSignal.ts). */
+  handSignal: boolean;
 }
 
 const DEFAULT_EXERCISE_SETTINGS: ExerciseSettings = {
@@ -279,6 +285,7 @@ const DEFAULT_EXERCISE_SETTINGS: ExerciseSettings = {
   pullupTopPreset: "chin",
   pullupGrip: "overhand",
   pullupCameraPlan: "alternate",
+  handSignal: true,
 };
 
 /** Set 1's view. Pull-ups open HEAD-ON: it sees the chin against the bar and both arms, and it is
@@ -319,6 +326,8 @@ export function useWorkout(
   pullupGripRef.current = exerciseSettings.pullupGrip;
   const pullupPlanRef = useRef<PullupCameraPlan>(exerciseSettings.pullupCameraPlan);
   pullupPlanRef.current = exerciseSettings.pullupCameraPlan;
+  const handSignalOnRef = useRef(exerciseSettings.handSignal);
+  handSignalOnRef.current = exerciseSettings.handSignal;
 
   const phaseRef = useRef<WorkoutPhase>("positioning");
   const setIndexRef = useRef(1);
@@ -393,9 +402,19 @@ export function useWorkout(
   const postSetBySetRef = useRef<Map<number, PostSetReview>>(new Map());
   /** The set being reviewed during phase "set-review" (the one just ended). */
   const reviewSetIndexRef = useRef<number | null>(null);
-  /** Stage within phase "set-review": "choice" = Next set / End workout buttons (no analysis
-   *  yet); "post-set" = the user clicked Next set, so the post-set analysis was requested. */
-  const setReviewStageRef = useRef<SetReviewStage>("choice");
+  /** End-of-set hand signal (one hand overhead, held). Reset per set. */
+  const endSignalRef = useRef(new EndSetSignal());
+  const endSignalProgressRef = useRef(0);
+  /** How the set now under review was ended. */
+  const lastSetEndedByRef = useRef<SetEndedBy | null>(null);
+  /** Rest timer: when the last set ended (nowSec), null while no rest is running. */
+  const restStartRef = useRef<number | null>(null);
+  /** Recorded rests, keyed by the set that FOLLOWS the rest (session/rest.ts). */
+  const restLogRef = useRef<Map<number, RestEntry>>(new Map());
+  /** Post-workout waiting for the last set's in-flight post-set (that set's index), so the
+   *  synthesis includes its debrief. null = nothing pending. */
+  const pendingPostWorkoutRef = useRef<number | null>(null);
+  const pendingPostWorkoutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Counted reps this set (depth-met side / floor-passed front) — drives the
    *  live header counter. The tracker's own count stays the ATTEMPT count. */
   const countedRepsRef = useRef(0);
@@ -481,7 +500,10 @@ export function useWorkout(
       coachLog: [],
       postSetReviews: {},
       reviewSetIndex: null,
-      reviewStage: "choice",
+      endSignalProgress: 0,
+      lastSetEndedBy: null,
+      restElapsedSec: null,
+      lastRestSec: null,
       exercise: exerciseRef.current,
       readable: false,
       pushupLiveMetrics: null,
@@ -514,6 +536,8 @@ export function useWorkout(
     contextByRepRef.current = new Map();
     triggerMomentRef.current = new Map();
     postSetFrameArchiveRef.current = { baseline: [], faults: new Map() };
+    endSignalRef.current.reset();
+    endSignalProgressRef.current = 0;
     resetRepTriggers();
     // Push-up per-set engine (built for every set; only fed frames on push-up workouts).
     pushupSessionRef.current = new PushupSetSession({
@@ -677,6 +701,20 @@ export function useWorkout(
         v.allowed ? { status: "none" } : { status: "blocked", message: quotaMessage(v) },
       );
     }
+    if (pendingPostWorkoutRef.current === setIndex) releasePendingPostWorkout();
+  }
+
+  /** Fire a post-workout that was waiting on the last set's debrief (or its 30 s fallback). */
+  function releasePendingPostWorkout(): void {
+    if (pendingPostWorkoutRef.current === null) return;
+    pendingPostWorkoutRef.current = null;
+    if (pendingPostWorkoutTimerRef.current !== null) clearTimeout(pendingPostWorkoutTimerRef.current);
+    pendingPostWorkoutTimerRef.current = null;
+    // Clear the waiting spinner; firePostWorkout sets "loading" again only if it really calls.
+    analysisRef.current = geminiEnabled() ? { status: "idle" } : { status: "disabled" };
+    if (DEV_EVAL_LOG) finishedAtRef.current = nowSec(); // restart the export backstop clock
+    firePostWorkout();
+    if (DEV_EVAL_LOG && !geminiEnabled()) maybeExportEval();
   }
 
   /** Push-up post-set: the payload comes from the pure builder (plane-nulling, disarmed checks and
@@ -690,7 +728,10 @@ export function useWorkout(
     }
     const archive = postSetFrameArchiveRef.current;
     const archiveFrames: ImageFrame[] = [...archive.baseline, ...[...archive.faults.values()].map((x) => x.frame)];
-    const data = buildPushupPostSetData(set, { baselineFramesIncluded: archive.baseline.length });
+    const data = buildPushupPostSetData(set, {
+      baselineFramesIncluded: archive.baseline.length,
+      rest: buildPostSetRest(set, pushupSetsRef.current, restLogRef.current),
+    });
     postSetBySetRef.current.set(set.index, { status: "loading" });
     callPostSet(data, archiveFrames, (text) => onPostSetText(set.index, text));
   }
@@ -705,7 +746,10 @@ export function useWorkout(
     }
     const archive = postSetFrameArchiveRef.current;
     const archiveFrames: ImageFrame[] = [...archive.baseline, ...[...archive.faults.values()].map((x) => x.frame)];
-    const data = buildPullupPostSetData(set, { baselineFramesIncluded: archive.baseline.length });
+    const data = buildPullupPostSetData(set, {
+      baselineFramesIncluded: archive.baseline.length,
+      rest: buildPostSetRest(set, pullupSetsRef.current, restLogRef.current),
+    });
     postSetBySetRef.current.set(set.index, { status: "loading" });
     callPostSet(data, archiveFrames, (text) => onPostSetText(set.index, text));
   }
@@ -896,6 +940,8 @@ export function useWorkout(
           band: depthShortfallBand(measured, target, onSideSet ? "hip_knee_gap" : "depth_ratio"),
         };
       }),
+      // Rest before this set + the previous set's summary (POSTSET_SYSTEM rule 4a).
+      rest: buildPostSetRest(set, completedSetsRef.current, restLogRef.current),
       load_mode: modeRef.current,
       delivery: { tone: "encouraging", verbosity: "detailed", user_name: "" },
     };
@@ -945,7 +991,7 @@ export function useWorkout(
       const review = postSetBySetRef.current.get(s.index);
       if (review?.status === "ok") debriefs.push({ set_number: s.index, orientation: s.orientation, text: review.text });
     }
-    const data = buildPushupPostWorkoutData(sets, debriefs);
+    const data = buildPushupPostWorkoutData(sets, debriefs, restLogRef.current);
     analysisRef.current = { status: "loading" };
     callPostWorkout(data, onPostWorkoutText);
   }
@@ -959,7 +1005,7 @@ export function useWorkout(
       const review = postSetBySetRef.current.get(s.index);
       if (review?.status === "ok") debriefs.push({ set_number: s.index, orientation: s.orientation, text: review.text });
     }
-    const data = buildPullupPostWorkoutData(sets, debriefs);
+    const data = buildPullupPostWorkoutData(sets, debriefs, restLogRef.current);
     analysisRef.current = { status: "loading" };
     callPostWorkout(data, onPostWorkoutText);
   }
@@ -987,9 +1033,10 @@ export function useWorkout(
 
     // Per-set debrief texts — the primary input now that post-workout is text-only. Pulled from
     // the responses callPostSet ALREADY stored in postSetBySetRef (never a new call); only sets
-    // whose debrief resolved "ok" contribute. The last set has no post-set (it ends via End
-    // Workout, which goes straight to post-workout), so it is naturally absent here — the numeric
-    // trends below still cover it. Each debrief is already view-constrained by its own tier, so
+    // whose debrief resolved "ok" contribute. A set ended by the hand signal / End set always has
+    // one (finishWorkout waits for an in-flight last debrief); a set cut off by Finish workout
+    // mid-set has none — the numeric trends below still cover it. Each debrief is already
+    // view-constrained by its own tier, so
     // the text-only post-workout synthesizes over them without re-observing anything.
     const per_set_debriefs: PostWorkoutData["per_set_debriefs"] = [];
     for (const s of sets) {
@@ -1026,6 +1073,7 @@ export function useWorkout(
             basis: sideSet ? ("hip_knee_gap" as const) : ("depth_ratio" as const),
           }));
       }),
+      rest_by_set: buildRestBySet(sets, restLogRef.current),
       load_mode: modeRef.current,
       delivery: { tone: "encouraging", verbosity: "detailed", user_name: "" },
     };
@@ -1333,6 +1381,7 @@ export function useWorkout(
       return;
     }
     const t = nowSec();
+    observeEndSignal(person, t);
     if (exerciseRef.current === "pushup") {
       onPushupResult(person, t);
       return;
@@ -1394,6 +1443,26 @@ export function useWorkout(
       feedBuffers(person, t);
     }
   });
+
+  /** Feed the end-of-set hand signal. Armed only mid-set, with the setting on, once the set has
+   *  at least one attempt (a hand raised right after the countdown must not end an empty set).
+   *  No "not mid-rep" gate: the signal's shape (one hand overhead, the other down) is never a
+   *  valid rep, and a push-up phantom attempt from standing up would otherwise block it forever.
+   *  Pull-ups do skip an attempt in progress. */
+  function observeEndSignal(person: readonly Landmark[], t: number): void {
+    const exercise = exerciseRef.current;
+    const attempts =
+      exercise === "pushup"
+        ? pushupSessionRef.current?.tracker.reps ?? 0
+        : exercise === "pullup"
+          ? pullupSessionRef.current?.tracker.reps ?? 0
+          : repTrackerRef.current?.reps ?? 0;
+    const midPull = exercise === "pullup" && (pullupSessionRef.current?.tracker.isDown ?? false);
+    const eligible = phaseRef.current === "active" && handSignalOnRef.current && attempts > 0 && !midPull;
+    const u = endSignalRef.current.update(person, t * 1000, aspectRef.current, MIN_VISIBILITY, eligible);
+    endSignalProgressRef.current = eligible ? u.progress : 0;
+    if (u.fired) endSetNow("hand_signal", endSignalRef.current.onsetMs);
+  }
 
   /** Push-up frame path: aspect-corrected geometry → the per-set engine → act on its events. */
   function onPushupResult(person: Landmark[], t: number): void {
@@ -1633,16 +1702,18 @@ export function useWorkout(
     }
   }
 
-  function finalizeSet(): void {
+  /** `cutoffMs` = the hand signal's onset: push-up / pull-up attempts that closed after it were
+   *  made getting into the signal. Squat reps can't be: raising a hand doesn't move the hips. */
+  function finalizeSet(cutoffMs: number | null = null): void {
     if (exerciseRef.current === "pushup") {
       const session = pushupSessionRef.current;
-      if (session) pushupSetsRef.current = [...pushupSetsRef.current, session.toSetRecord(lockAngleRef.current)];
+      if (session) pushupSetsRef.current = [...pushupSetsRef.current, session.toSetRecord(lockAngleRef.current, cutoffMs)];
       persistWorkoutUsage(false);
       return;
     }
     if (exerciseRef.current === "pullup") {
       const session = pullupSessionRef.current;
-      if (session) pullupSetsRef.current = [...pullupSetsRef.current, session.toSetRecord(lockAngleRef.current)];
+      if (session) pullupSetsRef.current = [...pullupSetsRef.current, session.toSetRecord(lockAngleRef.current, cutoffMs)];
       persistWorkoutUsage(false);
       return;
     }
@@ -1707,7 +1778,11 @@ export function useWorkout(
     });
   }
 
-  const endSet = useRef(() => {
+  /** End the live set — from the hand signal or the End set button, which behave the same: the
+   *  post-set analysis fires IMMEDIATELY (the lifter is still walking to the device, so the
+   *  debrief gets a head start) and the rest timer starts. Baselines/trackers are still the
+   *  ended set's (newSet hasn't run), so the payload matches the set that just ended. */
+  function endSetNow(endedBy: SetEndedBy, cutoffMs: number | null = null): void {
     if (phaseRef.current !== "active") return;
     const last = coordinatorRef.current.forceFlush();
     if (last) fireCoaching(last);
@@ -1715,29 +1790,39 @@ export function useWorkout(
     if (lastPushup) firePushupCoaching(lastPushup);
     const lastPullup = pullupCoordinatorRef.current.forceFlush();
     if (lastPullup) firePullupCoaching(lastPullup);
-    finalizeSet();
+    finalizeSet(cutoffMs);
     reviewSetIndexRef.current = setIndexRef.current; // the set we just finished
-    setReviewStageRef.current = "choice"; // end-of-set choice screen; NO analysis fired yet
-    // Post-set analysis is deliberately NOT fired here — it fires ONLY when the user clicks
-    // "Next set" (requestPostSet). So the last set (ended via "End workout") never generates
-    // a post-set. The set stays finalized with baselines/trackers intact for requestPostSet.
+    lastSetEndedByRef.current = endedBy;
+    restStartRef.current = nowSec();
+    endSignalProgressRef.current = 0;
     phaseRef.current = "set-review";
-  });
-
-  /** "Next set" from the end-of-set choice: request the post-set analysis (the ONLY caller of
-   *  firePostSet) and move to the post-set stage. Baselines/trackers are still the ended set's
-   *  (newSet hasn't run), so the payload matches the set that just ended. */
-  const requestPostSet = useRef(() => {
-    if (phaseRef.current !== "set-review" || setReviewStageRef.current !== "choice") return;
-    setReviewStageRef.current = "post-set";
+    if (DEV_EVAL_LOG) {
+      logSetEnd({
+        set: setIndexRef.current,
+        ended_by: endedBy,
+        signal_onset_ms: endedBy === "hand_signal" ? cutoffMs : null,
+        signal_fire_ms: endedBy === "hand_signal" ? Math.round(nowSec() * 1000) : null,
+        signal_side: endedBy === "hand_signal" ? endSignalRef.current.side : null,
+        rest_before_sec: restLogRef.current.get(setIndexRef.current)?.restSec ?? null,
+      });
+    }
     firePostSet();
-  });
+  }
 
-  /** Leave the between-set review and start the next set. Does the set-advance work that
-   *  endSet used to do inline (kept here so the review screen can hold before it runs). */
+  const endSet = useRef(() => endSetNow("end_set_button"));
+
+  /** Leave the between-set review and start the next set. Stops the rest timer: the elapsed time
+   *  is the rest BEFORE the next set, recorded under that set's index. */
   const newSet = useRef(() => {
     if (phaseRef.current !== "set-review") return;
-    setReviewStageRef.current = "choice";
+    if (restStartRef.current !== null) {
+      restLogRef.current.set(setIndexRef.current + 1, {
+        restSec: nowSec() - restStartRef.current,
+        measuredFrom: lastSetEndedByRef.current ?? "end_set_button",
+      });
+    }
+    restStartRef.current = null;
+    lastSetEndedByRef.current = null;
     setIndexRef.current += 1;
     targetRef.current = nextOrientation(targetRef.current);
     reviewSetIndexRef.current = null;
@@ -1763,6 +1848,9 @@ export function useWorkout(
       if (lastPullup) firePullupCoaching(lastPullup);
       finalizeSet();
     }
+    // A rest still running has no next set to belong to.
+    restStartRef.current = null;
+    const waitOn = phaseRef.current === "set-review" ? reviewSetIndexRef.current : null;
     phaseRef.current = "finished";
     reportRef.current =
       exerciseRef.current === "pushup"
@@ -1781,8 +1869,17 @@ export function useWorkout(
       evalExportedRef.current = false;
       finishedAtRef.current = nowSec();
     }
-    firePostWorkout(); // end-of-session summary — fires ONLY here (End workout / Finish click)
     downloadShoulderHipCsv(); // debug-only export, inert when disabled
+    // End-of-session summary — fires ONLY here (End workout / Finish click). If the last set's
+    // post-set is still in flight (the lifter tapped End workout straight after the signal), wait
+    // for it so the synthesis includes that set's debrief; a 30 s fallback stops it hanging.
+    if (waitOn !== null && postSetBySetRef.current.get(waitOn)?.status === "loading") {
+      pendingPostWorkoutRef.current = waitOn;
+      analysisRef.current = { status: "loading" };
+      pendingPostWorkoutTimerRef.current = setTimeout(releasePendingPostWorkout, 30_000);
+      return;
+    }
+    firePostWorkout();
     if (DEV_EVAL_LOG && !geminiEnabled()) maybeExportEval(); // no post-workout call coming
   });
 
@@ -1845,7 +1942,12 @@ export function useWorkout(
     coachLogRef.current = [];
     postSetBySetRef.current.clear();
     reviewSetIndexRef.current = null;
-    setReviewStageRef.current = "choice";
+    lastSetEndedByRef.current = null;
+    restStartRef.current = null;
+    restLogRef.current = new Map();
+    pendingPostWorkoutRef.current = null;
+    if (pendingPostWorkoutTimerRef.current !== null) clearTimeout(pendingPostWorkoutTimerRef.current);
+    pendingPostWorkoutTimerRef.current = null;
     lastImageCapAtRef.current = 0;
     prevDepthRatioRef.current = 0;
     newSetTrackers(targetRef.current);
@@ -2030,7 +2132,10 @@ export function useWorkout(
         coachLog: coachLogRef.current,
         postSetReviews: Object.fromEntries(postSetBySetRef.current),
         reviewSetIndex: reviewSetIndexRef.current,
-        reviewStage: setReviewStageRef.current,
+        endSignalProgress: phaseRef.current === "active" ? endSignalProgressRef.current : 0,
+        lastSetEndedBy: phaseRef.current === "set-review" ? lastSetEndedByRef.current : null,
+        restElapsedSec: phaseRef.current === "set-review" && restStartRef.current !== null ? now - restStartRef.current : null,
+        lastRestSec: restLogRef.current.get(setIndexRef.current)?.restSec ?? null,
         exercise: exerciseRef.current,
         readable: pushupMode
           ? !!(pFrame?.shoulder && pFrame?.wrist)
@@ -2055,7 +2160,6 @@ export function useWorkout(
     ...live,
     onResult: onResult.current,
     endSet: endSet.current,
-    requestPostSet: requestPostSet.current,
     newSet: newSet.current,
     finishWorkout: finishWorkout.current,
     reset: reset.current,

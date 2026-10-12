@@ -40,9 +40,10 @@ next to it, and one baseline-starvation control.
 **Per-set flow**
 
 Stand **under the bar** in the target view → the lock bar fills (1.2 s) → 3-2-1 → **jump up and
-hang** (a second of dead hang before rep 1) → do the attempts → drop down → **End set** →
-**Next set →** (fires the debrief; read it) → **Start set N →**. Set 4 ends with
-**End set → End workout** (no post-set debrief by design).
+hang** (a second of dead hang before rep 1) → do the attempts → drop down → **raise one hand
+straight up (other arm down) and hold ~1.5 s** — or press **End set** — this ends the set and
+fires the debrief immediately; read it → **Start set N →**. Set 4 ends with **Finish workout
+while the set is still live** (no post-set debrief by design). Ending the set (hand signal or End set) now fires its post-set call, so the last set is finished with **Finish workout** (top right) while it is still live.
 
 **Why you lock standing:** hanging through a 1.2 s lock and a 3 s countdown would burn your grip
 before rep 1. The Phase readout shows **—** until you're on the bar, then **HANG** / **PULL**.
@@ -122,7 +123,7 @@ fire U4. The debrief must say those checks weren't evaluated — never that the 
 **Testing:** rep 4 **counts** (it started from a full hang) and closes as `endedBy: partial`;
 rep 5 is uncounted with an `extension_miss` — the miss belongs to the rep that started bent; rep 6
 counts. Nothing else fires. The counter flashes "Start from straight arms — no count" on rep 5.
-**End with: drop down → End set → End workout.**
+**End with: drop down → Finish workout while set 4 is still live.**
 
 ---
 
@@ -151,7 +152,7 @@ counts. Nothing else fires. The counter flashes "Start from straight arms — no
 | S4 r5 `extension_miss`, r4 counted as `partial` | Start-of-rep extension (elbow 150°) + partial-hang segmentation |
 | Head-on payloads null every sagittal field; side payloads null every frontal field | Payload honesty |
 | Facing readout stable from the hang to the top in both views | The squat's facing-score anchors hold for a hanging body |
-| 3 post-set + 1 post-workout calls | Explicit-click analysis only |
+| 3 post-set + 1 post-workout calls | Post-set fires on set end (signal/button) only; Finish mid-set fires none |
 
 In the debriefs I'll look for: fatigue claimed without velocity evidence, one fault said to cause
 another, swing or leg commentary on head-on frames (or evenness/grip width on side frames),

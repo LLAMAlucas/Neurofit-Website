@@ -21,6 +21,7 @@ import { gripWidthBand, pullupSeverityFor, type GripWidthBand, type PullupMissRe
 import { PULLUP, PULLUP_TOP_PRESETS, type PullupBasis, type PullupGrip } from "./config";
 import type { PullupMetricId } from "./metrics";
 import { PULLUP_FAULT_TYPES, type PullupFaultType, type PullupRepRecord, type PullupSetRecord } from "./session";
+import { NO_REST, buildRestBySet, type PostSetRest, type RestBySetEntry, type RestLog } from "../session/rest";
 
 export interface PullupPostSetData {
   exercise: "pullup";
@@ -91,6 +92,8 @@ export interface PullupPostSetData {
     counted: false;
     misses: { reason: PullupMissReason; basis: PullupBasis; measured: number | null; target: number; band: ShortfallBand | null }[];
   }[];
+  /** Rest before this set + the previous set's summary (session/rest.ts; prompt rule 4a). */
+  rest: PostSetRest;
   delivery: { tone: string; verbosity: string; user_name: string };
 }
 
@@ -126,6 +129,8 @@ export interface PullupPostWorkoutData {
     counted: false;
     misses: { reason: PullupMissReason; basis: PullupBasis; measured: number | null; target: number }[];
   }[];
+  /** Seconds rested before each set (prompt rule 5c). */
+  rest_by_set: RestBySetEntry[];
   delivery: { tone: string; verbosity: string; user_name: string };
 }
 
@@ -182,6 +187,8 @@ function roundFor(basis: PullupBasis, v: number | null): number | null {
 export interface PullupPostSetOptions {
   /** Baseline key frames actually attached (0–2). */
   baselineFramesIncluded: number;
+  /** Rest before this set (session/rest.ts buildPostSetRest). Omitted → all null. */
+  rest?: PostSetRest;
 }
 
 export function buildPullupPostSetData(set: PullupSetRecord, opts: PullupPostSetOptions): PullupPostSetData {
@@ -296,6 +303,7 @@ export function buildPullupPostSetData(set: PullupSetRecord, opts: PullupPostSet
         counted: false as const,
         misses: r.misses.map((m) => ({ reason: m.reason, basis: m.basis, measured: roundFor(m.basis, m.measured), target: m.target, band: m.band })),
       })),
+    rest: opts.rest ?? NO_REST,
     delivery: DELIVERY,
   };
 }
@@ -308,6 +316,7 @@ function consistency(misses: number, attempts: number): "good" | "variable" | "p
 export function buildPullupPostWorkoutData(
   sets: PullupSetRecord[],
   per_set_debriefs: PullupPostWorkoutData["per_set_debriefs"],
+  restLog: RestLog = new Map(),
 ): PullupPostWorkoutData {
   const scored = sets.filter((s) => s.reps.length > 0);
   const allReps = scored.flatMap((s) => s.reps);
@@ -365,6 +374,7 @@ export function buildPullupPostWorkoutData(
           misses: r.misses.map((m) => ({ reason: m.reason, basis: m.basis, measured: roundFor(m.basis, m.measured), target: m.target })),
         })),
     ),
+    rest_by_set: buildRestBySet(scored, restLog),
     delivery: DELIVERY,
   };
 }

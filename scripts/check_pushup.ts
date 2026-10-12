@@ -31,6 +31,7 @@ import {
 } from "../src/neurofit/pushup/checks";
 import { PushupSetSession, type PushupRepRecord, type PushupSetRecord } from "../src/neurofit/pushup/session";
 import { buildPushupPostSetData, buildPushupPostWorkoutData } from "../src/neurofit/pushup/payload";
+import { NO_REST, buildPostSetRest, buildRestBySet, type RestEntry } from "../src/neurofit/session/rest";
 import { synthesizePushup } from "../src/neurofit/pushup/synthesis";
 import { buildPushupTriggerTable } from "../src/neurofit/pushup/evalTable";
 import {
@@ -450,6 +451,11 @@ const SAG = 0.1;
   check("session: a failed warm-up rep leaves the body-line baseline unresolved ALL set", starved.session.baselineSnapshot().bodyLineDeg === null);
   check("session: the shallow warm-up rep still counts as an attempt", starved.session.reps().length === 6);
 
+  // Hand-signal cutoff: attempts that closed at/after the signal's onset are dropped.
+  const all = starved.session.toSetRecord(null).reps;
+  check("toSetRecord: no cutoff keeps every attempt", all.length === 6);
+  check("toSetRecord: cutoff drops attempts that closed at/after it", starved.session.toSetRecord(null, all[4].timing.endMs).reps.length === 4);
+
   const fast = runSet("side", [{}, {}, { descentSec: 0.3 }, {}]);
   check("session: a ~2.7× faster descent fires P2 at rep close", fast.fired.includes("3:eccentric_control"));
   check("session: normal-tempo rep 4 does not fire P2", !fast.fired.includes("4:eccentric_control"));
@@ -483,7 +489,9 @@ function setRecord(view: "side" | "front", specs: RepSpec[], index: number, vari
 const sideSet = setRecord("side", [{}, {}, { hipOffset: SAG }, { bottom: 0.35 }, { descentSec: 0.3 }], 1);
 const frontSet = setRecord("front", [{}, {}, { flare: 1.5 }, { bottom: 0.3 }, { tiltOffset: 0.05 }], 2);
 const sideData = buildPushupPostSetData(sideSet, { baselineFramesIncluded: 2 });
-const frontData = buildPushupPostSetData(frontSet, { baselineFramesIncluded: 2 });
+// Set 2 was preceded by a 74.6 s rest after a hand-signal end (rest is keyed by the FOLLOWING set).
+const restLog = new Map<number, RestEntry>([[2, { restSec: 74.6, measuredFrom: "hand_signal" }]]);
+const frontData = buildPushupPostSetData(frontSet, { baselineFramesIncluded: 2, rest: buildPostSetRest(frontSet, [sideSet, frontSet], restLog) });
 {
   check("payload side: frontal fields are NULL (not 0/false)", sideData.baseline.shoulder_tilt_diff_deg === null && sideData.context.hand_width_ratio === null && sideData.context.hand_width_band === null);
   check("payload side: sagittal fields present", sideData.baseline.body_line_deg !== null && sideData.context.top_elbow_angle_deg_by_rep !== null && sideData.context.variant_check !== null);
@@ -543,7 +551,13 @@ const frontData = buildPushupPostSetData(frontSet, { baselineFramesIncluded: 2 }
 // H. Prompt ↔ payload contract
 // ---------------------------------------------------------------------------------------
 {
-  const pw = buildPushupPostWorkoutData([sideSet, frontSet], [{ set_number: 1, orientation: "side", text: "x" }]);
+  const pw = buildPushupPostWorkoutData([sideSet, frontSet], [{ set_number: 1, orientation: "side", text: "x" }], restLog);
+  check("rest: set 1 sends no rest (all null, never 0)", JSON.stringify(sideData.rest) === JSON.stringify(NO_REST));
+  check("rest: set 2 carries the rounded rest before it + how set 1 ended", frontData.rest.rest_before_this_set_sec === 75 && frontData.rest.measured_from === "hand_signal");
+  check("rest: previous_set summarizes set 1", frontData.rest.previous_set?.set_number === 1 && frontData.rest.previous_set.reps_attempted === sideSet.reps.length && frontData.rest.previous_set.rest_before_sec === null);
+  check("rest: post-workout rest_by_set is null for set 1, 75 s for set 2",
+    pw.rest_by_set.length === 2 && pw.rest_by_set[0].rest_before_sec === null && pw.rest_by_set[1].rest_before_sec === 75 && pw.rest_by_set[1].reps_counted === frontSet.reps.filter((r) => r.counted).length);
+  check("rest: post-workout without a log still sends nulls", buildRestBySet([sideSet], new Map()).every((e) => e.rest_before_sec === null && e.measured_from === null));
   const keys = new Set<string>();
   const walk = (v: unknown) => {
     if (Array.isArray(v)) v.forEach(walk);
@@ -555,7 +569,7 @@ const frontData = buildPushupPostSetData(frontSet, { baselineFramesIncluded: 2 }
   };
   [sideData, frontData, pw].forEach(walk);
   // Values the prompts legitimately name that are enum VALUES, not keys.
-  const vocab = new Set(["upper_arm_angle_deg", "depth_ratio", "depth_miss", "lockout_miss", "above_parallel", "chest_to_floor", "baseline_relative"]);
+  const vocab = new Set(["upper_arm_angle_deg", "depth_ratio", "depth_miss", "lockout_miss", "above_parallel", "chest_to_floor", "baseline_relative", "end_set_button"]);
   const resolves = (root: unknown, path: string): boolean => {
     let cur: unknown = root;
     for (const raw of path.split(".")) {

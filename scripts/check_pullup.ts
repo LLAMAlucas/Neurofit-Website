@@ -25,6 +25,7 @@ import {
 } from "../src/neurofit/pullup/checks";
 import { PullupSetSession, type PullupRepRecord, type PullupSetRecord } from "../src/neurofit/pullup/session";
 import { buildPullupPostSetData, buildPullupPostWorkoutData } from "../src/neurofit/pullup/payload";
+import { NO_REST, buildPostSetRest, buildRestBySet, type RestEntry } from "../src/neurofit/session/rest";
 import { synthesizePullup } from "../src/neurofit/pullup/synthesis";
 import { buildPullupTriggerTable } from "../src/neurofit/pullup/evalTable";
 import {
@@ -533,7 +534,9 @@ function setRecord(view: "side" | "front", specs: RepSpec[], index: number, so: 
 const frontSet = setRecord("front", [{}, {}, {}, { clear: -0.06 }, { tilt: 0.04 }, { lowerSec: 0.2 }], 1);
 const sideSet = setRecord("side", [{}, {}, { swing: 26 }, { hipFlex: 45, lowerTo: 0.45 }, {}], 2);
 const frontData = buildPullupPostSetData(frontSet, { baselineFramesIncluded: 2 });
-const sideData = buildPullupPostSetData(sideSet, { baselineFramesIncluded: 2 });
+// Set 2 was preceded by a 121.3 s rest after an End-set-button end.
+const restLog = new Map<number, RestEntry>([[2, { restSec: 121.3, measuredFrom: "end_set_button" }]]);
+const sideData = buildPullupPostSetData(sideSet, { baselineFramesIncluded: 2, rest: buildPostSetRest(sideSet, [frontSet, sideSet], restLog) });
 {
   check(
     "payload front: sagittal fields are NULL (not 0/false)",
@@ -594,7 +597,11 @@ const sideData = buildPullupPostSetData(sideSet, { baselineFramesIncluded: 2 });
 // H. Prompt ↔ payload contract
 // ---------------------------------------------------------------------------------------
 {
-  const pw = buildPullupPostWorkoutData([frontSet, sideSet], [{ set_number: 1, orientation: "front", text: "x" }]);
+  const pw = buildPullupPostWorkoutData([frontSet, sideSet], [{ set_number: 1, orientation: "front", text: "x" }], restLog);
+  check("rest: set 1 sends no rest (all null, never 0)", JSON.stringify(frontData.rest) === JSON.stringify(NO_REST));
+  check("rest: set 2 carries the rounded rest + measured_from", sideData.rest.rest_before_this_set_sec === 121 && sideData.rest.measured_from === "end_set_button");
+  check("rest: previous_set summarizes set 1", sideData.rest.previous_set?.set_number === 1 && sideData.rest.previous_set.reps_attempted === frontSet.reps.length);
+  check("rest: post-workout rest_by_set", pw.rest_by_set.map((e) => e.rest_before_sec).join(",") === ",121");
   const keys = new Set<string>();
   const walk = (v: unknown) => {
     if (Array.isArray(v)) v.forEach(walk);
@@ -607,6 +614,7 @@ const sideData = buildPullupPostSetData(sideSet, { baselineFramesIncluded: 2 });
   [sideData, frontData, pw].forEach(walk);
   // Values the prompts legitimately name that are enum VALUES, not keys.
   const vocab = new Set([
+    "end_set_button",
     "chin_clearance",
     "pull_ratio",
     "elbow_angle_deg",

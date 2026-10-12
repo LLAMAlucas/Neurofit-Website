@@ -263,7 +263,10 @@ export class PullupSetSession {
     };
   }
 
-  toSetRecord(facingAngleDeg: number | null): PullupSetRecord {
+  /** `cutoffMs`: drop attempts that closed at/after it — the end-of-set hand signal's onset. An
+   *  attempt closing while the lifter gets into the signal was made by the signal, not the set.
+   *  They are always the last records, so the remaining rep indices stay contiguous. */
+  toSetRecord(facingAngleDeg: number | null, cutoffMs: number | null = null): PullupSetRecord {
     return {
       exercise: "pullup",
       index: this.opts.setIndex,
@@ -271,7 +274,7 @@ export class PullupSetSession {
       facingAngleDeg,
       topPreset: this.opts.topPreset,
       grip: this.opts.grip,
-      reps: [...this.records],
+      reps: cutoffMs === null ? [...this.records] : this.records.filter((r) => r.timing.endMs < cutoffMs),
       baselines: this.baselineSnapshot(),
     };
   }

@@ -7,7 +7,8 @@
  * never had (it carries `set_summary.orientation`); post-workout rule 5 named
  * `worsened_with_fatigue` the fatigue authority when it only meant "present in the last set" —
  * it now reads `co_occurred_with_slowing` (session/faultTrends.ts), the same rule push-ups
- * already used, and is shared; rule 1 learned `sets_observable`. The push-up and pull-up prompts reuse the squat's
+ * already used, and is shared; rule 1 learned `sets_observable`. Added 2026-10-11: post-set rule 4a and
+ * post-workout rule 5c (rest between sets — `rest` / `rest_by_set`, session/rest.ts), shared by all three. The push-up and pull-up prompts reuse the squat's
  * generic rule lines by extraction rather than by copy, so a future fix to a shared rule (baseline
  * honesty, causation ban, output format…) reaches every exercise and cannot silently drift. Only
  * the rules that are genuinely exercise-specific — view-awareness, context fields, counting-gate
@@ -24,6 +25,7 @@ export const POSTSET_SYSTEM =
   "3. Synthesize what happened across the set: what was consistent, what was a one-off, and where in the set each fault occurred — determined from triggers_fired[].rep_numbers and the numeric data, NEVER from how many frames you were given. A fault with one photo and four entries in rep_numbers is a recurring fault, not a one-off. The `context` object (lateral_trunk_shift_normalized, velocity_collapse_ratio) is background that may inform your synthesis, but must NOT be stated as a finding or coaching point on its own — report a fault as a finding only when it appears in triggers_fired.\n" +
   "3a. Report WHAT happened and WHEN — do not invent WHY. Fatigue is a specific claim requiring specific evidence: you may attribute a fault to fatigue ONLY if context.velocity_collapse_ratio is present AND below 1.0. If it is null you were given no fatigue evidence whatsoever, and words like \"fatigue\", \"as you tired\", or \"late-set decay\" are fabrication — a fault occurring on a later rep is NOT evidence of fatigue, because reps are numbered in order regardless of effort. If you name a SPECIFIC rep as fatigued, that rep's own entry in context.velocity_ratios_by_rep must be below 1.0 — do not say a rep slowed when its ratio is at or above 1.0 (that rep was FASTER), and do not describe speed as decreasing across the set unless those per-rep ratios actually decline. Equally, never claim one fault caused another (for example that a fast descent produced a later forward lean): you are given no causal data linking triggers. This applies to the velocity data too — it may establish THAT a rep was slower, never that slowing caused, contributed to, or explains a fault, a missed depth, or a 'drop in rep quality'. Report the slowing and report the fault as two separate observations. Describe the faults and their rep numbers, and let the reader draw the connection.\n" +
   "4. Give 1-2 specific, prioritized coaching points for the next set. Not a laundry list. What matters most right now, in priority order.\n" +
+  "4a. Rest. The rest object says how long the lifter rested before this set. rest.rest_before_this_set_sec is in seconds — a real unit you may state (say it as minutes and seconds, e.g. \"about a minute and a half\"). It is null on the first set or when it was not measured: then say nothing about the rest taken before this set, and never invent a rest duration. The timer stops when the lifter taps to start the set, so it slightly undercounts; when rest.measured_from is 'end_set_button' it also misses the walk to the device and undercounts more — do not call a borderline value short. rest.previous_set summarizes the set before this one (reps counted and attempted, its velocity_band). You may recommend a concrete rest length before the next set — as one of your coaching points or a closing line — ONLY when this set shows evidence of declining performance: context.velocity_band is 'moderate' or 'marked', or set_summary.total_reps_counted is clearly below rest.previous_set.reps_counted. Name the decline and the rest as two separate observations, then the suggestion (for example: this set slowed noticeably and the rest before it was only about a minute, so try closer to two or three minutes before the next one). Rest is never a cause: never state or imply that the rest length caused, explained, or contributed to a fault, a missed rep, or the slowing — the same ban rule 3a places on velocity. Without such evidence, mention rest at most once, neutrally, or not at all.\n" +
   "5. You may note foot pronation, head/neck position, or scapular position if one is clearly visible in a frame you were given. You have only a handful of frames (baseline + at most one per error type), so you CANNOT establish whether any of these is consistent across the set — describe what a frame shows, and do not present it as a pattern or a repeated issue. When orientation is \"side\" and you are already producing feedback for another fired trigger, also check the frames for heel rise (heels lifting off the floor / weight shifting onto the toes at the bottom of the squat). If — and only if — you clearly see it, add a brief note. Do not force this observation; if the heels stay flat or you can't tell, say nothing about heel position. Never assess heel rise on front-view frames.\n" +
   "6. If depth_context.preset_reason is 'mobility', never suggest going deeper. If preset is 'above_parallel' or 'parallel' for preference reasons and miss_count > 2, briefly note it. If uncounted_reps is non-empty, those reps were cut short of the depth target — address them, don't treat the set as all-good. Interpret depth ONLY in the units named by depth_context.depth_basis: 'hip_knee_gap' means hip height minus knee height (higher = deeper, and the target may legitimately be 0 or negative), 'depth_ratio' means fraction of standing leg height travelled. Never compare a value from one basis against a rep measured in the other.\n" +
   "6a. NEVER QUOTE A RAW NUMBER FOR: hip-knee gap, depth ratio, velocity ratio (including velocity_collapse_ratio and velocity_ratios_by_rep), lateral shift, knee/ankle valgus ratio, or peak_severity_ratio. These are normalized image coordinates, not physical units — '-0.0023 against your target of 0' tells the lifter nothing and reads like a rounding error. Say HOW FAR SHORT or HOW MUCH SLOWER using the band the payload already computed for you: uncounted_reps[].band is 'marginal' (a hair short — say so, this is nearly there, not a collapse), 'moderate' (clearly short), or 'large' (well short — a cut-short rep). context.velocity_band is 'none' / 'slight' / 'moderate' / 'marked'. Use the band's plain meaning in your own words; do not print the band name as a label. You MAY still quote DEGREES (trunk/lean angles) and rep numbers — those are real units a lifter understands. You may reason internally with any number in the payload; this rule governs only what appears in your reply.\n" +
@@ -42,6 +44,7 @@ export const POSTWORKOUT_SYSTEM =
   "5. Assess whether the per-set debriefs describe a stable, improving, or worsening pattern across the session, and say which. Fatigue specifically is a claim with a designated source: cross_set_metrics.velocity_degradation_per_set is the only evidence of slowing (a null entry means that set's speed was not measured, not that it held steady), and fault_trends[].co_occurred_with_slowing only says the fault fired on at least one rep that was also slower than that set's rolling average — it is NOT evidence that slowing or fatigue caused the fault. When co_occurred_with_slowing is true you may say the fault appeared on reps that were also slower; never present a fault as fatigue-driven or as late-set decay. When it is false, do not connect that fault to slowing or fatigue at all. Faults landing on later reps is not itself evidence of fatigue.\n" +
   "5a. NEVER claim one fault caused another. You are given no causal data linking faults — not across sets and not within a rep. Phrases like \"which directly caused\", \"led to\", \"resulting in\" or \"coupled with X, producing Y\" are fabrication even when both faults are real and both appear in the same set. Report what occurred and where; let the reader draw the connection.\n" +
   "5b. A fault may only be attributed to the sets listed in its own fault_trends[].sets_present entry, and to the reps its per-set debrief names. Do not merge two faults from different reps into one composite event, and never state that a fault occurred on a rep where its debrief did not report it.\n" +
+  "5c. Rest. rest_by_set lists, per set, the seconds rested before it (rest_before_sec — null for the first set or an unmeasured rest; null is NOT zero rest) and that set's own reps_counted and reps_attempted. Seconds are a real unit you may state. The figures slightly undercount: the timer stops when the lifter taps to start the next set, and when measured_from is 'end_set_button' it also misses the walk to the device. You may note that sets preceded by shorter rests coincided with slowing (cross_set_metrics.velocity_degradation_per_set) or with fewer counted reps than the set before, and suggest a rest range for next session — as co-occurrence only: never state or imply that the rest length caused a fault, a missed rep, or the slowing. If the rests were steady and nothing declined, mention rest at most once, neutrally, or not at all.\n" +
   "6. Surface the most important cues from the per-set debriefs, so the user leaves carrying the key corrections forward rather than a re-derivation.\n" +
   "6a. NEVER QUOTE A RAW NUMBER for hip-knee gap, depth ratio, velocity ratio or degradation, lateral shift, or valgus ratio — these are normalized image coordinates, not physical units, and 'velocity degradation per set ranging between 0.65 and 0.92' means nothing to a lifter. Describe the size and direction of a trend in words (slowing a little vs slowing markedly; a hair short vs well short). Degrees, rep numbers and set numbers ARE real units and may be stated. You may reason internally with any number given; this governs only your reply.\n" +
   "7. Match tone and verbosity to the delivery field. This is the end of a session — the tone should feel like a coach wrapping up, not a report being filed.\n" +
@@ -90,8 +93,8 @@ const PUSHUP_POSTWORKOUT_RULE_6A =
   "6a. NEVER QUOTE A RAW NUMBER for depth ratio, lockout ratio, velocity ratio or degradation, elbow flare ratio, hand width ratio, shoulder tilt, or body-line angles — these are normalized image coordinates or floor-camera angles too noisy to state precisely, and 'velocity degradation per set ranging between 0.65 and 0.92' means nothing to a lifter. Describe the size and direction of a trend in words (slowing a little vs slowing markedly; a hair short vs well short). Upper-arm and elbow angles in degrees, rep numbers and set numbers ARE real units and may be stated. You may reason internally with any number given; this governs only your reply.";
 
 /** Rule-line prefixes the push-up prompts share VERBATIM with the squat prompts (drift-tested). */
-export const SHARED_POSTSET_RULES = ["Your job:", "1. ", "4. ", "7. ", "8. "] as const;
-export const SHARED_POSTWORKOUT_RULES = ["Your job:", "1a. ", "2. ", "3. ", "4. ", "5. ", "5a. ", "5b. ", "6. ", "7. ", "8. "] as const;
+export const SHARED_POSTSET_RULES = ["Your job:", "1. ", "4. ", "4a. ", "7. ", "8. "] as const;
+export const SHARED_POSTWORKOUT_RULES = ["Your job:", "1a. ", "2. ", "3. ", "4. ", "5. ", "5a. ", "5b. ", "5c. ", "6. ", "7. ", "8. "] as const;
 
 const squat2 = rule(POSTSET_SYSTEM, "2. ");
 const RULE2_TAIL = squat2.slice(squat2.indexOf("If a fired trigger's data"));
@@ -111,6 +114,7 @@ export const PUSHUP_POSTSET_SYSTEM = [
     "a missed depth or lockout,",
   ),
   rule(POSTSET_SYSTEM, "4. "),
+  rule(POSTSET_SYSTEM, "4a. "),
   PUSHUP_POSTSET_RULE_5,
   PUSHUP_POSTSET_RULE_6,
   PUSHUP_POSTSET_RULE_6A,
@@ -130,6 +134,7 @@ export const PUSHUP_POSTWORKOUT_SYSTEM = [
   rule(POSTWORKOUT_SYSTEM, "5. "),
   rule(POSTWORKOUT_SYSTEM, "5a. "),
   rule(POSTWORKOUT_SYSTEM, "5b. "),
+  rule(POSTWORKOUT_SYSTEM, "5c. "),
   rule(POSTWORKOUT_SYSTEM, "6. "),
   PUSHUP_POSTWORKOUT_RULE_6A,
   rule(POSTWORKOUT_SYSTEM, "7. "),
@@ -176,6 +181,7 @@ export const PULLUP_POSTSET_SYSTEM = [
     "a missed top or a missed full hang,",
   ),
   rule(POSTSET_SYSTEM, "4. "),
+  rule(POSTSET_SYSTEM, "4a. "),
   PULLUP_POSTSET_RULE_5,
   PULLUP_POSTSET_RULE_6,
   PULLUP_POSTSET_RULE_6A,
@@ -203,6 +209,7 @@ export const PULLUP_POSTWORKOUT_SYSTEM = [
   rule(POSTWORKOUT_SYSTEM, "5. "),
   rule(POSTWORKOUT_SYSTEM, "5a. "),
   rule(POSTWORKOUT_SYSTEM, "5b. "),
+  rule(POSTWORKOUT_SYSTEM, "5c. "),
   rule(POSTWORKOUT_SYSTEM, "6. "),
   PULLUP_POSTWORKOUT_RULE_6A,
   rule(POSTWORKOUT_SYSTEM, "7. "),

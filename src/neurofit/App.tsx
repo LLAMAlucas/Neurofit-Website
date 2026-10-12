@@ -9,7 +9,7 @@
  * No accounts/backend/multi-exercise/persistence — out of scope. StakeFit source
  * remains on disk as reference but isn't rendered.
  */
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { CoachCamera, type CaptureFn } from "./components/CoachCamera";
 import { SetBar } from "./components/SetBar";
 import { SynthesisReport } from "./components/SynthesisReport";
@@ -24,6 +24,7 @@ import {
   useApiEnabled,
   useApiKey,
   useExercise,
+  useHandSignal,
   usePullupCameraPlan,
   usePullupGrip,
   usePullupTopPreset,
@@ -40,6 +41,38 @@ const SITE_URL = "https://neurofit-training.com";
 
 const EXERCISE_LABEL: Record<ExerciseId, string> = { squat: "Squat", pushup: "Push-ups", pullup: "Pull-ups" };
 
+/** Best-effort "set ended" cue for a lifter standing metres from the screen: a short two-note
+ *  chime + a buzz on phones. Silently does nothing where audio is locked or unsupported. */
+let chimeCtx: AudioContext | null = null;
+function setEndedCue(): void {
+  try {
+    navigator.vibrate?.(120);
+  } catch {
+    /* no vibration API */
+  }
+  try {
+    const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!Ctx) return;
+    chimeCtx ??= new Ctx();
+    const ctx = chimeCtx;
+    if (ctx.state === "suspended") void ctx.resume();
+    [880, 1320].forEach((hz, i) => {
+      const t0 = ctx.currentTime + i * 0.14;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.frequency.value = hz;
+      gain.gain.setValueAtTime(0.0001, t0);
+      gain.gain.exponentialRampToValueAtTime(0.18, t0 + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.22);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(t0);
+      osc.stop(t0 + 0.24);
+    });
+  } catch {
+    /* audio blocked (no user gesture yet) — the on-screen card is the cue */
+  }
+}
+
 export default function App() {
   const captureRef = useRef<CaptureFn | null>(null);
   const grabFrame = useMemo<CaptureFn>(() => () => captureRef.current?.() ?? null, []);
@@ -53,6 +86,7 @@ export default function App() {
   const [pullupPreset, setPullupPreset] = usePullupTopPreset();
   const [pullupGrip, setPullupGrip] = usePullupGrip();
   const [pullupPlan, setPullupPlan] = usePullupCameraPlan();
+  const [handSignal, setHandSignal] = useHandSignal();
   const workout = useWorkout(grabFrame, depthPreset, mode, {
     exercise,
     pushupDepthPreset: pushupPreset,
@@ -60,6 +94,7 @@ export default function App() {
     pullupTopPreset: pullupPreset,
     pullupGrip,
     pullupCameraPlan: pullupPlan,
+    handSignal,
   });
   const pushup = exercise === "pushup";
   const pullup = exercise === "pullup";
@@ -76,6 +111,17 @@ export default function App() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [tab]);
+  // The hand signal ended a set: chime so the lifter, metres away, knows it registered.
+  const cuedRef = useRef(false);
+  useEffect(() => {
+    if (workout.phase !== "set-review") {
+      cuedRef.current = false;
+      return;
+    }
+    if (cuedRef.current || workout.lastSetEndedBy !== "hand_signal") return;
+    cuedRef.current = true;
+    setEndedCue();
+  }, [workout.phase, workout.lastSetEndedBy]);
   // Exposure correction stays on; the EnvPanel that used to toggle/display it is hidden.
   const [corrected] = useState(true);
   const [, setExposure] = useState<ExposureDecision | null>(null);
@@ -155,6 +201,8 @@ export default function App() {
               onPullupGripChange={setPullupGrip}
               pullupPlan={pullupPlan}
               onPullupPlanChange={setPullupPlan}
+              handSignal={handSignal}
+              onHandSignalChange={setHandSignal}
             />
           </main>
         </>
@@ -201,7 +249,7 @@ export default function App() {
           </div>
 
           <div ref={hudBottomRef} className="nf-hud nf-hud--bottom">
-            <SetBar workout={workout} />
+            <SetBar workout={workout} handSignal={handSignal} />
           </div>
           {finished ? (
             <main className="nf-body nf-body--report">
@@ -237,9 +285,18 @@ export default function App() {
                 <div className="reposition-overlay">Return to {workout.targetOrientation}-on view</div>
               )}
               {workout.missedDepthFlash && <div className="missed-flash">{workout.missedFlashText}</div>}
+              {workout.endSignalProgress > 0 && (
+                <div className="signal-hold" role="status" aria-live="polite">
+                  <span className="signal-hold__ring" style={{ "--signal-p": workout.endSignalProgress } as CSSProperties} aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M12 20V5M7.5 9.5 12 5l4.5 4.5" />
+                    </svg>
+                  </span>
+                  <span className="signal-hold__label">Hold to end set</span>
+                </div>
+              )}
               {workout.phase === "set-review" && (
                 <PostSetReview
-                  stage={workout.reviewStage}
                   setIndex={workout.reviewSetIndex}
                   set={
                     pushup
@@ -249,7 +306,8 @@ export default function App() {
                         : workout.completedSets.find((s) => s.index === workout.reviewSetIndex)
                   }
                   review={workout.reviewSetIndex != null ? workout.postSetReviews[workout.reviewSetIndex] : undefined}
-                  onNextSet={workout.requestPostSet}
+                  restElapsedSec={workout.restElapsedSec}
+                  endedBy={workout.lastSetEndedBy}
                   onEndWorkout={workout.finishWorkout}
                   onStartNextSet={workout.newSet}
                 />

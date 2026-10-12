@@ -155,9 +155,23 @@ interface SessionMeta {
   thresholds: Record<string, unknown>;
 }
 
+/** How a set ended, and the rest that came BEFORE it. The hand-signal timings are the only way to
+ *  audit the n=0 gesture thresholds (vision/handSignal.ts) against real footage. */
+export interface SetEndRecord {
+  set: number;
+  ended_by: "hand_signal" | "end_set_button";
+  /** When the completed hold began / fired (ms, same clock as the rep timings). */
+  signal_onset_ms: number | null;
+  signal_fire_ms: number | null;
+  signal_side: "left" | "right" | null;
+  /** Seconds rested before this set (null on set 1). */
+  rest_before_sec: number | null;
+}
+
 let session: SessionMeta | null = null;
 let reps: RepEvalRecord[] = [];
 let geminiCalls: GeminiCallLog[] = [];
+let setEnds: SetEndRecord[] = [];
 let sessionStamp = "";
 /**
  * Ground truth for the CURRENT scripted eval protocol (v2 — 2026-07-25), keyed `set:rep`.
@@ -332,7 +346,14 @@ export function startSession(meta: { mode: string; depthPreset: string; model: s
   session = { startedAtMs: Date.now(), ...meta, exercise, thresholds: thresholdSnapshot(exercise) };
   reps = [];
   geminiCalls = [];
+  setEnds = [];
   sessionStamp = stamp();
+}
+
+/** Record how a set ended (hand signal vs End set) + the rest before it. Descriptive only. */
+export function logSetEnd(r: SetEndRecord): void {
+  if (!DEV_EVAL_LOG) return;
+  setEnds.push({ ...r, rest_before_sec: r.rest_before_sec === null ? null : Math.round(r.rest_before_sec) });
 }
 
 /** Pre-fill / correct the ground-truth intended fault for a rep (test script). */
@@ -937,6 +958,7 @@ function toJson(validation: ReturnType<typeof validate>): string {
       session,
       validation,
       reps,
+      set_ends: setEnds,
       gemini_calls: geminiCalls,
     },
     null,
@@ -1024,6 +1046,12 @@ function toMarkdown(validation: ReturnType<typeof validate>): string {
     const view = setReps[0]?.view ?? "?";
     lines.push(`## Set ${set} · ${view}`);
     lines.push("");
+    const end = setEnds.find((e) => e.set === set);
+    if (end) {
+      const held = end.signal_onset_ms !== null && end.signal_fire_ms !== null ? ` (held ${end.signal_fire_ms - end.signal_onset_ms} ms, ${end.signal_side} hand)` : "";
+      lines.push(`_Ended by ${end.ended_by}${held} · rest before this set: ${end.rest_before_sec === null ? "—" : `${end.rest_before_sec} s`}_`);
+      lines.push("");
+    }
     lines.push("### Rep metrics");
     lines.push("| rep | phase | intended_fault | counted | key metrics (measured) | fired triggers | tracking |");
     lines.push("|----:|:------|:---------------|:-------:|:-----------------------|:---------------|:---------|");
@@ -1087,7 +1115,7 @@ function download(filename: string, text: string, mime: string): void {
  * startSession() clears it. No-op when disabled or empty.
  */
 export function downloadEvalLog(): void {
-  if (!DEV_EVAL_LOG || (reps.length === 0 && geminiCalls.length === 0)) return;
+  if (!DEV_EVAL_LOG || (reps.length === 0 && geminiCalls.length === 0 && setEnds.length === 0)) return;
   const validation = validate();
   const base = `neurofit_eval_${sessionStamp || stamp()}`;
   download(`${base}.json`, toJson(validation), "application/json");

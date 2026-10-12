@@ -664,6 +664,52 @@ code {
   }
 }
 
+/* End-of-set hand signal: a big ring that fills while the lifter holds one hand up. Big and
+   centred on purpose — it is read from across the room. */
+.signal-hold {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+.signal-hold__ring {
+  --signal-p: 0;
+  display: grid;
+  place-items: center;
+  width: clamp(96px, 14vw, 150px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background:
+    radial-gradient(closest-side, var(--glass-2) 78%, transparent 79%),
+    conic-gradient(var(--ink) calc(var(--signal-p) * 360deg), rgba(21, 25, 30, 0.14) 0);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: var(--ink);
+}
+.signal-hold__ring svg {
+  width: 42%;
+  height: 42%;
+}
+.signal-hold__label {
+  padding: 7px 14px 6px;
+  border-radius: 999px;
+  background: var(--glass-2);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
 /* ── set bar ───────────────────────────────────────────────────────────── */
 .setbar {
   display: flex;
@@ -1118,13 +1164,37 @@ code {
   padding-left: 14px;
   border-left: 2px solid var(--ink);
 }
-.postset-review__next {
-  align-self: flex-start;
-  margin-top: 10px;
+.postset-review__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
 }
-.postset-review__prompt {
-  margin: 4px 0 0;
-  font-size: 15px;
+.postset-review__head > div:first-child {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+/* The rest timer — counting up since the set ended; stops on "Start set N". */
+.postset-review__rest {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  flex-shrink: 0;
+}
+.postset-review__rest-label {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  color: var(--ink-2);
+}
+.postset-review__rest-time {
+  font-family: var(--mono);
+  font-size: clamp(1.6rem, 2.6vw, 2.1rem);
+  font-weight: 500;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
 }
 .postset-review__actions {
   display: flex;

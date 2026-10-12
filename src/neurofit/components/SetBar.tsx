@@ -3,10 +3,12 @@
  * lock/countdown state, and the live reposition prompt. This is the alternating-
  * set session UI (spec §4). The setup hint ("turn side-on…") and the live
  * detection label live behind a "?" beside the set badge — hover or tap to read.
- * Finish workout lives in the App header, top right.
+ * Finish workout lives in the App header, top right. Between sets it shows the running rest timer,
+ * and while the next set is being positioned, the rest that was recorded for it.
  */
 import { useEffect, useId, useRef, useState } from "react";
 import type { Workout } from "../hooks/useWorkout";
+import { formatRest } from "../session/rest";
 
 const ORIENT_LABEL: Record<"front" | "side", string> = { front: "FRONT view", side: "SIDE view" };
 const ORIENT_HINT: Record<"front" | "side", string> = {
@@ -25,7 +27,7 @@ const PULLUP_ORIENT_HINT: Record<"front" | "side", string> = {
 };
 const HINTS = { squat: ORIENT_HINT, pushup: PUSHUP_ORIENT_HINT, pullup: PULLUP_ORIENT_HINT } as const;
 
-export function SetBar({ workout }: { workout: Workout }) {
+export function SetBar({ workout, handSignal }: { workout: Workout; handSignal: boolean }) {
   const { phase, setIndex, targetOrientation, aligned, lockProgress, countdown, orientationLabel, repositionNeeded } = workout;
   const facing =
     workout.facingAngleDeg !== null
@@ -39,7 +41,10 @@ export function SetBar({ workout }: { workout: Workout }) {
         <div className="setbar__id">
           <span className="setbar__set">SET {setIndex}</span>
           <span className={"setbar__target setbar__target--" + targetOrientation}>{ORIENT_LABEL[targetOrientation]}</span>
-          <SetupHelp hint={HINTS[workout.exercise][targetOrientation]} detected={orientationLabel} />
+          <SetupHelp
+            hint={HINTS[workout.exercise][targetOrientation] + (handSignal ? " To end the set from where you stand, raise one hand straight up (other arm down) and hold it." : "")}
+            detected={orientationLabel}
+          />
           <span className="setbar__facing" title="detected facing angle · score">{facing}</span>
         </div>
         {status && <div className="setbar__status">{status}</div>}
@@ -57,7 +62,13 @@ export function SetBar({ workout }: { workout: Workout }) {
 
   function statusContent() {
     if (phase === "finished") return <span className="setbar__msg">Workout complete — see report below.</span>;
-    if (phase === "set-review") return <span className="setbar__msg">Set {setIndex} complete — pick Next set or End workout.</span>;
+    if (phase === "set-review") {
+      return (
+        <span className="setbar__msg">
+          Set {setIndex} complete{workout.restElapsedSec !== null ? ` — resting ${formatRest(workout.restElapsedSec)}` : ""}
+        </span>
+      );
+    }
     if (phase === "countdown") return <span className="setbar__msg setbar__msg--go">Locked · starting in {countdown}…</span>;
     if (phase === "active") {
       return repositionNeeded ? (
@@ -67,13 +78,14 @@ export function SetBar({ workout }: { workout: Workout }) {
       ) : (
         <span className="setbar__msg setbar__msg--go">
           Set live · {ORIENT_LABEL[targetOrientation]}
-          {workout.exercise === "pullup" && !workout.readable ? " — jump up and hang to start" : ""}
+          {workout.exercise === "pullup" && !workout.readable ? " — jump up and hang to start" : handSignal ? " · hand up to end" : ""}
         </span>
       );
     }
     // positioning: the how-to is behind the "?"; only the lock itself shows here.
     return (
       <div className="setbar__align">
+        {workout.lastRestSec !== null && <span className="setbar__msg">Rested {formatRest(workout.lastRestSec)}</span>}
         {aligned && <span className="setbar__msg setbar__msg--go">Hold it…</span>}
         <div className="setbar__lock">
           <div className="setbar__lock-fill" style={{ width: Math.round(lockProgress * 100) + "%" }} />

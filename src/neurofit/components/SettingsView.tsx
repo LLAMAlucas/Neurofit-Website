@@ -161,7 +161,11 @@ export function SettingsView({
   onPullupGripChange = () => {},
   pullupPlan = "alternate",
   onPullupPlanChange = () => {},
+  handSignal = true,
+  onHandSignalChange = () => {},
 }: {
+  handSignal?: boolean;
+  onHandSignalChange?: (on: boolean) => void;
   exercise?: ExerciseId;
   pushupPreset?: PushupDepthPreset;
   onPushupPresetChange?: (p: PushupDepthPreset) => void;
@@ -257,6 +261,28 @@ export function SettingsView({
             API calls {apiEnabled ? "ON" : "OFF"}
             {apiEnabled ? "" : " — no Gemini calls will fire"}
           </span>
+        </button>
+      </div>
+
+      <div className="panel settings-block">
+        <p className="panel__title">END A SET BY HAND SIGNAL</p>
+        <p className="settings-block__hint">
+          Raise one hand straight up, keep the other arm down, and hold it for a second and a half — the set ends from
+          where you stand, its debrief starts right away, and the rest timer begins. Tap Start next set when you're
+          ready; the time in between is your rest, and the coach sees it. Turn off if your training puts one arm
+          overhead mid-set.
+        </p>
+        <button
+          type="button"
+          className={"api-toggle" + (handSignal ? " api-toggle--on" : "")}
+          role="switch"
+          aria-checked={handSignal}
+          onClick={() => onHandSignalChange(!handSignal)}
+        >
+          <span className="api-toggle__track">
+            <span className="api-toggle__thumb" />
+          </span>
+          <span className="api-toggle__label">Hand signal {handSignal ? "ON" : "OFF"}</span>
         </button>
       </div>
 

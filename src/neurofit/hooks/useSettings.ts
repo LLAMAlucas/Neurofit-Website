@@ -155,6 +155,12 @@ export function usePushupVariant(): [PushupVariant, (v: PushupVariant) => void] 
   return usePersisted<PushupVariant>("neurofit.pushupVariant", DEFAULT_PUSHUP_VARIANT, (v): v is PushupVariant => v === "toes" || v === "knees");
 }
 
+/** [hand signal on, setter] — end a set by raising one hand overhead (vision/handSignal.ts). */
+export function useHandSignal(): [boolean, (on: boolean) => void] {
+  const [v, set] = usePersisted<"on" | "off">("neurofit.handSignal", "on", (x): x is "on" | "off" => x === "on" || x === "off");
+  return [v === "on", (on) => set(on ? "on" : "off")];
+}
+
 /**
  * [apiEnabled, setter] — master kill-switch for Gemini calls. When off, every
  * mid-set/post-set/post-workout call is short-circuited via geminiEnabled(), so

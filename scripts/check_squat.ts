@@ -45,7 +45,9 @@ import { computeFacing } from "../src/neurofit/pose/facing";
 import { squatFaultTrends, velocityDegradationPerSet } from "../src/neurofit/session/faultTrends";
 import type { RepRecord, SetRecord } from "../src/neurofit/session/types";
 import type { VelocitySample } from "../src/neurofit/squat/velocity";
-import { POSTSET_SYSTEM, POSTWORKOUT_SYSTEM } from "../src/neurofit/ai/prompts";
+import { POSTSET_SYSTEM, POSTWORKOUT_SYSTEM, PULLUP_POSTSET_SYSTEM, PULLUP_POSTWORKOUT_SYSTEM, PUSHUP_POSTSET_SYSTEM, PUSHUP_POSTWORKOUT_SYSTEM } from "../src/neurofit/ai/prompts";
+import { EndSetSignal, HAND_SIGNAL, signalShape } from "../src/neurofit/vision/handSignal";
+import { buildPostSetRest, buildRestBySet, formatRest, type RestEntry } from "../src/neurofit/session/rest";
 import {
   MONTH_MS,
   appendCall,
@@ -846,6 +848,107 @@ check("usage upsert: abandoned session stays incomplete", abandoned.workouts.com
   const built = new Set(["type", ...Object.keys(trends[0] ?? {})]);
   check("prompt: every fault_trends[] field in POSTWORKOUT_SYSTEM exists in the payload",
     named.length >= 3 && named.every((k) => built.has(k)));
+}
+
+// --- End-of-set hand signal (vision/handSignal.ts) ----------------------------------------
+{
+  const ASPECT = 16 / 9;
+  /** Standing body. Per arm: "down" (wrist at the hip), "up" (straight overhead), "head" (hand
+   *  resting at head height, elbow out). `rightVis` sets the right arm's visibility. */
+  type Arm = "down" | "up" | "head";
+  const body = (left: Arm, right: Arm, rightVis = 0.95): Landmark[] => {
+    const lm: Landmark[] = Array.from({ length: 33 }, () => ({ x: 0.5, y: 0.5, z: 0, visibility: 0.95 }));
+    const arm = (sx: number, dir: number, a: Arm, vis: number) => {
+      const shoulder = { x: sx, y: 0.35 };
+      const elbow = a === "down" ? { x: sx, y: 0.5 } : a === "up" ? { x: sx, y: 0.2 } : { x: sx + dir * 0.08, y: 0.3 };
+      const wrist = a === "down" ? { x: sx, y: 0.64 } : a === "up" ? { x: sx, y: 0.06 } : { x: sx + dir * 0.03, y: 0.25 };
+      return [shoulder, elbow, wrist].map((pt) => ({ ...pt, z: 0, visibility: vis }));
+    };
+    const [ls, le, lw] = arm(0.45, -1, left, 0.95);
+    const [rs, re, rw] = arm(0.55, 1, right, rightVis);
+    lm[11] = ls; lm[13] = le; lm[15] = lw;
+    lm[12] = rs; lm[14] = re; lm[16] = rw;
+    return lm;
+  };
+  check("signal shape: one hand straight up, other down → that side", signalShape(body("up", "down"), ASPECT, 0.6) === "left");
+  check("signal shape: mirrored", signalShape(body("down", "up"), ASPECT, 0.6) === "right");
+  check("signal shape: BOTH hands up (pull-up hang / overhead squat) → none", signalShape(body("up", "up"), ASPECT, 0.6) === null);
+  check("signal shape: both arms down → none", signalShape(body("down", "down"), ASPECT, 0.6) === null);
+  check("signal shape: a hand resting at head height is not a raise", signalShape(body("head", "down"), ASPECT, 0.6) === null);
+  check("signal shape: side-on hang with the far arm faint but up → none", signalShape(body("up", "up", 0.2), ASPECT, 0.6) === null);
+  check("signal shape: side-on signal with the far arm faint and down → fires", signalShape(body("up", "down", 0.2), ASPECT, 0.6) === "left");
+  check("signal shape: the raised arm itself must be confidently visible", signalShape(body("down", "up", 0.3), ASPECT, 0.6) === null);
+
+  const STEP = 1000 / 30;
+  const run = (frames: (Arm | "gap")[], eligible = true) => {
+    const sig = new EndSetSignal();
+    const out: { t: number; progress: number; fired: boolean }[] = [];
+    frames.forEach((f, i) => {
+      const t = i * STEP;
+      const lm = f === "gap" ? body("down", "down") : body(f, "down");
+      out.push({ t, ...sig.update(lm, t, ASPECT, 0.6, eligible) });
+    });
+    return { sig, out };
+  };
+  const hold = (ms: number): Arm[] => Array.from({ length: Math.ceil(ms / STEP) + 1 }, () => "up" as Arm);
+  const short = run(hold(HAND_SIGNAL.holdMs - 100));
+  check("signal hold: under the hold time never fires", !short.out.some((o) => o.fired));
+  const mid = short.out.find((o) => o.t >= HAND_SIGNAL.holdMs / 2);
+  check("signal hold: progress tracks the hold (~0.5 halfway)", !!mid && Math.abs(mid.progress - 0.5) < 0.05);
+  const full = run(hold(HAND_SIGNAL.holdMs + 500));
+  check("signal hold: a full hold fires exactly once (latched)", full.out.filter((o) => o.fired).length === 1);
+  check("signal hold: onset is the start of the hold", full.sig.onsetMs === 0 && full.sig.side === "left");
+  const flick = (gapMs: number) =>
+    run([...hold(600), ...Array.from({ length: Math.round(gapMs / STEP) }, () => "gap" as const), ...hold(HAND_SIGNAL.holdMs)]);
+  const f150 = flick(150);
+  check("signal hold: a 150 ms flicker keeps the hold (fires from the ORIGINAL onset)", f150.sig.onsetMs === 0 && f150.out.some((o) => o.fired));
+  const f300 = flick(300);
+  check("signal hold: a 300 ms drop restarts the hold", f300.sig.onsetMs !== null && f300.sig.onsetMs > 600);
+  const off = run(hold(HAND_SIGNAL.holdMs + 500), false);
+  check("signal hold: ineligible (not mid-set / setting off / no attempts) never fires", off.out.every((o) => !o.fired && o.progress === 0));
+  full.sig.reset();
+  check("signal hold: reset clears the latch", full.sig.onsetMs === null && full.sig.update(body("up", "down"), 0, ASPECT, 0.6, true).progress === 0);
+}
+
+// --- Rest between sets (session/rest.ts) + its prompt rules ---------------------------------
+{
+  const set = (index: number, counted: number, attempted: number, ratio: number | null) => ({
+    index,
+    reps: Array.from({ length: attempted }, (_, i) => ({ counted: i < counted, landmarkUnreliable: false, velocity: ratio === null ? null : { ratio } })),
+  });
+  const s1 = set(1, 8, 8, 1.02), s2 = set(2, 5, 6, 0.6), s3 = set(3, 6, 6, 0.95);
+  const log = new Map<number, RestEntry>([
+    [2, { restSec: 58.4, measuredFrom: "hand_signal" }],
+    [3, { restSec: 150.6, measuredFrom: "end_set_button" }],
+  ]);
+  const r1 = buildPostSetRest(s1, [s1, s2, s3], log);
+  check("rest: set 1 has no rest and no previous set (null, never 0)", r1.rest_before_this_set_sec === null && r1.measured_from === null && r1.previous_set === null);
+  const r2 = buildPostSetRest(s2, [s1, s2, s3], log);
+  check("rest: rest is keyed by the FOLLOWING set and rounded", r2.rest_before_this_set_sec === 58 && r2.measured_from === "hand_signal");
+  check("rest: previous_set carries counts + velocity band", r2.previous_set?.reps_counted === 8 && r2.previous_set.reps_attempted === 8 && r2.previous_set.velocity_band === "none");
+  const r3 = buildPostSetRest(s3, [s1, s2, s3], log);
+  check("rest: previous_set's own rest + slowed band", r3.previous_set?.rest_before_sec === 58 && r3.previous_set.velocity_band === "marked" && r3.rest_before_this_set_sec === 151);
+  const bySet = buildRestBySet([s1, s2, s3], log);
+  check("rest: rest_by_set nulls set 1, then 58 / 151", bySet.map((e) => e.rest_before_sec).join(",") === ",58,151" && bySet[1].reps_counted === 5);
+  check("rest: timer format m:ss", formatRest(0) === "0:00" && formatRest(59.9) === "0:59" && formatRest(125) === "2:05");
+
+  // Prompt ↔ payload: every rest.* path rule 4a names resolves; every rest_by_set field 5c names exists.
+  const rule4a = POSTSET_SYSTEM.split("\n").find((l) => l.startsWith("4a. ")) ?? "";
+  const paths = [...new Set([...rule4a.matchAll(/\brest\.([a-z_]+(?:\.[a-z_]+)*)/g)].map((m) => m[1]))];
+  const resolves = (root: unknown, path: string) =>
+    path.split(".").every((k) => {
+      if (!root || typeof root !== "object" || !(k in (root as object))) return false;
+      root = (root as Record<string, unknown>)[k];
+      return true;
+    });
+  check(`prompt 4a: every rest.* path resolves (${paths.join(", ")})`, paths.length >= 3 && paths.every((pp) => resolves(r3, pp)));
+  const rule5c = POSTWORKOUT_SYSTEM.split("\n").find((l) => l.startsWith("5c. ")) ?? "";
+  const named5c = ["rest_before_sec", "measured_from", "reps_counted", "reps_attempted"].filter((k) => rule5c.includes(k));
+  check("prompt 5c: names the rest_by_set fields, all of which exist", rule5c.includes("rest_by_set") && named5c.length === 4 && named5c.every((k) => k in bySet[0]));
+  check("prompt 4a/5c: present in all three exercises' prompts",
+    [POSTSET_SYSTEM, PUSHUP_POSTSET_SYSTEM, PULLUP_POSTSET_SYSTEM].every((pr) => pr.includes(rule4a)) &&
+    [POSTWORKOUT_SYSTEM, PUSHUP_POSTWORKOUT_SYSTEM, PULLUP_POSTWORKOUT_SYSTEM].every((pr) => pr.includes(rule5c)));
+  check("prompt 4a/5c: rest is never a cause", /never state or imply that the rest length caused/.test(rule4a) && /never state or imply that the rest length caused/.test(rule5c));
 }
 
 console.log(failures === 0 ? "\nALL PASSED" : `\n${failures} FAILED`);

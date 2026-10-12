@@ -39,8 +39,9 @@ out, come back up to kneeling.
 **Per-set flow**
 
 Get into the **top of a push-up** in the target view → the lock bar fills (1.2 s) → 3-2-1 →
-do the attempts → **End set** → **Next set →** (fires the debrief; read it) → **Start set N →**.
-Set 5 ends with **End set → End workout** (no post-set debrief by design).
+do the attempts → get up, **raise one hand straight up (other arm down) and hold ~1.5 s** — or press
+**End set** — this ends the set and fires the debrief immediately; read it → **Start set N →**.
+Set 5 ends with **Finish workout while the set is still live** (no post-set debrief by design). Ending the set (hand signal or End set) now fires its post-set call, so the last set is finished with **Finish workout** (top right) while it is still live.
 
 **The lock needs a plank.** Standing or kneeling upright never starts a set — that is the plank
 gate working, not a bug.
@@ -130,7 +131,7 @@ All 6: **your best, most honest push-up.** Normal tempo, full depth, straight ar
 rigid body.
 
 **Testing:** nothing fires on any rep. This is the set that tells us whether the app nags a good
-lifter. **End with: End set → End workout.**
+lifter. **End with: Finish workout while set 5 is still live.**
 
 ---
 
@@ -138,7 +139,7 @@ lifter. **End with: End set → End workout.**
 
 After the main run: **Reset**, **Settings → variant: KNEES**, then do **two sets of 5 clean knee
 push-ups** (set 1 side, set 2 head-on — the views still alternate) and finish with
-**End set → End workout**. Label the reps from the console before starting:
+**Finish workout** while set 2 is live. Label the reps from the console before starting:
 
 ```js
 window.__neurofitEval.setScript({"1:1":"knees baseline","1:2":"knees baseline","1:3":"knees normal","1:4":"knees normal","1:5":"knees normal","2:1":"knees baseline","2:2":"knees baseline","2:3":"knees normal","2:4":"knees normal","2:5":"knees normal"})
@@ -175,7 +176,7 @@ shows `context.variant_check.observed: "knees"`, and knee reps still count on bo
 | Lock never engages while standing | Plank gate |
 | Facing readout: side ≈ 0–0.3, head-on ≥ 0.75, stable top→bottom | `PUSHUP_ORIENTATION.SCORE` anchors |
 | Reversal times logged on every rep | First data for a future bounce threshold |
-| 4 post-set + 1 post-workout calls | Explicit-click analysis only |
+| 4 post-set + 1 post-workout calls | Post-set fires on set end (signal/button) only; Finish mid-set fires none |
 
 In the debriefs I'll look for: fatigue claimed without velocity evidence, one fault said to cause
 another, body-line or depth commentary on head-on frames (or flare/evenness on side frames),

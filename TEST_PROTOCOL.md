@@ -19,7 +19,7 @@ labels each rep from this script, so a deviation silently mislabels the data.
   instead of from the bottom frame alone.
 - **Set 1 has 7 reps** — a deliberate bounce rep was added, because `bounceMaxMs` was raised
   150 → 300 ms and has still never once fired. Nothing limits reps per set; just do 7 and
-  press End set.
+  end the set.
 - **Set 3's baseline reps must stop VISIBLY ABOVE parallel.** Last run they measured
   0.032/0.036 against a 0.03 hygiene gate — over the line by thousandths — so the control
   never executed.
@@ -45,11 +45,13 @@ labels each rep from this script, so a deviation silently mislabels the data.
 **Per-set flow**
 
 Stand still in the target orientation → the lock bar fills (1.2 s) → 3-2-1 countdown →
-do your reps → **End set** → **Next set →** (this fires the debrief; read it) →
-**Start set N →**.
+do your reps → **raise one hand straight up (other arm down) and hold ~1.5 s** — or press
+**End set** — this ends the set and fires the debrief immediately; walk over and read it →
+**Start set N →** (the rest timer runs from the end of the set until this tap). Stand still
+for the signal: don't start it mid-rep.
 
-**Set 5 is different: End set → End workout.** Set 5 gets no post-set debrief. That
-is by design, not a bug — the last set goes straight to the session summary.
+**Set 5 is different: Finish workout while the set is still live.** Set 5 gets no post-set
+debrief. That is by design, not a bug — the last set goes straight to the session summary. Ending the set (hand signal or End set) now fires its post-set call, so the last set is finished with **Finish workout** (top right) while it is still live.
 
 **Orientation is forced and alternates: S1 side, S2 front, S3 side, S4 front, S5 side.**
 The app will not let you start a set in the wrong orientation.
@@ -159,7 +161,7 @@ deliberate faults.
 This is the set that tells us whether the app nags a good lifter — and it is now the
 control for four widened/raised thresholds, so it matters more than it did last run.
 
-**End with: End set → End workout.**
+**End with: Finish workout (top right) while set 5 is still live — not the hand signal.**
 
 ---
 
@@ -205,7 +207,7 @@ Predictions worth stating up front so the result is falsifiable.
 | **S5 → completely clean** | False-positive rate, against four loosened thresholds |
 | **No T10 / levelness anywhere** | Both are demoted; firing = regression |
 | T6 velocity collapse: context only | Must never appear as a cue |
-| 4 post-set + 1 post-workout = 5 calls | Analysis fires only on explicit click |
+| 4 post-set + 1 post-workout = 5 calls | Post-set fires on set end (signal/button) only; Finish mid-set fires none |
 | Usage: 1 workout, completed, 5 sets, ~29/31 counted | Ledger end-to-end |
 
 I'll also read the Gemini debriefs for the failure modes the prompts are supposed to
