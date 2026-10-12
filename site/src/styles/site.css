@@ -576,6 +576,10 @@ a {
   top: 17%;
   transform: none;
 }
+/* A call to action inside a stop's words (the Analyze stop). */
+.copy__cta {
+  margin-top: 22px;
+}
 
 /* The hint to touch the body, once it has formed. */
 .hint {

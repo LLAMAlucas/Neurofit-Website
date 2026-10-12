@@ -107,7 +107,7 @@ export interface RepEvalRecord {
 }
 
 export interface GeminiCallLog {
-  tier: "mid_set" | "post_set" | "post_workout" | "deep_analysis";
+  tier: "mid_set" | "post_set" | "post_workout" | "deep_analysis" | "form_clip" | "form_frame";
   timestampMs: number;
   set: number | null;
   rep: number | null;

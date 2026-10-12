@@ -19,7 +19,7 @@
 
 import type { ExerciseId } from "./exercises";
 
-export type StopId = "form" | "frame" | "flow" | "barbell" | "compare" | "finale";
+export type StopId = "form" | "frame" | "flow" | "barbell" | "compare" | "analyze" | "finale";
 
 /** Where the camera is for one stop. */
 export type Shot = {
@@ -156,6 +156,22 @@ export const STOPS: readonly Stop[] = [
     }),
   },
   {
+    // The second product (2026-10-10): video analysis of a clip already filmed. Swung round to
+    // the body's side — the view a filmed set is mostly judged from — with the words on the left.
+    id: "analyze",
+    label: "ANALYZE A VIDEO",
+    span: 1.6,
+    hold: [0.25, 0.8],
+    shot: shot({
+      azimuth: 1.15,
+      elevation: 0.08,
+      distance: 4.8,
+      target: [0, 0.95, 0],
+      shift: [0.24, 0],
+      narrowShift: [0, 0.28],
+    }),
+  },
+  {
     id: "finale",
     label: "TRY IT",
     span: 1.8,
@@ -179,6 +195,7 @@ export const EXERCISE_AT: Record<StopId, ExerciseId> = {
   flow: "squat",
   barbell: "squat",
   compare: "squat",
+  analyze: "squat",
   finale: "squat",
 };
 

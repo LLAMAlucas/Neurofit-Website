@@ -656,8 +656,8 @@ console.log("\n5. the camera path");
     HOLDS.every(([a, b], i) => a < b && a >= STARTS[i] - 1e-9 && b <= STARTS[i] + STOPS[i].span + 1e-9 && (i === 0 || HOLDS[i - 1][1] < a)),
   );
   ok(
-    "the stops run in order: opening, in frame, what happens to it, the bar, how it compares, try it",
-    STOPS.map((s) => s.id).join(" ") === "form frame flow barbell compare finale",
+    "the stops run in order: opening, in frame, what happens to it, the bar, how it compares, analyze a video, try it",
+    STOPS.map((s) => s.id).join(" ") === "form frame flow barbell compare analyze finale",
   );
   // Scrubbed by the scroll, slowly enough to follow: every step of the flow
   // takes most of a screen of scroll, none more than one.
