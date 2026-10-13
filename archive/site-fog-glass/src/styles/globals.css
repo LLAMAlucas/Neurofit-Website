@@ -1,0 +1,13 @@
+/* Order here is load-bearing.
+ *
+ * site.css comes FIRST so that Tailwind's utilities — emitted after it — win on
+ * equal specificity for any new component. Flipping this would make the hand-written
+ * design system silently override every utility class and Tailwind would appear
+ * broken for no visible reason.
+ *
+ * Preflight is disabled (see tailwind.config.ts); site.css owns the reset. */
+@import "./site.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;

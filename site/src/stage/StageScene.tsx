@@ -310,6 +310,9 @@ function FrameWatch({ onSlow }: { onSlow: () => void }) {
 
 export default function StageScene({ tier, onSlow }: { tier: Tier; onSlow: () => void }) {
   const look = useMemo(() => new LookEffect(), []);
+  // Disposed here, by its owner. Never `dispose={null}` on its <primitive>: R3F applies that
+  // as a prop, i.e. look.dispose = null, and this cleanup then threw on unmount (HMR, a remount)
+  // and took the canvas down. R3F never auto-disposes a primitive anyway.
   useEffect(() => () => look.dispose(), [look]);
   const dof = useRef<DepthOfFieldEffect | null>(null);
   const focus = useMemo(() => new Vector3(0, 0.92, 0), []);
@@ -339,13 +342,13 @@ export default function StageScene({ tier, onSlow }: { tier: Tier; onSlow: () =>
         <EffectComposer multisampling={0} frameBufferType={HalfFloatType}>
           <DepthOfField ref={dof} target={focus} worldFocusRange={2.5} bokehScale={1.6} />
           <Bloom mipmapBlur luminanceThreshold={1} luminanceSmoothing={0.15} intensity={st.bloom} />
-          <primitive object={look} dispose={null} />
+          <primitive object={look} />
           <Vignette offset={0.3} darkness={0.25} />
         </EffectComposer>
       ) : (
         <EffectComposer multisampling={0} frameBufferType={HalfFloatType}>
           <Bloom mipmapBlur luminanceThreshold={1} luminanceSmoothing={0.15} intensity={st.bloom} />
-          <primitive object={look} dispose={null} />
+          <primitive object={look} />
           <Vignette offset={0.3} darkness={0.25} />
         </EffectComposer>
       )}

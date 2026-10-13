@@ -120,6 +120,9 @@ export function LabScene({
 }) {
   const ca = useFaultFlicker();
   const look = useMemo(() => new LookEffect(), []);
+  // Disposed here, by its owner. Never `dispose={null}` on its <primitive>: R3F applies that
+  // as a prop, i.e. look.dispose = null, and this cleanup then threw on unmount (HMR, a remount)
+  // and took the canvas down. R3F never auto-disposes a primitive anyway.
   useEffect(() => () => look.dispose(), [look]);
   look.grain = grain;
   return (
@@ -139,7 +142,7 @@ export function LabScene({
           radialModulation={false}
           modulationOffset={0}
         />
-        <primitive object={look} dispose={null} />
+        <primitive object={look} />
         <Vignette offset={0.3} darkness={0.25} />
       </EffectComposer>
     </>

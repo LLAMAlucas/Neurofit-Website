@@ -1,7 +1,8 @@
 /**
  * The page's frame, after dragonfly.xyz: the top bar (N/F · five pixels · MENU) and its menu, the
- * serif corner letters N and F, the blur bands at the top and bottom edges, the sheets (FAQ,
- * privacy), and the lens booting in characters while the scene loads.
+ * blur bands at the top and bottom edges, the sheets (FAQ, privacy), and the lens booting in
+ * characters while the scene loads. (The big serif corner letters N and F were removed at the
+ * user's request, 2026-10-13.)
  *
  * The pixels light one by one as the reader goes down the page. The menu's rows are the page's
  * stops (lib/story STOPS[].label) — a neighbour is a smooth scroll, anything further goes through
@@ -36,6 +37,9 @@ const BLOCKS: { id: string; label: string }[] = [
 ];
 
 const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
+/** The boot screen never holds the page hostage: if the body hasn't drawn its first frame by
+ *  now (a slow phone, a model that didn't load), it fades anyway and the words are the page. */
+const BOOT_MAX_MS = 12000;
 /** Five pixels across the page: the first lit at the top, all five at the end. */
 const pixelsAt = (p: number) => 1 + Math.floor(clamp01(p / END) * 4.999);
 
@@ -46,15 +50,20 @@ function Boot() {
   useEffect(() => {
     let done = false;
     let timer = 0;
-    const off = onTick(() => {
-      if (done || !store.ready || !ref.current) return;
+    const finish = () => {
+      if (done || !ref.current) return;
       done = true;
       ref.current.classList.add("is-done");
       timer = window.setTimeout(() => setGone(true), 1000);
+    };
+    const off = onTick(() => {
+      if (store.ready) finish();
     });
+    const cap = window.setTimeout(finish, BOOT_MAX_MS);
     return () => {
       off();
       window.clearTimeout(timer);
+      window.clearTimeout(cap);
     };
   }, []);
   if (gone) return null;
@@ -154,12 +163,6 @@ export function Hud({ live }: { live: boolean }) {
           <div className="edge edge--bottom" aria-hidden="true" />
         </>
       )}
-      <span className="hud__corner hud__corner--n" aria-hidden="true">
-        N
-      </span>
-      <span className="hud__corner hud__corner--f" aria-hidden="true">
-        F
-      </span>
 
       <div className="hud__bar">
         <TopBar

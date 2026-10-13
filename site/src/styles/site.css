@@ -183,7 +183,7 @@ a {
   color: rgb(calc(58 + var(--b, 0) * 172), calc(58 + var(--b, 0) * 172), calc(58 + var(--b, 0) * 172));
 }
 
-/* ── the frame: bar, corner letters, edge bands, the lens booting ──────── */
+/* ── the frame: bar, edge bands, the lens booting ──────────────────────── */
 
 .hud {
   position: fixed;
@@ -205,23 +205,6 @@ a {
   display: flex;
   justify-content: center;
   pointer-events: none;
-}
-/* The corner letters: N top-left, F bottom-left, in the serif. */
-.hud__corner {
-  position: absolute;
-  left: 18px;
-  z-index: 3;
-  font-family: var(--serif);
-  font-size: 60px;
-  font-weight: 400;
-  line-height: 0.8;
-  color: var(--fg);
-}
-.hud__corner--n {
-  top: 16px;
-}
-.hud__corner--f {
-  bottom: 16px;
 }
 /* The top and bottom ~100px: what passes through them blurs and fades to black. */
 .edge {
@@ -984,9 +967,6 @@ a {
 /* ── narrow screens: the body above, the words below ───────────────────── */
 
 @media (max-width: 820px), (max-aspect-ratio: 1/1) {
-  .hud__corner {
-    display: none;
-  }
   .edge {
     height: 80px;
   }
