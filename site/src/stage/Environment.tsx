@@ -1,14 +1,15 @@
 /**
- * The world the body stands in: a pale sky, a capture floor that dissolves into
- * fog, and dust hanging in the air. All procedural — no textures, no models.
+ * The world the body stands in, on black (2026-10, the dragonfly.xyz theme — it was a pale sky
+ * and a fog-blue floor): a dark studio floor whose faint grid fades into the black, a soft glow
+ * where the feet touch it, and dust hanging in the air as specks of light. All procedural — no
+ * textures, no models. The canvas clears to black (StageScene), so there is no sky.
  *
- * Every material here does its own fog with the same formula as the particles
- * (exp², on view depth), so the floor, the dust and the body fade into the same
- * colour at the same rate and the horizon has no seam.
+ * Every material here does its own fog with the same formula as the particles (exp², on view
+ * depth), toward the same black, so the floor, the dust and the body fade out together.
  */
 import { useMemo } from "react";
 import { useFrame } from "@react-three/fiber";
-import { BackSide, BufferAttribute, BufferGeometry, Color, ShaderMaterial } from "three";
+import { AdditiveBlending, BufferAttribute, BufferGeometry, Color, ShaderMaterial } from "three";
 import { mulberry32 } from "@/lib/sampleSkinned";
 import { store } from "./store";
 
@@ -28,50 +29,15 @@ function syncFog(m: ShaderMaterial) {
   m.uniforms.uFogDensity.value = store.settings.fog;
 }
 
-function Sky() {
-  const material = useMemo(
-    () =>
-      new ShaderMaterial({
-        side: BackSide,
-        depthWrite: false,
-        uniforms: { uHorizon: { value: new Color() }, uTop: { value: new Color("#eef0f2") } },
-        vertexShader: /* glsl */ `
-          varying vec3 vDir;
-          void main() {
-            vDir = normalize(position);
-            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-          }`,
-        fragmentShader: /* glsl */ `
-          uniform vec3 uHorizon;
-          uniform vec3 uTop;
-          varying vec3 vDir;
-          float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
-          void main() {
-            vec3 col = mix(uHorizon, uTop, smoothstep(0.02, 0.7, vDir.y));
-            // Dither: a gradient this gentle bands in 8-bit without it.
-            col += (hash(gl_FragCoord.xy) - 0.5) / 255.0;
-            gl_FragColor = vec4(col, 1.0);
-            #include <colorspace_fragment>
-          }`,
-      }),
-    [],
-  );
-  useFrame(() => (material.uniforms.uHorizon.value as Color).set(store.settings.fogColor));
-  return (
-    <mesh material={material} scale={80} renderOrder={-10} frustumCulled={false}>
-      <sphereGeometry args={[1, 32, 16]} />
-    </mesh>
-  );
-}
-
 function Floor() {
   const material = useMemo(
     () =>
       new ShaderMaterial({
         uniforms: {
           ...fogUniforms(),
-          uBase: { value: new Color("#c9ced4") },
-          uLine: { value: new Color("#9aa1a9") },
+          uBase: { value: new Color("#040404") },
+          uLine: { value: new Color("#1c1c1c") },
+          uGlow: { value: new Color("#9fb6d2") },
         },
         vertexShader: /* glsl */ `
           varying vec3 vWorld;
@@ -87,14 +53,9 @@ function Floor() {
           ${FOG_GLSL}
           uniform vec3 uBase;
           uniform vec3 uLine;
+          uniform vec3 uGlow;
           varying vec3 vWorld;
           varying float vDepth;
-          float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-          float noise(vec2 p) {
-            vec2 i = floor(p), f = fract(p);
-            vec2 u = f * f * (3.0 - 2.0 * f);
-            return mix(mix(hash(i), hash(i + vec2(1, 0)), u.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), u.x), u.y);
-          }
           float grid(vec2 p, float step) {
             vec2 q = p / step;
             vec2 g = abs(fract(q - 0.5) - 0.5) / fwidth(q);
@@ -103,15 +64,16 @@ function Floor() {
           void main() {
             vec2 xz = vWorld.xz;
             float r = length(xz);
-            vec3 col = uBase * (0.965 + 0.05 * noise(xz * 2.5) + 0.03 * noise(xz * 11.0));
-            // A capture floor: fine grid near the body, coarse grid further out,
-            // both fading long before the fog would hide them.
-            float g = grid(xz, 0.5) * 0.45 + grid(xz, 2.0) * 0.3;
-            g *= 1.0 - smoothstep(1.2, 7.0, r);
+            vec3 col = uBase;
+            // A capture floor: a fine grid near the body, a coarse one further out, both
+            // fading into the black well before the fog would hide them.
+            float g = grid(xz, 0.5) * 0.7 + grid(xz, 2.0) * 0.45;
+            g *= 1.0 - smoothstep(1.2, 6.0, r);
             col = mix(col, uLine, g);
-            // Contact shadow under the feet.
-            float sh = 1.0 - smoothstep(0.0, 0.75, length(xz * vec2(1.0, 1.35)));
-            col *= 1.0 - 0.2 * sh * sh;
+            // Where the feet touch it, a faint glow instead of a shadow — on black there is
+            // nothing for a shadow to darken.
+            float glow = 1.0 - smoothstep(0.0, 0.8, length(xz * vec2(1.0, 1.35)));
+            col += uGlow * 0.035 * glow * glow;
             gl_FragColor = vec4(applyFog(col, vDepth), 1.0);
             #include <colorspace_fragment>
           }`,
@@ -149,7 +111,8 @@ function Dust() {
       new ShaderMaterial({
         transparent: true,
         depthWrite: false,
-        uniforms: { ...fogUniforms(), uTime: { value: 0 }, uColor: { value: new Color("#5b626b") } },
+        blending: AdditiveBlending,
+        uniforms: { ...fogUniforms(), uTime: { value: 0 }, uColor: { value: new Color("#9aa3ad") } },
         vertexShader: /* glsl */ `
           uniform float uTime;
           attribute float aSeed;
@@ -178,7 +141,7 @@ function Dust() {
           void main() {
             vec2 c = gl_PointCoord - 0.5;
             float a = 1.0 - smoothstep(0.1, 0.25, dot(c, c));
-            gl_FragColor = vec4(applyFog(uColor, vDepth), a * 0.4 * vSeed);
+            gl_FragColor = vec4(applyFog(uColor, vDepth), a * 0.22 * vSeed);
             #include <colorspace_fragment>
           }`,
       }),
@@ -194,7 +157,6 @@ function Dust() {
 export function Environment() {
   return (
     <>
-      <Sky />
       <Floor />
       <Dust />
     </>

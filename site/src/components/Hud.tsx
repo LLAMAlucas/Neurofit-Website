@@ -103,14 +103,15 @@ export function Hud({ live }: { live: boolean }) {
   const ascii = useMemo(() => {
     if (live) {
       return canvasSource(tapCanvas, {
-        gain: 1.7,
+        gain: 1.5,
+        fit: "contain",
         crop: () => {
           const b = store.box;
           if (!b.w || !b.h) return null;
           const W = window.innerWidth;
           const H = window.innerHeight;
-          const padX = b.w * 0.35;
-          const padY = b.h * 0.08;
+          const padX = b.w * 0.6;
+          const padY = b.h * 0.04;
           const x = clamp01((b.x - padX) / W);
           const y = clamp01((b.y - padY) / H);
           return { x, y, w: clamp01((b.x + b.w + padX) / W) - x, h: clamp01((b.y + b.h + padY) / H) - y };

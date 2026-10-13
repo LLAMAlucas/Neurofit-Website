@@ -554,5 +554,59 @@ console.log("\n5. nearest neighbours");
   ok("queries outside the cloud still get k", !got.includes(-1));
 }
 
+/* ── 9. even spacing (the black look, 2026-10) ──────────────────────────── */
+console.log("\n9. even spacing");
+{
+  // A 1 m × 1 m plane in two triangles, one bone.
+  const surface = {
+    positions: [0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0],
+    normals: [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1],
+    indices: [0, 1, 2, 0, 2, 3],
+    skinIndex: new Array(16).fill(0),
+    skinWeight: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0],
+  };
+  /** Nearest-neighbour distances of the first n points: the smallest, and their spread (CV). */
+  const nn = (p: Float32Array, n: number) => {
+    const d = new Float64Array(n).fill(Infinity);
+    for (let i = 0; i < n; i++)
+      for (let j = i + 1; j < n; j++) {
+        const e = Math.hypot(p[i * 3] - p[j * 3], p[i * 3 + 1] - p[j * 3 + 1]);
+        if (e < d[i]) d[i] = e;
+        if (e < d[j]) d[j] = e;
+      }
+    let sum = 0, sq = 0, min = Infinity;
+    for (const v of d) {
+      sum += v;
+      sq += v * v;
+      min = Math.min(min, v);
+    }
+    const mean = sum / n;
+    return { min, cv: Math.sqrt(Math.max(0, sq / n - mean * mean)) / mean };
+  };
+  const N = 3000;
+  const levels = [800, 1800];
+  const even = sampleSkinned(surface, N, 3, undefined, { levels });
+  const white = sampleSkinned(surface, N, 3);
+  for (const n of [...levels, N]) {
+    const s = nn(even.position, n);
+    ok(
+      `even: the first ${n} points are already evenly spread (each tier draws a prefix)`,
+      s.cv < 0.25 && s.min > 0.45 * Math.sqrt(1 / n),
+      `CV ${s.cv.toFixed(2)}, closest ${(s.min / Math.sqrt(1 / n)).toFixed(2)}× the mean spacing`,
+    );
+  }
+  const e = nn(even.position, N);
+  const w = nn(white.position, N);
+  ok("even spreads far more evenly than white noise", e.cv < 0.6 * w.cv, `CV ${e.cv.toFixed(2)} vs ${w.cv.toFixed(2)}`);
+  const again = sampleSkinned(surface, N, 3, undefined, { levels });
+  ok("even: the same seed scatters the same body", even.position.every((v, i) => v === again.position[i]));
+  // Density 2 at x = 0 falling to 1 at x = 1: the left half should get ∫(2−x) = 0.875 vs 0.625.
+  const dense = sampleSkinned(surface, N, 5, undefined, { levels, vertexDensity: [2, 1, 1, 2] });
+  let left = 0;
+  for (let i = 0; i < N; i++) if (dense.position[i * 3] < 0.5) left++;
+  const ratio = left / (N - left);
+  ok("density: more points where it's asked for (face, hands)", ratio > 1.2 && ratio < 1.65, `left/right ${ratio.toFixed(2)} (≈1.4 wanted)`);
+}
+
 console.log(failures === 0 ? "\nALL PASSED\n" : `\n${failures} FAILED\n`);
 process.exit(failures === 0 ? 0 : 1);

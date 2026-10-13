@@ -43,7 +43,12 @@ export function createTuningPanel(onRebuild?: (r: Rebuild) => void): () => void 
   body.add(st, "fizz", 0, 120, 1).name("loose grains lift (mm)");
   body.add(st, "size", 2, 16, 0.5).name("size (mm)");
   body.add(st, "opacity", 0.2, 1, 0.01);
-  body.addColor(st, "graphite");
+  body.addColor(st, "graphite").name("point colour");
+  body.add(st, "intensity", 0.1, 1.5, 0.01).name("light per grain");
+  body.add(st, "nearFar", 0.1, 1.2, 0.01).name("near→far depth");
+  body.add(st, "farDim", 0, 1, 0.01).name("far side brightness");
+  body.add(st, "shell", 0, 0.12, 0.005).name("occluding shell (m)");
+  body.add(st, "selfOcclude").name("hide the far side");
   body.addColor(st, "rimColor").name("rim colour");
   body.add(st, "rim", 0, 1, 0.01);
   body.add(st, "showMesh").name("show source mesh");
@@ -75,6 +80,7 @@ export function createTuningPanel(onRebuild?: (r: Rebuild) => void): () => void 
   rebuildable(skeleton.add(st, "skelCount", 1000, 20000, 500).name("grains"));
   skeleton.add(st, "skelSize", 2, 14, 0.5).name("grain size (mm)");
   skeleton.add(st, "skelGlow", 0.5, 3, 0.05).name("glow");
+  skeleton.addColor(st, "skelColor").name("colour");
   skeleton.add(st, "revealFrom", 0.5, 10, 0.1).name("shows once flesh moved (cm)");
   skeleton.add(st, "revealTo", 1, 25, 0.5).name("fully shown at (cm)");
   skeleton.add(st, "skelAlways").name("show it all (tuning)");

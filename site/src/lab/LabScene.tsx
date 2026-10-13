@@ -6,10 +6,11 @@
  * the pose and the camera, the body (−1) skins itself to that pose, and the
  * effect composer (+1) renders.
  */
-import { Suspense, useMemo, useRef, type Ref } from "react";
+import { Suspense, useEffect, useMemo, useRef, type Ref } from "react";
 import { useFrame } from "@react-three/fiber";
-import { Bloom, ChromaticAberration, EffectComposer, Noise, Vignette } from "@react-three/postprocessing";
-import { BlendFunction, type ChromaticAberrationEffect } from "postprocessing";
+import { Bloom, ChromaticAberration, EffectComposer, Vignette } from "@react-three/postprocessing";
+import type { ChromaticAberrationEffect } from "postprocessing";
+import { LookEffect } from "@/stage/LookEffect";
 import { HalfFloatType, Vector2, Vector3 } from "three";
 
 import { EXERCISES, type ExerciseId } from "@/lib/exercises";
@@ -118,8 +119,12 @@ export function LabScene({
   grain: number;
 }) {
   const ca = useFaultFlicker();
+  const look = useMemo(() => new LookEffect(), []);
+  useEffect(() => () => look.dispose(), [look]);
+  look.grain = grain;
   return (
     <>
+      <color attach="background" args={["#000000"]} />
       <Driver />
       <Environment />
       <Bar y={BAR_Y} half={BAR_HALF} reachX={GHOST_X[0] - BAR_HALF} />
@@ -134,8 +139,8 @@ export function LabScene({
           radialModulation={false}
           modulationOffset={0}
         />
-        <Noise premultiply blendFunction={BlendFunction.SCREEN} opacity={grain} />
-        <Vignette offset={0.3} darkness={0.32} />
+        <primitive object={look} dispose={null} />
+        <Vignette offset={0.3} darkness={0.25} />
       </EffectComposer>
     </>
   );

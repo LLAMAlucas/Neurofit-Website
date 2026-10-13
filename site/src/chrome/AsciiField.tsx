@@ -97,12 +97,18 @@ function sizeOf(img: Img): [number, number] {
 
 /**
  * An AsciiSource that samples a video / canvas / image: cropped to `crop` (fractions of the
- * picture) if given, then cover-fitted to the field's shape, optionally mirrored (a selfie camera).
- * Sampling happens at 2 px per cell into a small canvas made once.
+ * picture) if given, then fitted to the field's shape — "cover" fills it (a camera feed),
+ * "contain" shows all of the crop on black (a whole body in a wide panel) — optionally mirrored
+ * (a selfie camera). Sampling happens at 2 px per cell into a small canvas made once.
  */
 export function canvasSource(
   get: () => Img | null,
-  opts: { mirror?: boolean; crop?: () => { x: number; y: number; w: number; h: number } | null; gain?: number } = {},
+  opts: {
+    mirror?: boolean;
+    crop?: () => { x: number; y: number; w: number; h: number } | null;
+    gain?: number;
+    fit?: "cover" | "contain";
+  } = {},
 ): AsciiSource {
   let canvas: HTMLCanvasElement | null = null;
   let ctx: CanvasRenderingContext2D | null = null;
@@ -128,9 +134,22 @@ export function canvasSource(
     let sy = c.y * ih;
     let sw = c.w * iw;
     let sh = c.h * ih;
-    // Cover: the field is (cols·cellAspect) : rows in picture terms.
+    // The field is (cols·cellAspect) : rows in picture terms.
     const want = (cols * cellAspect) / rows;
-    if (sw / sh > want) {
+    let dx = 0;
+    let dy = 0;
+    let dw = w;
+    let dh = h;
+    if (opts.fit === "contain") {
+      // All of the crop, centred, black around it.
+      if (sw / sh > want) {
+        dh = (h * want * sh) / sw;
+        dy = (h - dh) / 2;
+      } else {
+        dw = (w * sw) / (sh * want);
+        dx = (w - dw) / 2;
+      }
+    } else if (sw / sh > want) {
       const nw = sh * want;
       sx += (sw - nw) / 2;
       sw = nw;
@@ -140,13 +159,14 @@ export function canvasSource(
       sh = nh;
     }
     ctx.save();
-    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, w, h);
     if (opts.mirror) {
       ctx.translate(w, 0);
       ctx.scale(-1, 1);
     }
     try {
-      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, w, h);
+      ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh);
     } catch {
       ctx.restore();
       return null;

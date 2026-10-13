@@ -151,7 +151,7 @@ export function Landmarks() {
           uScale: { value: 1 },
           uOpacity: { value: 1 },
           uFill: { value: new Color("#ffffff") },
-          uRing: { value: new Color("#15191e") },
+          uRing: { value: new Color("#000000") },
         },
         vertexShader: /* glsl */ `
           attribute float aMark;

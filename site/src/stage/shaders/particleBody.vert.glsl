@@ -5,6 +5,13 @@
 // gives the offset from that home and how hot the particle is. At rest the
 // offset is zero and the particle sits exactly on the skin; a swipe throws it
 // off, and it glows while it is out.
+//
+// Drawn twice on black (2026-10): first as PREPASS, depth only — the skin a few
+// centimetres deeper than it really is — then for colour, additively, tested
+// against that depth. So only the near side of the body adds up to light (the
+// far side and the fill stay hidden behind it, the way a solid would), the
+// depth-of-field pass still finds the body, and the skeleton under the skin
+// stays hidden until the flesh over it is thrown.
 
 uniform highp sampler2D uHome;    // xyz home, w seed
 uniform highp sampler2D uNormal;  // xyz normal, w depth (0 skin → 1 bone axis)
@@ -15,6 +22,11 @@ uniform float uSize;        // particle diameter, metres
 // their homes — a still copy of the pose, with no swipe holes in it.
 uniform float uOffsetScale;
 uniform float uViewportH;   // drawing-buffer height, px
+// Near = bright, far = dim: view depths (m) where that fade starts and ends.
+uniform float uNear;
+uniform float uFar;
+// PREPASS: how much deeper than the skin its depth is written, metres.
+uniform float uShell;
 
 // Fault capsules: segment a→b, falloff radius, how red (0…1).
 uniform vec3 uFaultA[4];
@@ -41,6 +53,7 @@ varying float vDepth;       // view depth, for fog
 varying float vInner;       // depth into the body, passed on
 varying float vHeat;        // 0 at rest → 1 just thrown
 varying float vY;           // height, for the hologram's bands
+varying float vNear;        // 1 at the near side of the body → 0 at the far side
 
 float segmentDistance(vec3 p, vec3 a, vec3 b) {
   vec3 ab = b - a;
@@ -74,14 +87,16 @@ void main() {
   vec3 p = home + o.xyz * uOffsetScale;
 
   vec4 mv = modelViewMatrix * vec4(p, 1.0);
+#ifdef PREPASS
+  mv.z -= uShell;
+#endif
   gl_Position = projectionMatrix * mv;
 
   vec3 vn = normalize(normalMatrix * n);
   vec3 vd = normalize(-mv.xyz);
-  // A high power keeps the rim on true silhouette edges: at 2.2 it lit half the
-  // front-facing points and the body read as salt-and-pepper static. A thrown
-  // particle is off the silhouette, so it loses its rim.
-  vRim = pow(1.0 - abs(dot(vn, vd)), 4.0) * (1.0 - inner) * (1.0 - heat);
+  // A high power keeps the rim on true silhouette edges. A thrown particle is
+  // off the silhouette, so it loses its rim.
+  vRim = pow(1.0 - abs(dot(vn, vd)), 3.0) * (1.0 - inner) * (1.0 - heat);
   // Key light from above, in WORLD space so the shading stays put as the camera
   // orbits — lit shoulders and thighs, shadowed undersides.
   vec3 wn = normalize(mat3(modelMatrix) * n);
@@ -102,15 +117,22 @@ void main() {
   vInner = inner;
   vHeat = heat;
   vY = p.y;
+  vNear = 1.0 - smoothstep(uNear, uFar, -mv.z);
 
-  // Inner points are smaller, so the fill reads as depth behind the skin
-  // rather than as a second skin.
-  float size = uSize * (0.7 + seed * 0.6) * (1.0 - 0.35 * inner) * (1.0 + red * 0.45);
+  // Even grains: a little size variation reads as depth, a lot reads as static.
+  float size = uSize * (0.92 + seed * 0.16) * (1.0 - 0.2 * inner) * (1.0 + red * 0.45);
+  // The fill only shows while it's moving — thrown, forming, blown apart. At rest
+  // it stays inside, as the skin's neighbours for the skeleton's reveal test.
+  float hot = smoothstep(0.02, 0.15, heat);
+  size *= mix(1.0, hot, step(0.02, inner));
+#ifdef PREPASS
+  // Only the resting skin occludes: a thrown grain is not a surface.
+  size *= 0.7 * (1.0 - step(0.02, inner)) * (1.0 - smoothstep(0.02, 0.2, heat));
+#endif
   float px = size * projectionMatrix[1][1] * uViewportH * 0.5 / max(-mv.z, 0.05);
   // Capped, and shrunk away right at the lens. A grain drifting past the camera
   // was drawn tens of pixels wide, and a forming cloud or a hard throw puts
   // thousands there at once: enough overdraw to drop the frame rate to single
-  // figures, which slows the physics with it. A body particle at the camera's
-  // usual distance is ~14 px, far under the cap.
+  // figures, which slows the physics with it.
   gl_PointSize = min(px, uViewportH * 0.03) * smoothstep(0.35, 1.0, -mv.z);
 }

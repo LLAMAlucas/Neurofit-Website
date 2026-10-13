@@ -175,7 +175,7 @@ export function Phone() {
   const lensPts = useRef<Points>(null);
   const coneMesh = useRef<Mesh>(null);
   const grains = useMemo(phoneGrains, []);
-  const grainMat = useMemo(() => grainMaterial("#3b4c63", 1), []);
+  const grainMat = useMemo(() => grainMaterial("#7f8b99", 1), []);
   const lensMat = useMemo(() => grainMaterial("#e6f2fb", 1.6), []);
   const lens = useMemo(() => {
     const rand = mulberry32(3);
@@ -326,9 +326,9 @@ export function Bar({ y, half, reachX }: { y: number; half: number; reachX: numb
       hangExt: rodGrains(at(reachX + 0.04, y), at(reachX + 0.04, y + HANGER), BAR_R * 0.6, 2200, 59),
     };
   }, [y, half, reachX]);
-  const mainMat = useMemo(() => grainMaterial("#3b4c63", 1), []);
-  const extMat = useMemo(() => grainMaterial("#3b4c63", 1), []);
-  const innerMat = useMemo(() => grainMaterial("#3b4c63", 1), []);
+  const mainMat = useMemo(() => grainMaterial("#7f8b99", 1), []);
+  const extMat = useMemo(() => grainMaterial("#7f8b99", 1), []);
+  const innerMat = useMemo(() => grainMaterial("#7f8b99", 1), []);
   useEffect(
     () => () => {
       for (const g of Object.values(geometry)) g.dispose();
@@ -386,7 +386,7 @@ export function Pedestal() {
     g.setAttribute("aSeed", new BufferAttribute(seed, 1));
     return g;
   }, []);
-  const material = useMemo(() => grainMaterial("#dce9f5", 1.15), []);
+  const material = useMemo(() => grainMaterial("#6b7684", 1), []);
   useEffect(
     () => () => {
       geometry.dispose();
@@ -427,8 +427,8 @@ export function Iris() {
         uniforms: {
           uClose: { value: 0 },
           uAspect: { value: 1 },
-          uColor: { value: new Color("#edf2f7") },
-          uEdge: { value: new Color("#15191e") },
+          uColor: { value: new Color("#0c0c0c") },
+          uEdge: { value: new Color("#4a4f57") },
         },
         vertexShader: /* glsl */ `
           varying vec2 vUv;

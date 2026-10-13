@@ -16,6 +16,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useFrame, useLoader, useThree } from "@react-three/fiber";
 import {
+  AdditiveBlending,
   BufferAttribute,
   BufferGeometry,
   Color,
@@ -36,7 +37,8 @@ import { FEET_ANCHOR, PULLUP_ANCHOR, PUSHUP_ANCHOR, Retargeter, type Anchor } fr
 import { sampleSkinned } from "@/lib/sampleSkinned";
 import { sampleSkeleton } from "@/lib/sampleSkeleton";
 import { nearestK } from "@/lib/nearest";
-import { grainScale } from "@/lib/quality";
+import { TIERS, grainScale } from "@/lib/quality";
+import { densityForBone } from "@/lib/bodyDensity";
 import type { ExerciseId } from "@/lib/exercises";
 import { J } from "@/lib/pose";
 import { ParticleSim, type Cursor } from "./particleSim";
@@ -46,6 +48,7 @@ import { PHONE_LENS } from "./Props";
 import { store } from "./store";
 import vertexShader from "./shaders/particleBody.vert.glsl?raw";
 import fragmentShader from "./shaders/particleBody.frag.glsl?raw";
+import prepassFragment from "./shaders/particlePrepass.frag.glsl?raw";
 import skeletonVertex from "./shaders/skeleton.vert.glsl?raw";
 import skeletonFragment from "./shaders/skeleton.frag.glsl?raw";
 
@@ -262,10 +265,23 @@ export function ParticleBody({
       skinIndex.set([si.getX(i), si.getY(i), si.getZ(i), si.getW(i)], i * 4);
       skinWeight.set([sw.getX(i), sw.getY(i), sw.getZ(i), sw.getW(i)], i * 4);
     }
-    const s = sampleSkinned({ positions, normals, indices: index.array, skinIndex, skinWeight }, count, 1, {
-      axes: rig.axes,
-      interior,
-    });
+    // Evenly spaced skin, denser on the face and hands, with each quality tier's prefix already
+    // even (lib/quality TIERS — change the two together).
+    const boneDensity = rig.skeleton.bones.map((b) => densityForBone(b.name));
+    const vertexDensity = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      let best = 0;
+      for (let c = 1; c < 4; c++) if (skinWeight[i * 4 + c] > skinWeight[i * 4 + best]) best = c;
+      vertexDensity[i] = boneDensity[skinIndex[i * 4 + best]] ?? 1;
+    }
+    const skin = 1 - interior;
+    const s = sampleSkinned(
+      { positions, normals, indices: index.array, skinIndex, skinWeight },
+      count,
+      1,
+      { axes: rig.axes, interior },
+      { levels: [TIERS.phone.particles * skin, TIERS.mid.particles * skin], vertexDensity },
+    );
     const sim = new ParticleSim(gl, s, {
       boneTexture: rig.skeleton.boneTexture!,
       bindMatrix: rig.mesh.bindMatrix,
@@ -354,8 +370,10 @@ export function ParticleBody({
       new ShaderMaterial({
         vertexShader,
         fragmentShader,
+        // Light on black: the grains add up; the prepass (below) decides what's hidden.
         transparent: true,
-        depthWrite: true,
+        depthWrite: false,
+        blending: AdditiveBlending,
         uniforms: {
           uHome: { value: null },
           uNormal: { value: null },
@@ -373,6 +391,11 @@ export function ParticleBody({
           uGlow: { value: 1 },
           uHotColor: { value: new Color() },
           uOpacity: { value: 0.9 },
+          uIntensity: { value: 0.55 },
+          uFarDim: { value: 0.3 },
+          uNear: { value: 3.5 },
+          uFar: { value: 4.4 },
+          uShell: { value: 0.03 },
           uFogColor: { value: new Color() },
           uFogDensity: { value: 0.07 },
           uOffsetScale: { value: 1 },
@@ -387,6 +410,23 @@ export function ParticleBody({
     [],
   );
 
+  // The depth prepass: the same particles, depth only, the skin written a few centimetres deep
+  // (particleBody.vert PREPASS). Drawn first (renderOrder −1), so the additive body adds only its
+  // near side, the depth-of-field pass finds the body, and the skeleton stays under the skin.
+  const prepassMaterial = useMemo(
+    () =>
+      new ShaderMaterial({
+        vertexShader,
+        fragmentShader: prepassFragment,
+        defines: { PREPASS: "" },
+        uniforms: material.uniforms,
+        colorWrite: false,
+        depthWrite: true,
+      }),
+    [material],
+  );
+  useEffect(() => () => prepassMaterial.dispose(), [prepassMaterial]);
+
   // A ghost is the body's material with its particles pinned home and faded:
   // the same uniform objects otherwise, so it poses and lights red with it.
   const ghostMaterial = useMemo(() => {
@@ -399,9 +439,9 @@ export function ParticleBody({
   const ghostRefs = useRef<(Group | null)[]>([]);
   useEffect(() => () => material.dispose(), [material]);
 
-  // The skeleton shares the body's fault capsules and colours — the same
-  // uniform objects, so it lights red wherever the body does without being
-  // told twice.
+  // The skeleton shares the body's fault capsules and red — the same uniform
+  // objects, so it lights red wherever the body does without being told twice.
+  // Its own colour: a thrown grain runs blue, the bones under it stay white.
   const skeletonMaterial = useMemo(
     () =>
       new ShaderMaterial({
@@ -423,7 +463,7 @@ export function ParticleBody({
           uFaultB: material.uniforms.uFaultB,
           uFaultR: material.uniforms.uFaultR,
           uFaultAmt: material.uniforms.uFaultAmt,
-          uColor: material.uniforms.uHotColor,
+          uColor: { value: new Color("#f2f6fa") },
           uGlow: { value: 1.35 },
           uRed: material.uniforms.uRed,
           uRedGlow: material.uniforms.uGlow,
@@ -589,6 +629,16 @@ export function ParticleBody({
     // Shown whole for tuning, it has to draw over the body to be seen at all.
     skeletonMaterial.depthTest = !st.skelAlways;
     (u.uHotColor.value as Color).set(st.hotColor);
+    (k.uColor.value as Color).set(st.skelColor);
+    // Near = bright, far = dim, measured across the body from wherever the camera is.
+    scratch.c.set(centre.current[0], centre.current[1], centre.current[2]).applyMatrix4(g.matrixWorld);
+    const toBody = scratch.c.distanceTo(state.camera.position);
+    u.uNear.value = toBody - st.nearFar;
+    u.uFar.value = toBody + st.nearFar;
+    u.uFarDim.value = st.farDim;
+    u.uIntensity.value = st.intensity;
+    u.uShell.value = st.shell;
+    prepassMaterial.visible = st.selfOcclude;
 
     u.uViewportH.value = state.gl.getDrawingBufferSize(scratch.buf).y;
     const drawn = s.drawCount > 0 ? Math.min(s.drawCount, count) : count;
@@ -625,6 +675,7 @@ export function ParticleBody({
   return (
     <group ref={group}>
       <primitive object={gltf.scene} />
+      <points geometry={body.geometry} material={prepassMaterial} frustumCulled={false} renderOrder={-1} />
       <points geometry={body.geometry} material={material} frustumCulled={false} />
       {GHOST_X.map((x, i) => (
         <group key={x} position={[x, 0, 0]} ref={(el) => (ghostRefs.current[i] = el)} visible={false}>

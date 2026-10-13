@@ -345,7 +345,7 @@ export function Barbell() {
   );
   const mat = useMemo(
     () => ({
-      bar: gatherMaterial("#3b4c63"),
+      bar: gatherMaterial("#7f8b99"),
       trail: trailMaterial(),
       ring: dotMaterial(RING_PX),
       midfoot: dotMaterial(LINE_PX),

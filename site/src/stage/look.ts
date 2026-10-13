@@ -62,9 +62,23 @@ export type Settings = {
   revealTo: number;
   /** Skeleton: show all of it, always (tuning only). */
   skelAlways: boolean;
+  /** Skeleton: its colour (the bones stay white while the thrown flesh runs blue). */
+  skelColor: string;
   /** Particle diameter in millimetres, before per-particle variation. */
   size: number;
+  /** The points' colour at rest (the name is from the fog look, when they were dark). */
   graphite: string;
+  /** How much light one grain adds — the body is drawn additively on black. */
+  intensity: number;
+  /** Near = bright, far = dim: half the depth (m) over which the body fades front to back. */
+  nearFar: number;
+  /** The far side's brightness, × the near side's. */
+  farDim: number;
+  /** The depth prepass: how far behind the skin it writes, metres — too thin and the far side
+   *  shows through, too thick and the body reads solid. */
+  shell: number;
+  /** The depth prepass on/off — off for an A/B of the see-through body. */
+  selfOcclude: boolean;
   rimColor: string;
   /** How strongly silhouette edges catch the light, 0…1. */
   rim: number;
@@ -94,13 +108,18 @@ export type Settings = {
 // the glass and the floor, stays white-hot a few seconds, then flows home.
 // Untouched, the body still churns, as igloo's does where the cursor never
 // went; the first idle motion, a 4 mm wobble, read as frozen.
+//
+// On black (2026-10, the dragonfly.xyz theme) the user picked "cleaner glowing dots": the
+// skin is evenly spaced (sampleSkinned EvenOptions) and drawn as light that adds up, the far
+// side hidden by a depth prepass; the fill only shows while thrown; the fizz is gone and the
+// idle current is a gentle breath (5 mm) instead of 20 mm — on black every stray grain shows.
 export const DEFAULTS: Settings = {
   body: "male",
   count: 71000,
-  interior: 0.55,
-  flow: 20,
-  churn: 2,
-  fizz: 65,
+  interior: 0.3,
+  flow: 5,
+  churn: 0.8,
+  fizz: 0,
   force: 0.5,
   spray: 0.25,
   brush: 0.13,
@@ -111,7 +130,7 @@ export const DEFAULTS: Settings = {
   pull: 3.7,
   walls: true,
   room: 0.9,
-  hotColor: "#e6f2fb",
+  hotColor: "#8fb4e0",
   formNear: 1.2,
   formFar: 3.2,
   formHeat: 0.35,
@@ -124,19 +143,25 @@ export const DEFAULTS: Settings = {
   revealFrom: 3,
   revealTo: 10,
   skelAlways: false,
-  size: 10.5,
-  graphite: "#4e637e",
-  rimColor: "#f2f4f6",
-  rim: 0.7,
+  skelColor: "#f2f6fa",
+  size: 9,
+  graphite: "#cfd8e3",
+  intensity: 0.55,
+  nearFar: 0.45,
+  farDim: 0.3,
+  shell: 0.03,
+  selfOcclude: true,
+  rimColor: "#ffffff",
+  rim: 0.8,
   red: "#ff2b2b",
-  glow: 2.7,
+  glow: 3,
   radius: 0.17,
   severity: 1,
-  opacity: 0.95,
-  fogColor: "#abc0d8",
-  fog: 0.07,
-  bloom: 0.9,
-  grain: 0.06,
+  opacity: 1,
+  fogColor: "#000000",
+  fog: 0.08,
+  bloom: 0.55,
+  grain: 0.035,
   speed: 1,
   showMesh: false,
 };

@@ -7,10 +7,10 @@
  * priority: the driver (−2) decides the pose and the camera, the body (−1) skins
  * itself to that pose, and the effect composer (+1) renders.
  */
-import { Suspense, useEffect, useMemo, useRef, type MutableRefObject, type Ref } from "react";
+import { Suspense, useEffect, useMemo, useRef, type MutableRefObject } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
-import { Bloom, BrightnessContrast, DepthOfField, EffectComposer, Noise, Vignette } from "@react-three/postprocessing";
-import { BlendFunction, type BrightnessContrastEffect, type DepthOfFieldEffect } from "postprocessing";
+import { Bloom, DepthOfField, EffectComposer, Vignette } from "@react-three/postprocessing";
+import type { DepthOfFieldEffect } from "postprocessing";
 import { HalfFloatType, Vector3, type PerspectiveCamera } from "three";
 
 import { EXERCISES, restPose, type ExerciseId, type ExerciseSpec } from "@/lib/exercises";
@@ -26,6 +26,7 @@ import { GHOST_X, ParticleBody } from "./ParticleBody";
 import { Bar, Iris, Pedestal, Phone } from "./Props";
 import { store } from "./store";
 import { AsciiTap } from "./AsciiTap";
+import { LookEffect } from "./LookEffect";
 import maleUrl from "./models/body-male.glb?url";
 
 const FRAME = stopIndex("frame");
@@ -271,8 +272,9 @@ function Driver({ dof }: { dof: MutableRefObject<DepthOfFieldEffect | null> }) {
 }
 
 /** Exposure: a brief lift while the camera moves between stops, and a flash as
- *  a fault first lights up — optical, where igloo used a glitch. */
-function useExposure(ref: MutableRefObject<BrightnessContrastEffect | null>) {
+ *  a fault first lights up — optical, where igloo used a glitch. A gain, not an
+ *  added brightness, so on black the light flares and the black stays black. */
+function useExposure(look: LookEffect) {
   const sample = useMemo(newSample, []);
   const flash = useRef(0);
   const seen = useRef(0);
@@ -283,7 +285,8 @@ function useExposure(ref: MutableRefObject<BrightnessContrastEffect | null>) {
       flash.current = 1;
     }
     flash.current = Math.max(0, flash.current - dt * 2.2);
-    if (ref.current) ref.current.brightness = 0.035 * sample.exposure + 0.05 * flash.current * flash.current;
+    look.gain = 1 + 0.35 * sample.exposure + 0.9 * flash.current * flash.current;
+    look.grain = store.settings.grain;
   });
 }
 
@@ -306,17 +309,18 @@ function FrameWatch({ onSlow }: { onSlow: () => void }) {
 }
 
 export default function StageScene({ tier, onSlow }: { tier: Tier; onSlow: () => void }) {
-  const exposure = useRef<BrightnessContrastEffect | null>(null);
+  const look = useMemo(() => new LookEffect(), []);
+  useEffect(() => () => look.dispose(), [look]);
   const dof = useRef<DepthOfFieldEffect | null>(null);
   const focus = useMemo(() => new Vector3(0, 0.92, 0), []);
-  useExposure(exposure);
+  useExposure(look);
   useEffect(() => {
     store.drawCount = tier.particles;
   }, [tier]);
   const st = store.settings;
-  const exposureRef = exposure as unknown as Ref<typeof BrightnessContrastEffect>;
   return (
     <>
+      <color attach="background" args={["#000000"]} />
       <Driver dof={dof} />
       <FrameWatch onSlow={onSlow} />
       <Environment />
@@ -335,16 +339,14 @@ export default function StageScene({ tier, onSlow }: { tier: Tier; onSlow: () =>
         <EffectComposer multisampling={0} frameBufferType={HalfFloatType}>
           <DepthOfField ref={dof} target={focus} worldFocusRange={2.5} bokehScale={1.6} />
           <Bloom mipmapBlur luminanceThreshold={1} luminanceSmoothing={0.15} intensity={st.bloom} />
-          <BrightnessContrast ref={exposureRef} brightness={0} contrast={0} />
-          <Noise premultiply blendFunction={BlendFunction.SCREEN} opacity={st.grain} />
-          <Vignette offset={0.3} darkness={0.32} />
+          <primitive object={look} dispose={null} />
+          <Vignette offset={0.3} darkness={0.25} />
         </EffectComposer>
       ) : (
         <EffectComposer multisampling={0} frameBufferType={HalfFloatType}>
           <Bloom mipmapBlur luminanceThreshold={1} luminanceSmoothing={0.15} intensity={st.bloom} />
-          <BrightnessContrast ref={exposureRef} brightness={0} contrast={0} />
-          <Noise premultiply blendFunction={BlendFunction.SCREEN} opacity={st.grain} />
-          <Vignette offset={0.3} darkness={0.32} />
+          <primitive object={look} dispose={null} />
+          <Vignette offset={0.3} darkness={0.25} />
         </EffectComposer>
       )}
     </>
