@@ -27,7 +27,11 @@ const OPEN_MS = 420;
 export function registerScroll(l: Lenis, vh: () => number): () => void {
   lenis = l;
   screen = vh;
-  if (import.meta.env.DEV) (window as unknown as { __siteGo?: (id: string) => void }).__siteGo = (id) => scrollToStop(STOPS.findIndex((s) => s.id === id));
+  if (import.meta.env.DEV) {
+    const w = window as unknown as { __siteGo?: (id: string) => void; __siteStore?: typeof store };
+    w.__siteGo = (id) => scrollToStop(STOPS.findIndex((s) => s.id === id));
+    w.__siteStore = store; // the app's own instance — a re-import from the console can be a copy
+  }
   return () => {
     if (lenis === l) lenis = null;
   };

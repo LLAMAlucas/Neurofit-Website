@@ -119,13 +119,18 @@ export function Hud({ live }: { live: boolean }) {
       });
     }
     let img: HTMLImageElement | null = null;
-    return canvasSource(() => {
-      if (!img) {
-        img = new Image();
-        img.src = "/body-still.webp";
-      }
-      return img.complete ? img : null;
-    });
+    return canvasSource(
+      () => {
+        if (!img) {
+          img = new Image();
+          img.src = "/body-still.webp";
+        }
+        return img.complete ? img : null;
+      },
+      // The whole figure (it stands in the middle 40% of the picture, head to feet), not
+      // a band through the torso that "cover" would cut from a portrait picture.
+      { gain: 1.3, fit: "contain", crop: () => ({ x: 0.18, y: 0.03, w: 0.64, h: 0.95 }) },
+    );
   }, [live]);
 
   const rows: MenuRow[] = STOPS.map((s) => ({ id: s.id, title: s.label }));

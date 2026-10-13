@@ -1341,6 +1341,9 @@ code {
 }
 .nf--live .nf-hud--top {
   top: 0;
+  /* One above the bottom band: the open menu and its scrim (inside this band) must cover the
+     set badge and End set, which come later in the page and would otherwise paint over them. */
+  z-index: 11;
   padding-top: max(var(--hud-gut), env(safe-area-inset-top));
 }
 .nf--live .nf-hud--bottom {

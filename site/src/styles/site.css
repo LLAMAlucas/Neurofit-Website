@@ -249,6 +249,13 @@ a {
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
+/* A full-screen blur over the live canvas is the costliest thing a phone could be asked for;
+   there the menu's scrim is a plain dark wash. */
+.tier-phone .topbar__scrim {
+  background: rgba(0, 0, 0, 0.9);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
 .boot {
   position: absolute;
   inset: 0;

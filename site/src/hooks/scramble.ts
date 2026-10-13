@@ -7,8 +7,8 @@
  * scrambled (they rack focus instead), and nothing is scrambled for a screen
  * reader — the element's final text is what gets announced.
  */
-// ASCII only: the block glyphs igloo uses aren't in DM Mono, and fell back to
-// empty boxes mid-decode.
+// ASCII only: the block glyphs igloo uses aren't in the page's monospace font, and
+// fell back to empty boxes mid-decode.
 const GLYPHS = "/\\_-=+<>:#*01";
 const SCRAMBLE_MS = 420;
 

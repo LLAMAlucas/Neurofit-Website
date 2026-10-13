@@ -95,7 +95,8 @@ export function Menu({
       }
     };
     const onDown = (e: PointerEvent) => {
-      if (!bar.contains(e.target as Node)) shut(false);
+      const t = e.target as Element;
+      if (!bar.contains(t) || t.classList?.contains("topbar__scrim")) shut(false);
     };
     window.addEventListener("keydown", onKey, true);
     document.addEventListener("pointerdown", onDown, true);

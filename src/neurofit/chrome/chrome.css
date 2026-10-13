@@ -209,6 +209,15 @@
   height: var(--bar-h);
   color: var(--fg);
 }
+.topbar__scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  background: rgba(0, 0, 0, 0.62);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  animation: sheet-fade 0.24s var(--ease-out) both;
+}
 .topbar__plate {
   position: relative;
   z-index: 2;
@@ -581,6 +590,12 @@
     min-height: 58px;
     padding: 8px 9px;
   }
+  /* A phone's panel is ~20 lines at 9 px — too few for a whole body; finer characters
+     give it ~30. It's a picture, not text, so the small size costs nothing. */
+  .menu__ascii .ascii {
+    font-size: 6px;
+    line-height: 6.5px;
+  }
 }
 
 /* ── sheets: a dark panel over a scrim (FAQ, privacy) ──────────────────── */
@@ -675,6 +690,7 @@
   }
   .menu,
   .sheet-scrim,
+  .topbar__scrim,
   .menu__row::after {
     animation: none;
   }
@@ -682,6 +698,11 @@
 @media (prefers-reduced-transparency: reduce) {
   .topbar__plate {
     background: var(--panel-solid);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  .topbar__scrim {
+    background: rgba(0, 0, 0, 0.86);
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }

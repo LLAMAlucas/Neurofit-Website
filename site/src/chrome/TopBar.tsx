@@ -45,6 +45,9 @@ export function TopBar({
 }) {
   return (
     <div className={"topbar" + (className ? " " + className : "")} data-open={menuOpen ? "true" : undefined}>
+      {/* Dims and blurs what's behind an open menu, so the gaps between its rows read as dark
+          rather than as the page's words. A tap on it closes the menu (Menu's outside click). */}
+      {menuOpen && <div className="topbar__scrim" aria-hidden="true" />}
       <div className="topbar__plate">
         {home.href !== undefined ? (
           <a className="topbar__home" href={home.href} onClick={home.onClick} aria-label={home.label}>
