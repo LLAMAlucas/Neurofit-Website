@@ -33,8 +33,6 @@ const FLOW = stopIndex("flow");
 const TRY_URL = "https://try.neurofit-training.com";
 /** The app opens straight on its Analyze page from this link (App.tsx reads the hash). */
 const ANALYZE_URL = `${TRY_URL}/#analyze`;
-/** The hint to touch the body shows once it has formed. */
-const HINT_AFTER_S = 2.6;
 
 function Stop({ id, children, labelledBy }: { id: StopId; children: ReactNode; labelledBy: string }) {
   const stop = STOPS[stopIndex(id)];
@@ -58,7 +56,6 @@ export function Journey({ live }: { live: boolean }) {
     const el = root.current;
     if (!live || !el) return;
     const q = <T extends HTMLElement = HTMLElement>(sel: string) => el.querySelector<T>(sel);
-    const hint = q(".hint");
     // The phone's own readout, over the phone: in the setup stop, and in the
     // flow, where it says what the phone is doing at each step; and over the
     // bar in the barbell stop, where it says what the app reads off the bar.
@@ -80,12 +77,9 @@ export function Journey({ live }: { live: boolean }) {
     let barDone = -1;
     const streamDots = all(".flow__stream i");
     let streamShown = -1;
-    let readyAt = 0;
 
     const off = onTick((now) => {
       const s = store;
-      if (s.ready && !readyAt) readyAt = now;
-      hint?.classList.toggle("is-on", readyAt > 0 && now - readyAt > HINT_AFTER_S * 1000);
 
       // The phone's readout. In the setup it faces the body head-on, and the
       // app settles its view while the lifter stands still; in the flow it
@@ -163,10 +157,6 @@ export function Journey({ live }: { live: boolean }) {
           </h1>
           <p className="lede" data-reveal="">
             <Words text="Neuro-Fit watches your squats, push-ups and pull-ups through your phone camera — and the bar, when you squat loaded — and tells you what your form actually did. Prop the phone up, do your set, and get a plain read on it — after the set, and again at the end of the workout." />
-          </p>
-          <p className="hint" aria-hidden="true" data-live-only>
-            <span className="hint__mouse">Drag across the body</span>
-            <span className="hint__touch">Swipe across the body</span>
           </p>
         </div>
         {!live && (
